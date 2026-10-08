@@ -47,3 +47,9 @@ local.properties
 agent/
 .claude/
 skills-lock.json
+
+# Docs and plans live on disk only — repo holds code
+AGENTS.md
+PRODUCT.md
+README.md
+docs/
