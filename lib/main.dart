@@ -108,17 +108,31 @@ class _GlassTrialState extends State<GlassTrial> {
             ),
           ),
           // The glass pill. Real refractive lens, traveling morph selection.
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 40,
-            child: LiquidGlassTabBar.withImpeller(
-              items: [
-                for (var i = 0; i < _labels.length; i++)
-                  LiquidGlassTabBarItem(icon: _icons[i], label: _labels[i]),
-              ],
-              selectedIndex: _index,
-              onChanged: (i) => setState(() => _index = i),
+          // withImpeller fills as the last Stack child and seats the bar
+          // itself — never wrap it in Positioned.
+          LiquidGlassTabBar.withImpeller(
+            items: [
+              for (var i = 0; i < _labels.length; i++)
+                LiquidGlassTabBarItem(icon: _icons[i], label: _labels[i]),
+            ],
+            selectedIndex: _index,
+            onChanged: (i) => setState(() => _index = i),
+            width: 340,
+            margin: const EdgeInsets.only(bottom: 40),
+            itemStyle: const LiquidGlassTabItemStyle(
+              selectedColor: archRed,
+              unselectedColor: Color(0xD9FFFFFF),
+              iconSize: 24,
+              underGlassIconSize: 30,
+              labelFontSize: 11,
+            ),
+            pillStyle: const LiquidGlassTabPillStyle(
+              animated: true,
+            ),
+            style: LiquidGlassTabBar.defaultStyle.copyWith(
+              appearance: const LiquidGlassAppearance(
+                color: Color(0x14FFFFFF),
+              ),
             ),
           ),
         ],
