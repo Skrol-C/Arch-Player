@@ -54,15 +54,18 @@ class ArtistEntry {
 /// Every field nullable: a page without art/bio/discography is still valid.
 class ArtistMeta {
   final String? mbid;
+  final int? dzId;
   final String? imageUrl;
   final String? bio;
   final List<ReleaseGroup> releases;
 
-  const ArtistMeta({this.mbid, this.imageUrl, this.bio, this.releases = const []});
+  const ArtistMeta({this.mbid, this.dzId, this.imageUrl, this.bio, this.releases = const []});
 
-  ArtistMeta copyWith({String? mbid, String? imageUrl, String? bio, List<ReleaseGroup>? releases}) {
+  ArtistMeta copyWith(
+      {String? mbid, int? dzId, String? imageUrl, String? bio, List<ReleaseGroup>? releases}) {
     return ArtistMeta(
       mbid: mbid ?? this.mbid,
+      dzId: dzId ?? this.dzId,
       imageUrl: imageUrl ?? this.imageUrl,
       bio: bio ?? this.bio,
       releases: releases ?? this.releases,
@@ -78,4 +81,24 @@ class ReleaseGroup {
   final int? year;
 
   const ReleaseGroup({required this.type, required this.title, this.artUrl, this.year});
+}
+
+/// A chart top-track from Deezer. [previewUrl] expires — fetched fresh per
+/// page open, never cached long-term. Everything else caches normally.
+class TopTrack {
+  final int rank;
+  final String title;
+  final String albumTitle;
+  final String? coverUrl;
+  final Duration duration;
+  final String? previewUrl;
+
+  const TopTrack({
+    required this.rank,
+    required this.title,
+    required this.albumTitle,
+    this.coverUrl,
+    required this.duration,
+    this.previewUrl,
+  });
 }

@@ -23,3 +23,8 @@ final artistReleasesProvider =
     FutureProvider.family<List<ReleaseGroup>, String>((ref, artistName) {
   return ref.watch(metadataServiceProvider).releasesFor(artistName);
 });
+
+/// Chart top tracks, fresh per page open (preview URLs expire).
+final artistTopProvider = FutureProvider.family<List<TopTrack>, String>((ref, artistName) {
+  return ref.watch(metadataServiceProvider).topTracks(artistName);
+});

@@ -48,7 +48,10 @@ class PlayerScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(18),
                   child: song == null
                       ? const Icon(Icons.music_note, color: inkTextDim, size: 96)
-                      : AlbumArt(albumId: song.albumId, fill: true, radius: 0),
+                      : Hero(
+                          tag: 'art-${song.title}',
+                          child: AlbumArt(albumId: song.albumId, fill: true, radius: 0),
+                        ),
                 ),
               ),
               const SizedBox(height: 20),

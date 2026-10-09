@@ -181,7 +181,13 @@ class MetadataService {
   }
 
   Future<String?> _dzArtistImage(String name, String? mbid) async {
-    // Deezer search, guarded: require a close name match.
+    final found = await _dzArtist(name);
+    return found?.imageUrl;
+  }
+
+  /// Deezer artist search, guarded: require a close name match.
+  /// Returns id + portrait together so top-tracks needs no second search.
+  Future<({int id, String? imageUrl})?> _dzArtist(String name) async {
     final uri = Uri.parse('$_dzBase/search/artist?q=${Uri.encodeQueryComponent(name)}&limit=5');
     final res = await http.get(uri);
     if (res.statusCode != 200) return null;
@@ -198,7 +204,43 @@ class MetadataService {
     best ??= list.first as Map;
     if (!_closeEnough(name, (best['name'] as String?) ?? '')) return null;
     final pic = best['picture_xl'] as String?;
-    return (pic == null || pic.isEmpty) ? null : pic;
+    return (id: (best['id'] as num?)?.toInt() ?? 0, imageUrl: (pic == null || pic.isEmpty) ? null : pic);
+  }
+
+  /// Chart top tracks. Preview URLs expire — call fresh per page open.
+  Future<List<TopTrack>> topTracks(String artistName) async {
+    final stopwatch = Stopwatch()..start();
+    try {
+      var dzId = (await _readCache(artistName))?.dzId;
+      dzId ??= (await _dzArtist(artistName))?.id;
+      if (dzId == null || dzId == 0) return const [];
+      await _mergeCache(artistName, (m) => m.copyWith(dzId: dzId));
+      final uri = Uri.parse('$_dzBase/artist/$dzId/top?limit=10');
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      var rank = 0;
+      final out = <TopTrack>[];
+      for (final t in list) {
+        final m = t as Map;
+        final album = m['album'] as Map?;
+        rank++;
+        out.add(TopTrack(
+          rank: (m['rank'] as num?)?.toInt() ?? (1000000 - rank),
+          title: (m['title'] as String?) ?? 'Unknown title',
+          albumTitle: (album?['title'] as String?) ?? '',
+          coverUrl: (album?['cover_medium'] as String?) ?? (album?['cover'] as String?),
+          duration: Duration(seconds: (m['duration'] as num?)?.toInt() ?? 0),
+          previewUrl: m['preview'] as String?,
+        ));
+      }
+      out.sort((a, b) => b.rank.compareTo(a.rank));
+      debugPrint('META top tracks for $artistName (${out.length}) in ${stopwatch.elapsedMilliseconds}ms');
+      return out;
+    } catch (e) {
+      debugPrint('Deezer top tracks failed for $artistName: $e');
+      return const [];
+    }
   }
 
   static bool _closeEnough(String a, String b) {
@@ -250,6 +292,7 @@ class MetadataService {
       final m = jsonDecode(await file.readAsString()) as Map;
       return ArtistMeta(
         mbid: m['mbid'] as String?,
+        dzId: (m['dzId'] as num?)?.toInt(),
         imageUrl: m['imageUrl'] as String?,
         bio: m['bio'] as String?,
         releases: ((m['releases'] as List?) ?? []).map((e) {
@@ -272,6 +315,7 @@ class MetadataService {
       final file = File('${(await _cacheDir()).path}/${_keyOf(artistName)}.json');
       await file.writeAsString(jsonEncode({
         'mbid': meta.mbid,
+        'dzId': meta.dzId,
         'imageUrl': meta.imageUrl,
         'bio': meta.bio,
         'releases': [

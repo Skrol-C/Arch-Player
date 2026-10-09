@@ -17,12 +17,26 @@ final currentSongProvider = StreamProvider<Song?>((ref) {
   return handler.mediaItem.asyncMap((item) {
     if (item == null) return null;
     final id = item.extras?['songId'] as int?;
-    if (id == null) return null;
     final songs = ref.read(songsProvider).value ?? [];
-    for (final s in songs) {
-      if (s.id == id) return s;
+    if (id != null) {
+      for (final s in songs) {
+        if (s.id == id) return s;
+      }
     }
-    return null;
+    // Not from the library (e.g. a streaming preview): render from the
+    // media item itself so the player never shows "nothing playing".
+    return Song(
+      id: id ?? -1,
+      uri: Uri.tryParse(item.id) ?? Uri(),
+      title: item.title,
+      artist: item.artist ?? '',
+      album: item.album ?? '',
+      albumId: 0,
+      duration: item.duration ?? const Duration(seconds: 30),
+      year: 0,
+      folderKey: 'preview',
+      folderLabel: 'Preview',
+    );
   });
 });
 
