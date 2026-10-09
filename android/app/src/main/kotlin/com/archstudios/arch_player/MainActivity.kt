@@ -11,15 +11,19 @@ import java.io.ByteArrayOutputStream
 class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     private val channelName = "arch.player/library"
 
+    // MediaStore scans and bitmap decodes NEVER run on the main thread.
+    // That was the ANR: seconds of main-thread work while scrolling.
+    private val io = java.util.concurrent.Executors.newCachedThreadPool()
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "querySongs" -> result.success(querySongs())
+                    "querySongs" -> io.execute { result.success(querySongs()) }
                     "loadArt" -> {
                         val albumId = (call.argument<Number>("albumId")?.toLong()) ?: 0L
-                        result.success(loadArt(albumId))
+                        io.execute { result.success(loadArt(albumId)) }
                     }
                     else -> result.notImplemented()
                 }

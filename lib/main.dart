@@ -19,7 +19,7 @@ Future<void> main() async {
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.archstudios.arch_player.channel',
       androidNotificationChannelName: 'Arch Player',
-      androidNotificationIcon: 'mipmap/ic_launcher',
+      androidNotificationIcon: 'drawable/ic_stat_music_note',
     ),
   );
   runApp(
@@ -63,21 +63,32 @@ class _PermissionGateState extends State<_PermissionGate> {
   Future<void> _check() async {
     final status = await Permission.audio.status;
     if (status.isGranted || status.isLimited) {
-      setState(() => _granted = true);
+      await _enter();
       return;
     }
     // Pre-33 fallback.
     final storage = await Permission.storage.status;
     if (storage.isGranted || storage.isLimited) {
-      setState(() => _granted = true);
+      await _enter();
       return;
     }
+    if (!mounted) return;
     setState(() => _granted = false);
+  }
+
+  /// Music allowed: ask for notifications (best-effort), then enter.
+  Future<void> _enter() async {
+    await Permission.notification.request();
+    if (!mounted) return;
+    setState(() => _granted = true);
   }
 
   Future<void> _request() async {
     var status = await Permission.audio.request();
     status = status.isDenied ? await Permission.storage.request() : status;
+    // Notifications for media controls (33+). Best-effort, never blocking.
+    await Permission.notification.request();
+    if (!mounted) return;
     setState(() => _granted = status.isGranted || status.isLimited);
   }
 
