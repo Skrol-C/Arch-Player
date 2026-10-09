@@ -25,14 +25,15 @@ class Shell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dest = ref.watch(destinationProvider);
     final playerOpen = ref.watch(playerOpenProvider);
+    debugPrint('BREADCRUMB shell build: dest=$dest playerOpen=$playerOpen');
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
           switch (dest) {
-            Destination.home => const HomeScreen(),
-            Destination.library => const LibraryScreen(),
-            Destination.settings => const SettingsScreen(),
+            Destination.home => const HomeScreen(key: ValueKey('dest-home')),
+            Destination.library => const LibraryScreen(key: ValueKey('dest-library')),
+            Destination.settings => const SettingsScreen(key: ValueKey('dest-settings')),
           },
           if (!playerOpen)
             LiquidGlassTabBar.withImpeller(

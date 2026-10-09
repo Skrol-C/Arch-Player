@@ -14,13 +14,34 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final songs = ref.watch(songsProvider).value ?? [];
+    final songsAsync = ref.watch(songsProvider);
+    final songs = songsAsync.value ?? [];
+    debugPrint('BREADCRUMB home build: loading=${songsAsync.isLoading} '
+        'songs=${songs.length} hasError=${songsAsync.hasError}');
+    if (songsAsync.isLoading && songs.isEmpty) {
+      return ListView(
+        key: const ValueKey('home-loading'),
+        padding: const EdgeInsets.only(bottom: 140),
+        children: const [
+          SizedBox(height: 56),
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Home'),
+          ),
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: LinearProgressIndicator(color: archRed),
+          ),
+        ],
+      );
+    }
     final current = ref.watch(currentSongProvider).value;
     final playing = ref.watch(playingProvider).value ?? false;
     final recent = List<Song>.from(songs)
       ..sort((a, b) => b.year.compareTo(a.year));
 
     return ListView(
+      key: const ValueKey('home-body'),
       padding: const EdgeInsets.only(bottom: 140),
       children: [
         const SizedBox(height: 56),
