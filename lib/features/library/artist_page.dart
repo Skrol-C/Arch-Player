@@ -290,6 +290,7 @@ class _TopSongs extends ConsumerWidget {
       data: (tracks) {
         if (tracks.isEmpty) return const SizedBox.shrink();
         final current = ref.watch(currentSongProvider).value;
+        final currentId = current?.id;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -299,8 +300,11 @@ class _TopSongs extends ConsumerWidget {
                 track: tracks[i],
                 artistName: artistName,
                 owned: _owned(tracks[i].title),
-                isCurrent: current != null &&
-                    (current.title == tracks[i].title || current.id < 0),
+                // Match by id only: a preview id is -(rank+1), so exactly
+                // the tapped row lights — never the whole chart.
+                isCurrent: currentId != null &&
+                    (currentId == _owned(tracks[i].title)?.id ||
+                        currentId == -(tracks[i].rank + 1)),
                 onTap: () => _play(ref, context, tracks[i]),
               ),
           ],

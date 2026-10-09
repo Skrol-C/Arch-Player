@@ -1,4 +1,5 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/models.dart';
@@ -36,6 +37,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     }
     _busy = true;
     try {
+      debugPrint('BREADCRUMB playSong: id=${song.id} title=${song.title} scheme=${song.uri.scheme}');
       final index = context.indexWhere((s) => s.id == song.id);
       if (index < 0) return;
       final sameQueue = _songs.length == context.length &&

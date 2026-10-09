@@ -1,4 +1,5 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -15,8 +16,12 @@ final playerOpenProvider = StateProvider<bool>((ref) => false);
 final currentSongProvider = StreamProvider<Song?>((ref) {
   final handler = ref.watch(audioHandlerProvider);
   return handler.mediaItem.asyncMap((item) {
-    if (item == null) return null;
+    if (item == null) {
+      debugPrint('BREADCRUMB currentSong: null item');
+      return null;
+    }
     final id = item.extras?['songId'] as int?;
+    debugPrint('BREADCRUMB currentSong: id=$id title=${item.title}');
     final songs = ref.read(songsProvider).value ?? [];
     if (id != null) {
       for (final s in songs) {
