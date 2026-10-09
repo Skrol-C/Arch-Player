@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
 import '../../core/theme.dart';
+import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'artist_page.dart';
 import 'folder_sheet.dart';
@@ -81,7 +82,7 @@ class _LibraryBody extends ConsumerWidget {
                 onTap: () async {
                   final handler = ref.read(audioHandlerProvider);
                   final opener = ref.read(playerOpenProvider.notifier);
-                  await handler.playSong(song, visible);
+                  await playGuarded(context, () => handler.playSong(song, visible));
                   opener.state = true;
                 },
               );
@@ -240,7 +241,7 @@ class AlbumDetail extends ConsumerWidget {
               onTap: () async {
                 final handler = ref.read(audioHandlerProvider);
                 final opener = ref.read(playerOpenProvider.notifier);
-                await handler.playSong(song, songs);
+                await playGuarded(context, () => handler.playSong(song, songs));
                 opener.state = true;
               },
             ),

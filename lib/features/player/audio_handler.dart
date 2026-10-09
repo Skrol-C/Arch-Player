@@ -43,7 +43,12 @@ class ArchAudioHandler extends BaseAudioHandler {
       final sameQueue = _songs.length == context.length &&
           _songs.every((s) => context.any((c) => c.id == s.id));
       if (!sameQueue) {
-        await setQueueSongs(context, startIndex: index);
+        // Network previews can stall forever (expired URL, captive portal).
+        // A hung source set wedged the whole player once: busy forever,
+        // UI stuck at "Nothing playing" while the native session idled.
+        // Bound it; failure surfaces to the caller instead.
+        await setQueueSongs(context, startIndex: index)
+            .timeout(const Duration(seconds: 20));
       } else {
         await _player.seek(Duration.zero, index: index);
       }

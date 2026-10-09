@@ -8,6 +8,7 @@ import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
+import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'library_providers.dart';
 import 'release_gallery.dart';
@@ -342,7 +343,7 @@ class _TopSongs extends ConsumerWidget {
     final opener = ref.read(playerOpenProvider.notifier);
     final owned = _owned(track.title);
     if (owned != null) {
-      await handler.playSong(owned, local);
+      await playGuarded(context, () => handler.playSong(owned, local));
       opener.state = true;
       return;
     }

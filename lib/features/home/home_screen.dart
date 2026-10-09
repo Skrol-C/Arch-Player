@@ -5,6 +5,7 @@ import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../library/library_providers.dart';
 import '../library/song_row.dart';
+import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 
 /// Minimal landing: continue listening + recently added. The pill is the star.
@@ -47,7 +48,7 @@ class HomeScreen extends ConsumerWidget {
               final handler = ref.read(audioHandlerProvider);
               final opener = ref.read(playerOpenProvider.notifier);
               if (current == null) {
-                await handler.playSong(song, songs);
+                await playGuarded(context, () => handler.playSong(song, songs));
               } else if (!playing) {
                 await handler.play();
               }
@@ -86,7 +87,7 @@ class HomeScreen extends ConsumerWidget {
             onTap: () async {
               final handler = ref.read(audioHandlerProvider);
               final opener = ref.read(playerOpenProvider.notifier);
-              await handler.playSong(song, recent);
+              await playGuarded(context, () => handler.playSong(song, recent));
               opener.state = true;
             },
           ),
