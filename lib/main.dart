@@ -1,14 +1,17 @@
 import 'dart:async';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import 'core/log.dart';
 import 'core/theme.dart';
+import 'features/player/audio_handler.dart';
+import 'features/player/player_providers.dart';
+import 'features/setup/setup_gate.dart';
 import 'features/shell/shell.dart';
 
-/// Phase-0 entry: theme + diagnostics + shell. Engine lands in Phase 1.
 /// Audio init stays first so cold media-resume entries reach a ready
 /// handler inside the foreground ANR window; shader warmup never blocks.
 Future<void> main() async {
@@ -20,13 +23,24 @@ Future<void> main() async {
   };
   runZonedGuarded(
     () async {
-      // Engine stub for Phase 0: binding exists so providers resolve.
-      // Real handler + queue arrive with Phase 1.
-      runApp(const ProviderScope(child: ArchApp()));
+      final handler = await AudioService.init(
+        builder: () => ArchAudioHandler(),
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.archstudios.arch_player.channel',
+          androidNotificationChannelName: 'Arch Player',
+          androidNotificationIcon: 'drawable/ic_stat_music_note',
+        ),
+      );
       // Glass shaders compile off the critical path: first glass frame may
       // frost for a blink on cold start, then it's glass forever.
       LiquidGlassShaders.ensureLoaded().ignore();
-      ArchLog.i('app', 'arch player v2 scaffold up');
+      runApp(
+        ProviderScope(
+          overrides: [audioHandlerProvider.overrideWithValue(handler)],
+          child: const ArchApp(),
+        ),
+      );
+      ArchLog.i('app', 'arch player v2 up');
     },
     (err, stack) => ArchLog.e('zone', err, stack),
   );
@@ -41,7 +55,7 @@ class ArchApp extends StatelessWidget {
       title: 'Arch Player',
       debugShowCheckedModeBanner: false,
       theme: archTheme(),
-      home: const Shell(),
+      home: const SetupGate(child: Shell()),
       builder: (context, child) {
         // Blank is never a symptom: render failures name themselves.
         ErrorWidget.builder = (details) => _CrashCard(details: details);

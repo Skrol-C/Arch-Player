@@ -11,6 +11,8 @@ class Song {
   final int year;
   final String folderKey;
   final String folderLabel;
+  /// Full device path (MediaStore DATA). Folder picks match by prefix.
+  final String path;
 
   const Song({
     required this.id,
@@ -23,6 +25,7 @@ class Song {
     required this.year,
     required this.folderKey,
     required this.folderLabel,
+    this.path = '',
   });
 }
 

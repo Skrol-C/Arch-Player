@@ -30,6 +30,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                         val albumId = (call.argument<Number>("albumId")?.toLong()) ?: 0L
                         io.execute { result.success(loadArt(albumId)) }
                     }
+                    "suggestFolders" -> io.execute { result.success(suggestFolders()) }
                     else -> result.notImplemented()
                 }
             }
@@ -79,6 +80,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                             "albumId" to c.getLong(albumIdCol),
                             "durationMs" to c.getLong(durCol),
                             "folder" to folder,
+                            "path" to data,
                         ),
                     )
                 }
@@ -114,5 +116,21 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         var s = 1
         while (w / (s * 2) >= target && h / (s * 2) >= target) s *= 2
         return s
+    }
+
+    /** Common music homes that actually exist, for first-run suggestions. */
+    private fun suggestFolders(): List<String> {
+        val roots = mutableListOf<java.io.File>()
+        getExternalFilesDir(null)?.let { roots.add(it) }
+        android.os.Environment.getExternalStorageDirectory()?.let { roots.add(it) }
+        val names = listOf("Music", "Download", "Audio", "MP3", "Songs")
+        val out = mutableListOf<String>()
+        for (root in roots) {
+            for (name in names) {
+                val dir = java.io.File(root, name)
+                if (dir.isDirectory) out.add(dir.absolutePath)
+            }
+        }
+        return out.distinct()
     }
 }
