@@ -4,18 +4,17 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/theme.dart';
-import '../home/home_screen.dart';
 import '../library/library_screen.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
 
-enum Destination { home, library, settings }
+enum Destination { library, settings }
 
 final destinationProvider = StateProvider<Destination>((ref) => Destination.library);
 
-const _labels = ['Home', 'Library', 'Settings'];
-const _icons = [Icons.home_rounded, Icons.library_music_rounded, Icons.settings_rounded];
+const _labels = ['Library', 'Settings'];
+const _icons = [Icons.library_music_rounded, Icons.settings_rounded];
 
 /// App shell: destination content + traveling liquid-glass pill nav.
 class Shell extends ConsumerWidget {
@@ -25,13 +24,11 @@ class Shell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dest = ref.watch(destinationProvider);
     final playerOpen = ref.watch(playerOpenProvider);
-    debugPrint('BREADCRUMB shell build: dest=$dest playerOpen=$playerOpen');
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
           switch (dest) {
-            Destination.home => const HomeScreen(key: ValueKey('dest-home')),
             Destination.library => const LibraryScreen(key: ValueKey('dest-library')),
             Destination.settings => const SettingsScreen(key: ValueKey('dest-settings')),
           },
@@ -44,7 +41,7 @@ class Shell extends ConsumerWidget {
               selectedIndex: dest.index,
               onChanged: (i) => ref.read(destinationProvider.notifier).state =
                   Destination.values[i],
-              width: 340,
+              width: 260,
               margin: const EdgeInsets.only(bottom: 40),
               itemStyle: const LiquidGlassTabItemStyle(
                 selectedColor: archRed,
