@@ -62,3 +62,6 @@ lib/core/secrets.local.dart
 icon-source*.png
 *removebg*.png
 *upscayl*.png
+
+# Reference screenshots (local design input, never committed)
+59290735*.jpg
