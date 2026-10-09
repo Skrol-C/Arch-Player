@@ -1,39 +1,34 @@
-import 'package:audio_service/audio_service.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
-import 'package:permission_handler/permission_handler.dart';
 
+import 'core/log.dart';
 import 'core/theme.dart';
-import 'features/player/audio_handler.dart';
-import 'features/player/player_providers.dart';
 import 'features/shell/shell.dart';
 
+/// Phase-0 entry: theme + diagnostics + shell. Engine lands in Phase 1.
+/// Audio init stays first so cold media-resume entries reach a ready
+/// handler inside the foreground ANR window; shader warmup never blocks.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Audio first: a cold media-resume entry must reach a ready handler in
-  // well under the 10s foreground ANR window. Shader warmup must never
-  // block the entrypoint, so it runs unawaited after init.
-  final handler = await AudioService.init(
-    builder: () => ArchAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.archstudios.arch_player.channel',
-      androidNotificationChannelName: 'Arch Player',
-      androidNotificationIcon: 'drawable/ic_stat_music_note',
-    ),
-  );
-  // Compile glass shaders for first-frame glass instead of first-frame
-  // frost. Fire-and-forget: ghost starts have no UI to warm for.
-  LiquidGlassShaders.ensureLoaded().ignore();
-  // Bounded image caches: unbounded decoded images starved Impeller
-  // textures until content painted black and self-healed. Never again.
-  PaintingBinding.instance.imageCache.maximumSize = 100;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
-  runApp(
-    ProviderScope(
-      overrides: [audioHandlerProvider.overrideWithValue(handler)],
-      child: const ArchApp(),
-    ),
+  await ArchLog.init();
+  FlutterError.onError = (details) {
+    ArchLog.e('flutter', details.exceptionAsString(), details.stack);
+    FlutterError.presentError(details);
+  };
+  runZonedGuarded(
+    () async {
+      // Engine stub for Phase 0: binding exists so providers resolve.
+      // Real handler + queue arrive with Phase 1.
+      runApp(const ProviderScope(child: ArchApp()));
+      // Glass shaders compile off the critical path: first glass frame may
+      // frost for a blink on cold start, then it's glass forever.
+      LiquidGlassShaders.ensureLoaded().ignore();
+      ArchLog.i('app', 'arch player v2 scaffold up');
+    },
+    (err, stack) => ArchLog.e('zone', err, stack),
   );
 }
 
@@ -46,8 +41,9 @@ class ArchApp extends StatelessWidget {
       title: 'Arch Player',
       debugShowCheckedModeBanner: false,
       theme: archTheme(),
-      home: const _PermissionGate(),
+      home: const Shell(),
       builder: (context, child) {
+        // Blank is never a symptom: render failures name themselves.
         ErrorWidget.builder = (details) => _CrashCard(details: details);
         return child ?? const SizedBox.shrink();
       },
@@ -55,7 +51,6 @@ class ArchApp extends StatelessWidget {
   }
 }
 
-/// Blank is never a symptom: any render failure names itself with a way back.
 class _CrashCard extends StatelessWidget {
   final FlutterErrorDetails details;
   const _CrashCard({required this.details});
@@ -63,7 +58,7 @@ class _CrashCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ink,
+      backgroundColor: paper,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -71,100 +66,24 @@ class _CrashCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Something broke here', style: TextStyle(color: archRed, fontSize: 22, fontWeight: FontWeight.w700)),
+              const Text('Something broke here',
+                  style: TextStyle(color: archPink, fontSize: 22, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
                 details.exceptionAsString().split('\n').first,
-                style: const TextStyle(color: inkTextDim, fontSize: 13),
+                style: const TextStyle(color: inkDim, fontSize: 13),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  FilledButton(
-                    onPressed: () {
-                      if (Navigator.of(context).canPop()) {
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    child: const Text('Go back'),
-                  ),
-                ],
+              FilledButton(
+                onPressed: () {
+                  if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+                },
+                child: const Text('Go back'),
               ),
             ],
           ),
         ),
       ),
     );
-  }
-}
-
-class _PermissionGate extends StatefulWidget {
-  const _PermissionGate();
-
-  @override
-  State<_PermissionGate> createState() => _PermissionGateState();
-}
-
-class _PermissionGateState extends State<_PermissionGate> {
-  bool? _granted;
-
-  @override
-  void initState() {
-    super.initState();
-    _check();
-  }
-
-  Future<void> _check() async {
-    final status = await Permission.audio.status;
-    if (status.isGranted || status.isLimited) {
-      await _enter();
-      return;
-    }
-    // Pre-33 fallback.
-    final storage = await Permission.storage.status;
-    if (storage.isGranted || storage.isLimited) {
-      await _enter();
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _granted = false);
-  }
-
-  /// Music allowed: ask for notifications (best-effort), then enter.
-  Future<void> _enter() async {
-    await Permission.notification.request();
-    if (!mounted) return;
-    setState(() => _granted = true);
-  }
-
-  Future<void> _request() async {
-    var status = await Permission.audio.request();
-    status = status.isDenied ? await Permission.storage.request() : status;
-    // Notifications for media controls (33+). Best-effort, never blocking.
-    await Permission.notification.request();
-    if (!mounted) return;
-    setState(() => _granted = status.isGranted || status.isLimited);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_granted == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(color: archRed)));
-    }
-    if (!_granted!) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Arch needs your music to play anything.'),
-              const SizedBox(height: 12),
-              FilledButton(onPressed: _request, child: const Text('Allow music access')),
-            ],
-          ),
-        ),
-      );
-    }
-    return const Shell();
   }
 }
