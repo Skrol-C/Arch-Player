@@ -40,21 +40,38 @@ class ChannelLibrary implements LibraryRepository {
   }
 }
 
-/// Album art over the same channel, memory-cached per albumId.
+/// Album art over the same channel. LRU-capped: unbounded growth was a
+/// prime suspect in the blank-screen curse (memory pressure kills surfaces
+/// while navigation keeps working).
 class ArtCache {
   static const _channel = MethodChannel('arch.player/library');
+  static const _cap = 100;
   static final Map<int, Uint8List?> _cache = {};
+  static final List<int> _order = [];
 
   static Future<Uint8List?> of(int albumId) async {
     if (albumId <= 0) return null;
-    if (_cache.containsKey(albumId)) return _cache[albumId];
+    if (_cache.containsKey(albumId)) {
+      _order.remove(albumId);
+      _order.add(albumId);
+      return _cache[albumId];
+    }
     try {
       final bytes = await _channel.invokeMethod<Uint8List>('loadArt', {'albumId': albumId});
-      _cache[albumId] = bytes;
+      _put(albumId, bytes);
       return bytes;
     } catch (_) {
-      _cache[albumId] = null;
+      _put(albumId, null);
       return null;
+    }
+  }
+
+  static void _put(int albumId, Uint8List? bytes) {
+    _cache[albumId] = bytes;
+    _order.remove(albumId);
+    _order.add(albumId);
+    while (_order.length > _cap) {
+      _cache.remove(_order.removeAt(0));
     }
   }
 }

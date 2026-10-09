@@ -43,6 +43,53 @@ class ArchApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: archTheme(),
       home: const _PermissionGate(),
+      builder: (context, child) {
+        ErrorWidget.builder = (details) => _CrashCard(details: details);
+        return child ?? const SizedBox.shrink();
+      },
+    );
+  }
+}
+
+/// Blank is never a symptom: any render failure names itself with a way back.
+class _CrashCard extends StatelessWidget {
+  final FlutterErrorDetails details;
+  const _CrashCard({required this.details});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ink,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Something broke here', style: TextStyle(color: archRed, fontSize: 22, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                details.exceptionAsString().split('\n').first,
+                style: const TextStyle(color: inkTextDim, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  FilledButton(
+                    onPressed: () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                    child: const Text('Go back'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

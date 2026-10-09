@@ -320,11 +320,19 @@ class MetadataService {
   String _keyOf(String artistName) =>
       artistName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
 
+  static const _schema = 2;
+
   Future<ArtistMeta?> _readCache(String artistName) async {
     try {
       final file = File('${(await _cacheDir()).path}/${_keyOf(artistName)}.json');
       if (!await file.exists()) return null;
       final m = jsonDecode(await file.readAsString()) as Map;
+      // Version gate: unknown or corrupt schema self-deletes. Poison can
+      // never survive a restart — the app heals the way a data wipe does.
+      if ((m['v'] as num?)?.toInt() != _schema) {
+        await file.delete();
+        return null;
+      }
       return ArtistMeta(
         mbid: m['mbid'] as String?,
         dzId: (m['dzId'] as num?)?.toInt(),
@@ -348,8 +356,11 @@ class MetadataService {
 
   Future<void> _writeCache(String artistName, ArtistMeta meta) async {
     try {
-      final file = File('${(await _cacheDir()).path}/${_keyOf(artistName)}.json');
-      await file.writeAsString(jsonEncode({
+      final dir = await _cacheDir();
+      final file = File('${dir.path}/${_keyOf(artistName)}.json');
+      final tmp = File('${dir.path}/${_keyOf(artistName)}.tmp');
+      await tmp.writeAsString(jsonEncode({
+        'v': _schema,
         'mbid': meta.mbid,
         'dzId': meta.dzId,
         'imageUrl': meta.imageUrl,
@@ -359,6 +370,7 @@ class MetadataService {
             {'type': r.type, 'title': r.title, 'artUrl': r.artUrl, 'year': r.year, 'rgMbid': r.rgMbid},
         ],
       }));
+      await tmp.rename(file.path);
     } catch (_) {}
   }
 }

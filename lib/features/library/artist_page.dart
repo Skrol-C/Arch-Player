@@ -50,7 +50,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
             onBack: () => Navigator.of(context).pop(),
           ),
           SliverToBoxAdapter(child: _Bio(bio: bio)),
-          SliverToBoxAdapter(child: _TopSongs(top: top, local: local)),
+          SliverToBoxAdapter(child: _TopSongs(top: top, local: local, artistName: widget.artistName)),
           SliverToBoxAdapter(
             child: _FanRow(
               releases: releases,
@@ -117,9 +117,7 @@ class _Hero extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (imageUrl != null)
-              CachedNetworkImage(
-                imageUrl: imageUrl!,
-                fit: BoxFit.cover,
+              CachedNetworkImage(imageUrl: imageUrl!, fit: BoxFit.cover, memCacheWidth: 800,
                 errorWidget: (_, _, _) => Container(color: inkRaised),
               )
             else
@@ -263,8 +261,9 @@ class _ExpandableBioState extends State<_ExpandableBio> {
 class _TopSongs extends ConsumerWidget {
   final AsyncValue<List<TopTrack>> top;
   final List<Song> local;
+  final String artistName;
 
-  const _TopSongs({required this.top, required this.local});
+  const _TopSongs({required this.top, required this.local, required this.artistName});
 
   Song? _owned(String title) {
     final norm = _norm(title);
@@ -298,6 +297,7 @@ class _TopSongs extends ConsumerWidget {
             for (var i = 0; i < tracks.length; i++)
               _TopRow(
                 track: tracks[i],
+                artistName: artistName,
                 owned: _owned(tracks[i].title),
                 isCurrent: current != null &&
                     (current.title == tracks[i].title || current.id < 0),
@@ -339,19 +339,33 @@ class _TopSongs extends ConsumerWidget {
       folderKey: 'preview',
       folderLabel: 'Preview',
     );
-    await handler.playSong(preview, [preview]);
+    try {
+      await handler.playSong(preview, [preview]);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preview failed to play — check connection')),
+        );
+      }
+      return;
+    }
     opener.state = true;
   }
 }
 
 class _TopRow extends StatelessWidget {
   final TopTrack track;
+  final String artistName;
   final Song? owned;
   final bool isCurrent;
   final VoidCallback onTap;
 
   const _TopRow(
-      {required this.track, required this.owned, required this.isCurrent, required this.onTap});
+      {required this.track,
+      required this.artistName,
+      required this.owned,
+      required this.isCurrent,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -369,13 +383,12 @@ class _TopRow extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: Hero(
-              tag: 'art-${track.title}',
+              // Artist + chart rank: structurally unique, even with
+              // duplicate titles in one chart. Never title-only.
+              tag: 'art-$artistName-${track.rank}',
               child: track.coverUrl != null
                   ? CachedNetworkImage(
-                      imageUrl: track.coverUrl!,
-                      width: 52,
-                      height: 52,
-                      fit: BoxFit.cover,
+                      imageUrl: track.coverUrl!, width: 52, height: 52, fit: BoxFit.cover, memCacheWidth: 150,
                       errorWidget: (_, _, _) => Container(
                         width: 52,
                         height: 52,
@@ -668,6 +681,7 @@ class ReleaseCover extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      memCacheWidth: 300,
       errorWidget: (_, _, _) => _fallback(),
     );
   }

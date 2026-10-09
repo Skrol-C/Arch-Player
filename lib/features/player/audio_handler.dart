@@ -21,18 +21,35 @@ class ArchAudioHandler extends BaseAudioHandler {
     );
   }
 
+  bool _busy = false;
+  DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Single-flight + 400ms debounce: rapid taps queue behind one another
+  /// instead of racing setAudioSources calls (that race was the preview
+  /// pile-up + lag). Throws on failure so callers can surface it.
   Future<void> playSong(Song song, List<Song> context) async {
-    final index = context.indexWhere((s) => s.id == song.id);
-    if (index < 0) return;
-    final sameQueue = _songs.length == context.length &&
-        _songs.every((s) => context.any((c) => c.id == s.id));
-    if (!sameQueue) {
-      await setQueueSongs(context, startIndex: index);
-    } else {
-      await _player.seek(Duration.zero, index: index);
+    final now = DateTime.now();
+    if (now.difference(_lastTap).inMilliseconds < 400) return;
+    _lastTap = now;
+    while (_busy) {
+      await Future.delayed(const Duration(milliseconds: 100));
     }
-    mediaItem.value = song.toMediaItem();
-    await _player.play();
+    _busy = true;
+    try {
+      final index = context.indexWhere((s) => s.id == song.id);
+      if (index < 0) return;
+      final sameQueue = _songs.length == context.length &&
+          _songs.every((s) => context.any((c) => c.id == s.id));
+      if (!sameQueue) {
+        await setQueueSongs(context, startIndex: index);
+      } else {
+        await _player.seek(Duration.zero, index: index);
+      }
+      mediaItem.value = song.toMediaItem();
+      await _player.play();
+    } finally {
+      _busy = false;
+    }
   }
 
   @override
