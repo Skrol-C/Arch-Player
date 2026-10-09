@@ -46,19 +46,19 @@ class ReleaseGallery extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       color: inkRaised,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       border: owned ? Border.all(color: archRed, width: 2) : null,
                     ),
                     foregroundDecoration: owned
                         ? null
                         : const BoxDecoration(
                             color: Color(0x99000000),
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                            borderRadius: BorderRadius.all(Radius.circular(16)),
                           ),
                     child: Center(
                       child: r.artUrl != null
                           ? ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(16),
                               child: ColorFiltered(
                                 colorFilter: owned
                                     ? const ColorFilter.mode(

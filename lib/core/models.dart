@@ -79,8 +79,9 @@ class ReleaseGroup {
   final String title;
   final String? artUrl;
   final int? year;
+  final String? rgMbid;
 
-  const ReleaseGroup({required this.type, required this.title, this.artUrl, this.year});
+  const ReleaseGroup({required this.type, required this.title, this.artUrl, this.year, this.rgMbid});
 }
 
 /// A chart top-track from Deezer. [previewUrl] expires — fetched fresh per

@@ -28,3 +28,8 @@ final artistReleasesProvider =
 final artistTopProvider = FutureProvider.family<List<TopTrack>, String>((ref, artistName) {
   return ref.watch(metadataServiceProvider).topTracks(artistName);
 });
+
+/// Release cover art, resolved lazily per visible item.
+final releaseCoverProvider = FutureProvider.family<String?, String>((ref, rgMbid) {
+  return ref.watch(metadataServiceProvider).coverFor(rgMbid);
+});

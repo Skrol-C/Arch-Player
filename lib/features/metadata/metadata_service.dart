@@ -156,6 +156,7 @@ class MetadataService {
           type: _classify(primary, secondary),
           title: (m['title'] as String?) ?? 'Unknown release',
           year: _yearOf(m['first-release-date'] as String?),
+          rgMbid: m['id'] as String?,
         ));
       }
       final total = (body['release-group-count'] as num?)?.toInt() ?? 0;
@@ -275,6 +276,40 @@ class MetadataService {
     return summary.split('<a href').first.trim();
   }
 
+  /// Cover Art Archive front art for a release-group MBID.
+  /// Session-memory cached; 404-tolerant. Bytes live in the image cache.
+  final Map<String, String?> _caaMemo = {};
+
+  Future<String?> coverFor(String? rgMbid) async {
+    if (rgMbid == null || rgMbid.isEmpty) return null;
+    if (_caaMemo.containsKey(rgMbid)) return _caaMemo[rgMbid];
+    try {
+      final uri = Uri.parse('https://coverartarchive.org/release-group/$rgMbid');
+      final res = await http.get(uri, headers: {'User-Agent': _userAgent}).timeout(
+        const Duration(seconds: 10),
+      );
+      if (res.statusCode != 200) {
+        _caaMemo[rgMbid] = null;
+        return null;
+      }
+      final images = (jsonDecode(res.body) as Map)['images'] as List? ?? [];
+      for (final img in images) {
+        final m = img as Map;
+        if (m['front'] == true) {
+          final thumbs = m['thumbnails'] as Map?;
+          final url = (thumbs?['small'] ?? thumbs?['large'] ?? m['image']) as String?;
+          _caaMemo[rgMbid] = url;
+          return url;
+        }
+      }
+      _caaMemo[rgMbid] = null;
+      return null;
+    } catch (_) {
+      _caaMemo[rgMbid] = null;
+      return null;
+    }
+  }
+
   Future<Directory> _cacheDir() async {
     final base = await getApplicationCacheDirectory();
     final dir = Directory('${base.path}/artist_meta');
@@ -301,6 +336,7 @@ class MetadataService {
             type: (r['type'] as String?) ?? 'other',
             title: (r['title'] as String?) ?? 'Unknown release',
             artUrl: r['artUrl'] as String?,
+            rgMbid: r['rgMbid'] as String?,
             year: (r['year'] as num?)?.toInt(),
           );
         }).toList(),
@@ -320,7 +356,7 @@ class MetadataService {
         'bio': meta.bio,
         'releases': [
           for (final r in meta.releases)
-            {'type': r.type, 'title': r.title, 'artUrl': r.artUrl, 'year': r.year},
+            {'type': r.type, 'title': r.title, 'artUrl': r.artUrl, 'year': r.year, 'rgMbid': r.rgMbid},
         ],
       }));
     } catch (_) {}

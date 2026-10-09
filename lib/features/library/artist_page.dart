@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
@@ -13,7 +14,7 @@ import 'release_gallery.dart';
 import 'song_row.dart';
 
 /// Artist page: hero pic + name + bio, real top songs (owned full,
-/// unowned 30s previews), discography hubs that spring open inline.
+/// unowned 30s previews), discography as fanned cover stacks.
 /// Every block renders the moment it lands; no match = clean local page.
 class ArtistPage extends ConsumerStatefulWidget {
   final String artistName;
@@ -24,7 +25,7 @@ class ArtistPage extends ConsumerStatefulWidget {
 }
 
 class _ArtistPageState extends ConsumerState<ArtistPage> {
-  /// Currently sprung-open hub, if any.
+  /// Currently bloomed fan hub, if any.
   String? _openHub;
 
   @override
@@ -45,13 +46,13 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
             count: local.length,
             imageUrl: pic.value,
             followed: followed.contains(widget.artistName),
-            onFollow: () => ref.read(followedProvider.notifier).toggle(widget.artistName),
+            onFollow: () => _toggleFollow(ref, widget.artistName, followed.contains(widget.artistName)),
             onBack: () => Navigator.of(context).pop(),
           ),
           SliverToBoxAdapter(child: _Bio(bio: bio)),
           SliverToBoxAdapter(child: _TopSongs(top: top, local: local)),
           SliverToBoxAdapter(
-            child: _Hubs(
+            child: _FanRow(
               releases: releases,
               local: local,
               openHub: _openHub,
@@ -61,6 +62,18 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
+      ),
+    );
+  }
+
+  Future<void> _toggleFollow(WidgetRef ref, String artist, bool wasFollowed) async {
+    HapticFeedback.selectionClick();
+    await ref.read(followedProvider.notifier).toggle(artist);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(wasFollowed ? 'Unfollowed $artist' : 'Following $artist — new releases will find you'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -86,13 +99,14 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 300,
+      expandedHeight: 320,
       pinned: true,
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
           style: const LiquidGlassStyle(
-            shape: LiquidGlassShape.continuousRoundedRectangle(cornerRadius: 24, borderWidth: 1),
+            shape: LiquidGlassShape.continuousRoundedRectangle(
+                cornerRadius: 24, borderWidth: 1),
             refraction: LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10),
           ),
           child: IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back)),
@@ -134,9 +148,9 @@ class _Hero extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: 16,
-              right: 16,
-              bottom: 12,
+              left: 20,
+              right: 20,
+              bottom: 14,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -145,45 +159,29 @@ class _Hero extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         FocalEntrance(
-                          child: Text(name, style: Theme.of(context).textTheme.headlineLarge),
+                          child: Text(name,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineLarge
+                                  ?.copyWith(letterSpacing: -0.5)),
                         ),
+                        const SizedBox(height: 2),
                         Text('$count songs on device',
                             style: const TextStyle(color: archRed)),
                       ],
                     ),
                   ),
-                  _FollowPill(followed: followed, onFollow: onFollow),
+                  IconButton(
+                    onPressed: onFollow,
+                    iconSize: 28,
+                    color: followed ? archRed : Colors.white,
+                    icon: Icon(followed ? Icons.favorite : Icons.favorite_border),
+                  ),
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Follow lives on a floating glass pill, never in content.
-class _FollowPill extends StatelessWidget {
-  final bool followed;
-  final VoidCallback onFollow;
-
-  const _FollowPill({required this.followed, required this.onFollow});
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidGlassLens(
-      style: LiquidGlassStyle(
-        shape: const LiquidGlassShape.continuousRoundedRectangle(cornerRadius: 20, borderWidth: 1),
-        appearance: LiquidGlassAppearance(
-          color: followed ? archRed.withValues(alpha: 0.25) : const Color(0x14FFFFFF),
-        ),
-        refraction: const LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10),
-      ),
-      child: TextButton(
-        onPressed: onFollow,
-        child: Text(followed ? '✓ Following' : '+ Follow',
-            style: TextStyle(color: followed ? archRed : Colors.white)),
       ),
     );
   }
@@ -196,9 +194,12 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
       child: Text(text,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: archRed)),
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(color: archRed, fontWeight: FontWeight.w600)),
     );
   }
 }
@@ -216,7 +217,7 @@ class _Bio extends StatelessWidget {
       children: [
         const _SectionTitle('About'),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _ExpandableBio(text: text),
         ),
       ],
@@ -247,7 +248,7 @@ class _ExpandableBioState extends State<_ExpandableBio> {
             widget.text,
             maxLines: _open ? null : 4,
             overflow: _open ? null : TextOverflow.ellipsis,
-            style: const TextStyle(color: inkTextDim),
+            style: const TextStyle(color: inkTextDim, height: 1.5),
           ),
         ),
         TextButton(
@@ -283,7 +284,7 @@ class _TopSongs extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle('Top songs'),
-          Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator(color: archRed)),
+          Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator(color: archRed)),
         ],
       ),
       error: (_, _) => const SizedBox.shrink(),
@@ -355,6 +356,7 @@ class _TopRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       onTap: onTap,
       leading: Row(
         mainAxisSize: MainAxisSize.min,
@@ -365,25 +367,25 @@ class _TopRow extends StatelessWidget {
                 style: const TextStyle(color: inkTextDim, fontWeight: FontWeight.w600)),
           ),
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             child: Hero(
               tag: 'art-${track.title}',
               child: track.coverUrl != null
                   ? CachedNetworkImage(
                       imageUrl: track.coverUrl!,
-                      width: 48,
-                      height: 48,
+                      width: 52,
+                      height: 52,
                       fit: BoxFit.cover,
                       errorWidget: (_, _, _) => Container(
-                        width: 48,
-                        height: 48,
+                        width: 52,
+                        height: 52,
                         color: inkRaised,
                         child: const Icon(Icons.music_note, color: inkTextDim),
                       ),
                     )
                   : Container(
-                      width: 48,
-                      height: 48,
+                      width: 52,
+                      height: 52,
                       color: inkRaised,
                       child: const Icon(Icons.music_note, color: inkTextDim),
                     ),
@@ -418,14 +420,17 @@ class _TopRow extends StatelessWidget {
   }
 }
 
-class _Hubs extends StatelessWidget {
+/// Discography as fanned cover stacks. The hubs ARE the covers:
+/// latest release front and center, tap to bloom the fan, tap a cover
+/// for the gallery, tap front again to collapse.
+class _FanRow extends StatelessWidget {
   final AsyncValue<List<ReleaseGroup>> releases;
   final List<Song> local;
   final String? openHub;
   final ValueChanged<String> onHub;
   final String artistName;
 
-  const _Hubs({
+  const _FanRow({
     required this.releases,
     required this.local,
     required this.openHub,
@@ -437,7 +442,7 @@ class _Hubs extends StatelessWidget {
   Widget build(BuildContext context) {
     return releases.when(
       loading: () => const Padding(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(20),
         child: LinearProgressIndicator(color: archRed),
       ),
       error: (_, _) => const SizedBox.shrink(),
@@ -452,40 +457,24 @@ class _Hubs extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionTitle('Discography'),
-            // The hub strip floats on glass; releases spring out beneath it.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: LiquidGlassLens(
-                style: const LiquidGlassStyle(
-                  shape: LiquidGlassShape.continuousRoundedRectangle(cornerRadius: 20, borderWidth: 1),
-                  refraction: LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10),
-                ),
-                child: Row(
-                  children: [
-                    for (final label in groups.keys)
-                      Expanded(
-                        child: _Hub(
-                          label: label,
-                          count: groups[label]!.length,
-                          open: openHub == label,
-                          onTap: () => onHub(label),
-                        ),
-                      ),
-                  ],
-                ),
+            SizedBox(
+              height: 210,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: groups.length,
+                itemBuilder: (context, i) {
+                  final label = groups.keys.elementAt(i);
+                  return _FanStack(
+                    label: label,
+                    items: groups[label]!,
+                    ownedTitles: ownedTitles,
+                    open: openHub == label,
+                    onToggle: () => onHub(label),
+                    artistName: artistName,
+                  );
+                },
               ),
-            ),
-            AnimatedSize(
-              duration: Motion.overlay,
-              curve: Motion.arrival,
-              child: openHub != null && groups.containsKey(openHub)
-                  ? _SpringOut(
-                      label: openHub!,
-                      items: groups[openHub!]!,
-                      ownedTitles: ownedTitles,
-                      artistName: artistName,
-                    )
-                  : const SizedBox.shrink(),
             ),
           ],
         );
@@ -502,127 +491,220 @@ class _Hubs extends StatelessWidget {
       };
 }
 
-class _Hub extends StatelessWidget {
+class _FanStack extends StatefulWidget {
   final String label;
-  final int count;
+  final List<ReleaseGroup> items;
+  final Set<String> ownedTitles;
   final bool open;
-  final VoidCallback onTap;
+  final VoidCallback onToggle;
+  final String artistName;
 
-  const _Hub({required this.label, required this.count, required this.open, required this.onTap});
+  const _FanStack({
+    required this.label,
+    required this.items,
+    required this.ownedTitles,
+    required this.open,
+    required this.onToggle,
+    required this.artistName,
+  });
+
+  @override
+  State<_FanStack> createState() => _FanStackState();
+}
+
+class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    if (widget.open) _c.value = 1;
+  }
+
+  @override
+  void didUpdateWidget(_FanStack old) {
+    super.didUpdateWidget(old);
+    if (widget.open != old.open) {
+      if (widget.open) {
+        _c.animateTo(1, curve: Curves.easeOutBack, duration: const Duration(milliseconds: 450));
+      } else {
+        _c.animateTo(0, curve: Motion.settle, duration: const Duration(milliseconds: 220));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  bool _owned(ReleaseGroup r) => widget.ownedTitles.contains(r.title.toLowerCase());
+
+  void _gallery(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ReleaseGallery(
+          artistName: widget.artistName,
+          label: widget.label,
+          items: widget.items,
+          ownedTitles: widget.ownedTitles),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return TextButton(
-      onPressed: onTap,
-      child: Column(
-        children: [
-          Text(label,
-              maxLines: 1,
-              style: TextStyle(
-                  color: open ? archRed : Colors.white, fontWeight: FontWeight.w600)),
-          Text('$count', style: const TextStyle(color: inkTextDim, fontSize: 11)),
+    // Up to 5 covers in the fan; the count badge covers the rest.
+    final shown = widget.items.take(5).toList();
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = Motion.reduced(context) ? (widget.open ? 1.0 : 0.0) : _c.value;
+        return Container(
+          width: 190,
+          margin: const EdgeInsets.only(right: 20),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 150,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    for (var i = shown.length - 1; i >= 1; i--)
+                      Transform.translate(
+                        offset: Offset((i.isEven ? -1 : 1) * i * 13.0 * t, -i * 3.0 * t),
+                        child: Transform.rotate(
+                          angle: (i.isEven ? -1 : 1) * i * 0.14 * t,
+                          child: GestureDetector(
+                            onTap: () => _gallery(context),
+                            child: ReleaseCover(
+                              release: shown[i],
+                              owned: _owned(shown[i]),
+                              size: 118,
+                            ),
+                          ),
+                        ),
+                      ),
+                    GestureDetector(
+                      onTap: widget.open ? () => _gallery(context) : widget.onToggle,
+                      onLongPress: widget.onToggle,
+                      child: ReleaseCover(
+                        release: shown.first,
+                        owned: _owned(shown.first),
+                        size: 118 + 10 * t,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: widget.onToggle,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                    children: [
+                      Text(widget.label,
+                          style: TextStyle(
+                              color: widget.open ? archRed : Colors.white,
+                              fontWeight: FontWeight.w600)),
+                      Text('${widget.items.length}',
+                          style: const TextStyle(color: inkTextDim, fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One release cover: known art URL first, else CAA resolve by MBID,
+/// else the designed monogram fallback. Owned = color + red ring.
+class ReleaseCover extends StatelessWidget {
+  final ReleaseGroup release;
+  final bool owned;
+  final double size;
+
+  const ReleaseCover({super.key, required this.release, required this.owned, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final direct = release.artUrl;
+    final mbid = release.rgMbid;
+    final body = (direct != null)
+        ? _art(direct)
+        : (mbid != null ? _CaaCover(mbid: mbid) : _fallback());
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: owned ? Border.all(color: archRed, width: 2) : null,
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 12, offset: const Offset(0, 4)),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: ColorFiltered(
+          colorFilter: owned
+              ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
+              : const ColorFilter.matrix(<double>[
+                  0.2126, 0.7152, 0.0722, 0, 0,
+                  0.2126, 0.7152, 0.0722, 0, 0,
+                  0.2126, 0.7152, 0.0722, 0, 0,
+                  0, 0, 0, 0.6, 0,
+                ]),
+          child: body,
+        ),
+      ),
+    );
+  }
+
+  Widget _art(String url) {
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.cover,
+      errorWidget: (_, _, _) => _fallback(),
+    );
+  }
+
+  Widget _fallback() {
+    return Container(
+      color: inkRaised,
+      child: Center(
+        child: Text(
+          release.title.isEmpty ? '?' : release.title[0].toUpperCase(),
+          style: const TextStyle(color: archRed, fontSize: 40, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
 }
 
-class _SpringOut extends StatelessWidget {
-  final String label;
-  final List<ReleaseGroup> items;
-  final Set<String> ownedTitles;
-  final String artistName;
-
-  const _SpringOut({
-    required this.label,
-    required this.items,
-    required this.ownedTitles,
-    required this.artistName,
-  });
+class _CaaCover extends ConsumerWidget {
+  final String mbid;
+  const _CaaCover({required this.mbid});
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: 150,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: items.length,
-            itemBuilder: (context, i) {
-              final r = items[i];
-              final owned = ownedTitles.contains(r.title.toLowerCase());
-              return FocalEntrance(
-                index: i,
-                child: Container(
-                  width: 110,
-                  margin: const EdgeInsets.only(right: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 110,
-                        decoration: BoxDecoration(
-                          color: inkRaised,
-                          borderRadius: BorderRadius.circular(12),
-                          border: owned ? Border.all(color: archRed, width: 2) : null,
-                        ),
-                        foregroundDecoration: owned
-                            ? null
-                            : const BoxDecoration(
-                                color: Color(0x99000000),
-                                borderRadius: BorderRadius.all(Radius.circular(12)),
-                              ),
-                        child: Center(
-                          child: r.artUrl != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: ColorFiltered(
-                                    colorFilter: owned
-                                        ? const ColorFilter.mode(
-                                            Colors.transparent, BlendMode.multiply)
-                                        : const ColorFilter.matrix(<double>[
-                                            0.2126, 0.7152, 0.0722, 0, 0,
-                                            0.2126, 0.7152, 0.0722, 0, 0,
-                                            0.2126, 0.7152, 0.0722, 0, 0,
-                                            0, 0, 0, 0.6, 0,
-                                          ]),
-                                    child: CachedNetworkImage(
-                                      imageUrl: r.artUrl!,
-                                      fit: BoxFit.cover,
-                                      errorWidget: (_, _, _) => const Icon(
-                                          Icons.album, color: Colors.white, size: 40),
-                                    ),
-                                  ),
-                                )
-                              : const Icon(Icons.album, color: inkTextDim, size: 40),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(r.title,
-                          maxLines: 1,
-                          style: TextStyle(
-                              color: owned ? Colors.white : inkTextDim, fontSize: 12)),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ReleaseGallery(
-                  artistName: artistName, label: label, items: items, ownedTitles: ownedTitles),
-            )),
-            child: const Text('View all →'),
-          ),
-        ),
-      ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final url = ref.watch(releaseCoverProvider(mbid)).value;
+    if (url == null) {
+      return Container(
+        color: inkRaised,
+        child: const Center(child: Icon(Icons.album, color: inkTextDim, size: 40)),
+      );
+    }
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.cover,
+      errorWidget: (_, _, _) => Container(
+        color: inkRaised,
+        child: const Center(child: Icon(Icons.album, color: inkTextDim, size: 40)),
+      ),
     );
   }
 }
