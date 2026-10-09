@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -18,10 +19,12 @@ final folderStoreProvider = Provider<FolderStore>((ref) => FolderStore());
 
 /// All songs after folder filtering (raw order = title).
 final songsProvider = FutureProvider<List<Song>>((ref) async {
+  debugPrint('BREADCRUMB songsProvider: scan started');
   final repo = ref.watch(libraryRepositoryProvider);
   final store = ref.watch(folderStoreProvider);
   final excluded = await store.excluded();
   final songs = await repo.loadSongs();
+  debugPrint('BREADCRUMB songsProvider: scan done (${songs.length})');
   final visible = songs.where((s) => !excluded.contains(s.folderKey)).toList();
   // Warm metadata for the artists that matter most. Bounded, background,
   // never blocking the list.

@@ -20,7 +20,12 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "querySongs" -> io.execute { result.success(querySongs()) }
+                    "querySongs" -> io.execute {
+                        android.util.Log.d("ArchLib", "querySongs: start")
+                        val out = querySongs()
+                        android.util.Log.d("ArchLib", "querySongs: done (${out.size})")
+                        result.success(out)
+                    }
                     "loadArt" -> {
                         val albumId = (call.argument<Number>("albumId")?.toLong()) ?: 0L
                         io.execute { result.success(loadArt(albumId)) }

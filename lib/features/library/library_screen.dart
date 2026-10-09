@@ -16,8 +16,8 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final songs = ref.watch(songsProvider);
     return songs.when(
-      loading: () => const Center(child: CircularProgressIndicator(color: archRed)),
-      error: (e, _) => Center(child: Text('Scan failed: $e')),
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator(color: archRed))),
+      error: (e, _) => Scaffold(body: Center(child: Text('Scan failed: $e'))),
       data: (_) => const _LibraryBody(),
     );
   }
