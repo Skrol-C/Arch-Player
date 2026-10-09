@@ -361,19 +361,16 @@ class _TopSongs extends ConsumerWidget {
       }
       return;
     }
-    final preview = Song(
-      id: -(track.rank + 1),
-      uri: Uri.parse(url),
-      title: track.title,
-      album: track.albumTitle,
-      artist: local.isEmpty ? artistName : local.first.artist,
-      albumId: 0,
-      duration: const Duration(seconds: 30),
-      year: 0,
-      folderKey: 'preview',
-      folderLabel: 'Preview',
-    );
-    await playGuarded(context, () => handler.playSong(preview, [preview]));
+    await playGuarded(
+        context,
+        () => handler.playPreview(
+              uri: Uri.parse(url),
+              title: track.title,
+              artist: local.isEmpty ? artistName : local.first.artist,
+              album: track.albumTitle,
+              coverUrl: track.coverUrl,
+              previewId: -(track.rank + 1),
+            ));
     opener.state = true;
   }
 }

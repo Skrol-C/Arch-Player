@@ -57,3 +57,8 @@ docs/
 
 # Local secrets (never committed)
 lib/core/secrets.local.dart
+
+# Icon sources (binaries stay local; only res/ output commits)
+icon-source*.png
+*removebg*.png
+*upscayl*.png
