@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.archstudios.arch_player"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

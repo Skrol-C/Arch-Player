@@ -37,6 +37,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
 
 # Local config
 local.properties
@@ -53,3 +54,6 @@ AGENTS.md
 PRODUCT.md
 README.md
 docs/
+
+# Local secrets (never committed)
+lib/core/secrets.local.dart
