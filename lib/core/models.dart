@@ -59,6 +59,15 @@ class ArtistMeta {
   final List<ReleaseGroup> releases;
 
   const ArtistMeta({this.mbid, this.imageUrl, this.bio, this.releases = const []});
+
+  ArtistMeta copyWith({String? mbid, String? imageUrl, String? bio, List<ReleaseGroup>? releases}) {
+    return ArtistMeta(
+      mbid: mbid ?? this.mbid,
+      imageUrl: imageUrl ?? this.imageUrl,
+      bio: bio ?? this.bio,
+      releases: releases ?? this.releases,
+    );
+  }
 }
 
 class ReleaseGroup {

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,7 +10,8 @@ import 'library_providers.dart';
 import 'song_row.dart';
 
 /// Artist page: local top songs + enriched pic, discography, bio.
-/// Every block degrades: no match = clean local-only page, never broken.
+/// Each enriched block renders the moment it lands. Every block degrades:
+/// no match = clean local-only page, never broken.
 class ArtistPage extends ConsumerStatefulWidget {
   final String artistName;
   const ArtistPage({super.key, required this.artistName});
@@ -23,7 +25,9 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   Widget build(BuildContext context) {
     final songs = ref.watch(songsProvider).value ?? [];
     final local = songs.where((s) => s.artist == widget.artistName).toList();
-    final meta = ref.watch(artistMetaProvider(widget.artistName));
+    final pic = ref.watch(artistPicProvider(widget.artistName));
+    final bio = ref.watch(artistBioProvider(widget.artistName));
+    final releases = ref.watch(artistReleasesProvider(widget.artistName));
     final followed = ref.watch(followedProvider);
 
     return Scaffold(
@@ -34,7 +38,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
           _Header(
             name: widget.artistName,
             count: local.length,
-            imageUrl: meta.value?.imageUrl,
+            imageUrl: pic.value,
             followed: followed.contains(widget.artistName),
             onFollow: () => ref.read(followedProvider.notifier).toggle(widget.artistName),
           ),
@@ -42,20 +46,17 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
           for (final s in (List<Song>.from(local)..sort((a, b) => a.title.compareTo(b.title))).take(10))
             SongRow(
               song: s,
-              art: Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(color: inkRaised, borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.music_note, color: inkTextDim),
-              ),
+              art: AlbumArt(albumId: s.albumId),
               isCurrent: ref.watch(currentSongProvider).value?.id == s.id,
               onTap: () async {
-                await ref.read(audioHandlerProvider).playSong(s, local);
-                ref.read(playerOpenProvider.notifier).state = true;
+                final handler = ref.read(audioHandlerProvider);
+                final opener = ref.read(playerOpenProvider.notifier);
+                await handler.playSong(s, local);
+                opener.state = true;
               },
             ),
-          _Discography(meta: meta, local: local),
-          _Bio(meta: meta),
+          _Discography(releases: releases, local: local),
+          _Bio(bio: bio),
         ],
       ),
     );
@@ -85,7 +86,8 @@ class _Header extends StatelessWidget {
           CircleAvatar(
             radius: 48,
             backgroundColor: inkRaised,
-            backgroundImage: imageUrl != null ? NetworkImage(imageUrl!) : null,
+            backgroundImage: imageUrl != null ? CachedNetworkImageProvider(imageUrl!) : null,
+            onBackgroundImageError: imageUrl != null ? (_, _) {} : null,
             child: imageUrl == null
                 ? Text(name.isEmpty ? '?' : name[0].toUpperCase(),
                     style: const TextStyle(color: archRed, fontSize: 36))
@@ -129,24 +131,24 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _Discography extends StatelessWidget {
-  final AsyncValue<ArtistMeta> meta;
+  final AsyncValue<List<ReleaseGroup>> releases;
   final List<Song> local;
 
-  const _Discography({required this.meta, required this.local});
+  const _Discography({required this.releases, required this.local});
 
   @override
   Widget build(BuildContext context) {
-    return meta.when(
+    return releases.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(16),
         child: LinearProgressIndicator(color: archRed),
       ),
       error: (_, _) => const SizedBox.shrink(),
-      data: (m) {
-        if (m.releases.isEmpty) return const SizedBox.shrink();
+      data: (list) {
+        if (list.isEmpty) return const SizedBox.shrink();
         final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
         final groups = <String, List<ReleaseGroup>>{};
-        for (final r in m.releases) {
+        for (final r in list) {
           groups.putIfAbsent(_labelOf(r.type), () => []).add(r);
         }
         return Column(
@@ -187,17 +189,42 @@ class _Discography extends StatelessWidget {
                                     borderRadius: BorderRadius.all(Radius.circular(12)),
                                   ),
                             child: Center(
-                              child: ColorFiltered(
-                                colorFilter: owned
-                                    ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
-                                    : const ColorFilter.matrix(<double>[
-                                        0.2126, 0.7152, 0.0722, 0, 0,
-                                        0.2126, 0.7152, 0.0722, 0, 0,
-                                        0.2126, 0.7152, 0.0722, 0, 0,
-                                        0, 0, 0, 0.6, 0,
-                                      ]),
-                                child: const Icon(Icons.album, color: Colors.white, size: 40),
-                              ),
+                              child: r.artUrl != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: ColorFiltered(
+                                        colorFilter: owned
+                                            ? const ColorFilter.mode(
+                                                Colors.transparent, BlendMode.multiply)
+                                            : const ColorFilter.matrix(<double>[
+                                                0.2126, 0.7152, 0.0722, 0, 0,
+                                                0.2126, 0.7152, 0.0722, 0, 0,
+                                                0.2126, 0.7152, 0.0722, 0, 0,
+                                                0, 0, 0, 0.6, 0,
+                                              ]),
+                                        child: CachedNetworkImage(
+                                          imageUrl: r.artUrl!,
+                                          fit: BoxFit.cover,
+                                          errorWidget: (_, _, _) => const Icon(
+                                              Icons.album,
+                                              color: Colors.white,
+                                              size: 40),
+                                        ),
+                                      ),
+                                    )
+                                  : ColorFiltered(
+                                      colorFilter: owned
+                                          ? const ColorFilter.mode(
+                                              Colors.transparent, BlendMode.multiply)
+                                          : const ColorFilter.matrix(<double>[
+                                              0.2126, 0.7152, 0.0722, 0, 0,
+                                              0.2126, 0.7152, 0.0722, 0, 0,
+                                              0.2126, 0.7152, 0.0722, 0, 0,
+                                              0, 0, 0, 0.6, 0,
+                                            ]),
+                                      child: const Icon(Icons.album,
+                                          color: Colors.white, size: 40),
+                                    ),
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -228,20 +255,20 @@ class _Discography extends StatelessWidget {
 }
 
 class _Bio extends StatelessWidget {
-  final AsyncValue<ArtistMeta> meta;
-  const _Bio({required this.meta});
+  final AsyncValue<String?> bio;
+  const _Bio({required this.bio});
 
   @override
   Widget build(BuildContext context) {
-    final bio = meta.value?.bio;
-    if (bio == null || bio.isEmpty) return const SizedBox.shrink();
+    final text = bio.value;
+    if (text == null || text.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionTitle('About'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(bio, style: const TextStyle(color: inkTextDim)),
+          child: Text(text, style: const TextStyle(color: inkTextDim)),
         ),
       ],
     );

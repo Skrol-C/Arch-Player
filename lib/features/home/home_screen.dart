@@ -44,12 +44,14 @@ class HomeScreen extends ConsumerWidget {
           }
           return ListTile(
             onTap: () async {
+              final handler = ref.read(audioHandlerProvider);
+              final opener = ref.read(playerOpenProvider.notifier);
               if (current == null) {
-                await ref.read(audioHandlerProvider).playSong(song, songs);
+                await handler.playSong(song, songs);
               } else if (!playing) {
-                await ref.read(audioHandlerProvider).play();
+                await handler.play();
               }
-              ref.read(playerOpenProvider.notifier).state = true;
+              opener.state = true;
             },
             leading: Container(
               width: 72,
@@ -82,8 +84,10 @@ class HomeScreen extends ConsumerWidget {
             ),
             isCurrent: song.id == current?.id,
             onTap: () async {
-              await ref.read(audioHandlerProvider).playSong(song, recent);
-              ref.read(playerOpenProvider.notifier).state = true;
+              final handler = ref.read(audioHandlerProvider);
+              final opener = ref.read(playerOpenProvider.notifier);
+              await handler.playSong(song, recent);
+              opener.state = true;
             },
           ),
       ],

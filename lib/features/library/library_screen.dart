@@ -79,8 +79,10 @@ class _LibraryBody extends ConsumerWidget {
                 art: AlbumArt(albumId: song.albumId),
                 isCurrent: song.id == current?.id,
                 onTap: () async {
-                  await ref.read(audioHandlerProvider).playSong(song, visible);
-                  ref.read(playerOpenProvider.notifier).state = true;
+                  final handler = ref.read(audioHandlerProvider);
+                  final opener = ref.read(playerOpenProvider.notifier);
+                  await handler.playSong(song, visible);
+                  opener.state = true;
                 },
               );
             },
@@ -236,8 +238,10 @@ class AlbumDetail extends ConsumerWidget {
               art: AlbumArt(albumId: song.albumId),
               isCurrent: song.id == current?.id,
               onTap: () async {
-                await ref.read(audioHandlerProvider).playSong(song, songs);
-                ref.read(playerOpenProvider.notifier).state = true;
+                final handler = ref.read(audioHandlerProvider);
+                final opener = ref.read(playerOpenProvider.notifier);
+                await handler.playSong(song, songs);
+                opener.state = true;
               },
             ),
         ],

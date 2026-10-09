@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../core/models.dart';
+import '../metadata/metadata_providers.dart';
 import 'data/folder_store.dart';
 import 'data/library_repository.dart';
 
@@ -21,7 +22,22 @@ final songsProvider = FutureProvider<List<Song>>((ref) async {
   final store = ref.watch(folderStoreProvider);
   final excluded = await store.excluded();
   final songs = await repo.loadSongs();
-  return songs.where((s) => !excluded.contains(s.folderKey)).toList();
+  final visible = songs.where((s) => !excluded.contains(s.folderKey)).toList();
+  // Warm metadata for the artists that matter most. Bounded, background,
+  // never blocking the list.
+  Future.microtask(() {
+    final counts = <String, int>{};
+    for (final s in visible) {
+      counts[s.artist] = (counts[s.artist] ?? 0) + 1;
+    }
+    final top = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final svc = ref.read(metadataServiceProvider);
+    for (final e in top.take(5)) {
+      svc.enrich(e.key).then((_) {}, onError: (_) {});
+    }
+  });
+  return visible;
 });
 
 final excludedProvider = FutureProvider<Set<String>>((ref) {

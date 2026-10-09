@@ -27,58 +27,97 @@ class MetadataService {
     return run;
   }
 
+  /// Full enrich, all three providers in PARALLEL. Kept for prefetch.
   Future<ArtistMeta> enrich(String artistName) async {
-    final cached = await _readCache(artistName);
-    if (cached != null) {
-      // Refresh in background; render cache now.
-      _fetchAndCache(artistName).then((fresh) {
-        if (fresh != null) _writeCache(artistName, fresh);
-      }, onError: (_) {});
-      return cached;
-    }
-    final fresh = await _fetchAndCache(artistName);
-    if (fresh != null) {
-      await _writeCache(artistName, fresh);
-      return fresh;
-    }
-    return const ArtistMeta();
+    final results = await Future.wait([
+      picFor(artistName),
+      bioFor(artistName),
+      releasesFor(artistName),
+    ]);
+    return ArtistMeta(
+      imageUrl: results[0] as String?,
+      bio: results[1] as String?,
+      releases: (results[2] as List<ReleaseGroup>?) ?? const [],
+    );
   }
 
-  Future<ArtistMeta?> _fetchAndCache(String artistName) async {
-    String? mbid;
-    List<ReleaseGroup> releases = [];
-    try {
-      final found = await _viaMbGate(() => _mbSearchArtist(artistName));
-      mbid = found;
-      if (mbid != null) {
-        releases = await _viaMbGate(() => _mbReleases(mbid!)).timeout(
-          const Duration(seconds: 20),
-          onTimeout: () => <ReleaseGroup>[],
-        );
-      }
-    } catch (e) {
-      debugPrint('MB enrich failed for $artistName: $e');
+  /// Portrait: cache first, else Deezer live. Never waits on other providers.
+  Future<String?> picFor(String artistName) async {
+    final stopwatch = Stopwatch()..start();
+    final cached = (await _readCache(artistName))?.imageUrl;
+    if (cached != null) {
+      _refreshField(artistName, _dzArtistImage(artistName, null), (m, v) => m.copyWith(imageUrl: v));
+      debugPrint('META pic cache hit for $artistName');
+      return cached;
     }
-
-    String? imageUrl;
     try {
-      imageUrl = await _dzArtistImage(artistName, mbid)
-          .timeout(const Duration(seconds: 15));
+      final live = await _dzArtistImage(artistName, null).timeout(const Duration(seconds: 15));
+      debugPrint('META pic live for $artistName in ${stopwatch.elapsedMilliseconds}ms');
+      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(imageUrl: live));
+      return live;
     } catch (e) {
       debugPrint('Deezer enrich failed for $artistName: $e');
-    }
-
-    String? bio;
-    try {
-      bio = await _lfmBio(artistName).timeout(const Duration(seconds: 15));
-    } catch (e) {
-      debugPrint('Last.fm enrich failed for $artistName: $e');
-    }
-
-    if (mbid == null && imageUrl == null && bio == null && releases.isEmpty) {
       return null;
     }
-    return ArtistMeta(mbid: mbid, imageUrl: imageUrl, bio: bio, releases: releases);
+  }
+
+  /// Bio: cache first, else Last.fm live. Never waits on other providers.
+  Future<String?> bioFor(String artistName) async {
+    final stopwatch = Stopwatch()..start();
+    final cached = (await _readCache(artistName))?.bio;
+    if (cached != null) {
+      _refreshField(artistName, _lfmBio(artistName), (m, v) => m.copyWith(bio: v));
+      debugPrint('META bio cache hit for $artistName');
+      return cached;
+    }
+    try {
+      final live = await _lfmBio(artistName).timeout(const Duration(seconds: 15));
+      debugPrint('META bio live for $artistName in ${stopwatch.elapsedMilliseconds}ms');
+      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(bio: live));
+      return live;
+    } catch (e) {
+      debugPrint('Last.fm enrich failed for $artistName: $e');
+      return null;
+    }
+  }
+
+  /// Discography: cache first, else MusicBrainz live (gated 1 req/s).
+  Future<List<ReleaseGroup>> releasesFor(String artistName) async {
+    final stopwatch = Stopwatch()..start();
+    final cached = (await _readCache(artistName))?.releases ?? [];
+    if (cached.isNotEmpty) {
+      _refreshField(artistName, _mbReleasesFor(artistName), (m, v) => m.copyWith(releases: v));
+      debugPrint('META releases cache hit for $artistName (${cached.length})');
+      return cached;
+    }
+    try {
+      final live = await _mbReleasesFor(artistName).timeout(const Duration(seconds: 30));
+      debugPrint('META releases live for $artistName (${live.length}) in ${stopwatch.elapsedMilliseconds}ms');
+      if (live.isNotEmpty) await _mergeCache(artistName, (m) => m.copyWith(releases: live));
+      return live;
+    } catch (e) {
+      debugPrint('MB enrich failed for $artistName: $e');
+      return const [];
+    }
+  }
+
+  Future<List<ReleaseGroup>> _mbReleasesFor(String artistName) async {
+    final mbid = await _viaMbGate(() => _mbSearchArtist(artistName));
+    if (mbid == null) return const [];
+    return _mbReleases(mbid);
+  }
+
+  void _refreshField<T>(String artistName, Future<T?> fetch, ArtistMeta Function(ArtistMeta, T?) apply) {
+    fetch.then((v) async {
+      if (v == null) return;
+      if (v is List && v.isEmpty) return;
+      await _mergeCache(artistName, (m) => apply(m, v));
+    }, onError: (_) {});
+  }
+
+  Future<void> _mergeCache(String artistName, ArtistMeta Function(ArtistMeta) merge) async {
+    final current = await _readCache(artistName) ?? const ArtistMeta();
+    await _writeCache(artistName, merge(current));
   }
 
   /// Returns the MBID of the best match, or null when nothing is safe.
