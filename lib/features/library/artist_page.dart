@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/art_tone.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -121,7 +122,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   }
 }
 
-class _Hero extends StatelessWidget {
+class _Hero extends StatefulWidget {
   final String name;
   final List<Song> local;
   final String? imageUrl;
@@ -141,9 +142,29 @@ class _Hero extends StatelessWidget {
   });
 
   @override
+  State<_Hero> createState() => _HeroState();
+}
+
+class _HeroState extends State<_Hero> {
+  Future<Color?>? _tone;
+
+  @override
+  void initState() {
+    super.initState();
+    _tone = ArtTone.of(widget.imageUrl);
+  }
+
+  @override
+  void didUpdateWidget(_Hero old) {
+    super.didUpdateWidget(old);
+    if (old.imageUrl != widget.imageUrl) _tone = ArtTone.of(widget.imageUrl);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final name = widget.name;
     return SliverAppBar(
-      expandedHeight: 380,
+      expandedHeight: 400,
       pinned: true,
       backgroundColor: paper,
       leading: Padding(
@@ -155,16 +176,16 @@ class _Hero extends StatelessWidget {
             refraction: LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10),
           ),
           child: IconButton(
-              onPressed: onBack, icon: const Icon(Icons.arrow_back, color: ink)),
+              onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, color: ink)),
         ),
       ),
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
           children: [
-            if (imageUrl != null)
+            if (widget.imageUrl != null)
               CachedNetworkImage(
-                imageUrl: imageUrl!,
+                imageUrl: widget.imageUrl!,
                 fit: BoxFit.cover,
                 memCacheWidth: 800,
                 errorWidget: (_, _, _) => Container(color: paperRaised),
@@ -185,19 +206,49 @@ class _Hero extends StatelessWidget {
                   ),
                 ),
               ),
+            // Legibility scrim: long and smooth, holds the white text zone.
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black38, Color(0xE6000000)],
+                  stops: [0.0, 0.42, 0.62, 0.78],
+                  colors: [Colors.transparent, Colors.transparent, Colors.black45, Colors.black54],
                 ),
+              ),
+            ),
+            // Melt band: photo dissolves into the page through the artist's
+            // own tone. No hard cutoff anywhere. Sits below the text block.
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 110,
+              child: FutureBuilder<Color?>(
+                future: _tone,
+                builder: (context, snap) {
+                  final tone = snap.data ?? paperRaised;
+                  return Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          tone.withValues(alpha: 0.28),
+                          paper,
+                        ],
+                        stops: const [0.0, 0.45, 1.0],
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
             Positioned(
               left: 20,
               right: 20,
-              bottom: 14,
+              bottom: 118,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -210,14 +261,14 @@ class _Hero extends StatelessWidget {
                             letterSpacing: -0.5)),
                   ),
                   const SizedBox(height: 4),
-                  Text('${local.length} song${local.length == 1 ? '' : 's'} on device',
+                  Text('${widget.local.length} song${widget.local.length == 1 ? '' : 's'} on device',
                       style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
                   _ActionRow(
-                    local: local,
-                    followed: followed,
-                    onFollow: onFollow,
-                    onShare: onShare,
+                    local: widget.local,
+                    followed: widget.followed,
+                    onFollow: widget.onFollow,
+                    onShare: widget.onShare,
                   ),
                 ],
               ),
