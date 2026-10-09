@@ -11,9 +11,9 @@ import 'features/shell/shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Compile glass shaders before the first frame: first glass is glass,
-  // never first-frame frost.
-  await LiquidGlassShaders.ensureLoaded();
+  // Audio first: a cold media-resume entry must reach a ready handler in
+  // well under the 10s foreground ANR window. Shader warmup must never
+  // block the entrypoint, so it runs unawaited after init.
   final handler = await AudioService.init(
     builder: () => ArchAudioHandler(),
     config: const AudioServiceConfig(
@@ -22,6 +22,9 @@ Future<void> main() async {
       androidNotificationIcon: 'drawable/ic_stat_music_note',
     ),
   );
+  // Compile glass shaders for first-frame glass instead of first-frame
+  // frost. Fire-and-forget: ghost starts have no UI to warm for.
+  LiquidGlassShaders.ensureLoaded().ignore();
   runApp(
     ProviderScope(
       overrides: [audioHandlerProvider.overrideWithValue(handler)],
