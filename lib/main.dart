@@ -15,14 +15,16 @@ import 'features/shell/shell.dart';
 /// Audio init stays first so cold media-resume entries reach a ready
 /// handler inside the foreground ANR window; shader warmup never blocks.
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await ArchLog.init();
-  FlutterError.onError = (details) {
-    ArchLog.e('flutter', details.exceptionAsString(), details.stack);
-    FlutterError.presentError(details);
-  };
+  // Everything — including binding init — runs inside the guarded zone,
+  // or Flutter throws a zone-mismatch on every startup (caught live).
   runZonedGuarded(
     () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await ArchLog.init();
+      FlutterError.onError = (details) {
+        ArchLog.e('flutter', details.exceptionAsString(), details.stack);
+        FlutterError.presentError(details);
+      };
       final handler = await AudioService.init(
         builder: () => ArchAudioHandler(),
         config: const AudioServiceConfig(
