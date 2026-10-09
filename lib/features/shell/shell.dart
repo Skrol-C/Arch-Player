@@ -5,6 +5,8 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/log.dart';
 import '../../core/theme.dart';
+import '../settings/needle_teaser.dart';
+import '../settings/settings_screen.dart';
 
 enum Destination { library, needle, settings }
 
@@ -28,8 +30,8 @@ class Shell extends ConsumerWidget {
         children: [
           switch (dest) {
             Destination.library => const _DemoList(key: ValueKey('dest-library'), title: 'Library'),
-            Destination.needle => const _NeedleTeaser(key: ValueKey('dest-needle')),
-            Destination.settings => const _DemoList(key: ValueKey('dest-settings'), title: 'Settings'),
+            Destination.needle => const NeedleTeaser(key: ValueKey('dest-needle')),
+            Destination.settings => const SettingsScreen(key: ValueKey('dest-settings')),
           },
           LiquidGlassTabBar.withImpeller(
             items: [
@@ -62,6 +64,7 @@ class Shell extends ConsumerWidget {
 }
 
 /// Stand-in content: rows for the lens to bend. Replaced by real slices.
+/// (Needle teaser lives in settings/ until the engine lands.)
 class _DemoList extends StatelessWidget {
   final String title;
   const _DemoList({super.key, required this.title});
@@ -102,46 +105,6 @@ class _DemoList extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Needle teaser: name, promise, no dead end. Engine lands per vision §8.
-class _NeedleTeaser extends StatelessWidget {
-  const _NeedleTeaser({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 96, 24, 160),
-      children: [
-        Text('Needle', style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 8),
-        const Text(
-          'Music, gotten inside the app. Providers plug in here — no second app needed.',
-          style: TextStyle(color: inkDim, height: 1.5),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: paperRaised,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Coming soon', style: TextStyle(color: archPink, fontWeight: FontWeight.w700)),
-              SizedBox(height: 8),
-              Text(
-                'Search, queue, and keep downloads with tags intact. '
-                'Sources arrive as community providers.',
-                style: TextStyle(color: inkDim, height: 1.5),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
