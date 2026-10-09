@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/log.dart';
 import '../../core/models.dart';
@@ -12,11 +13,13 @@ import '../metadata/metadata_providers.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'library_providers.dart';
+import 'library_screen.dart' show AlbumDetail;
 import 'release_gallery.dart';
 import 'song_row.dart';
 
-/// Artist page: hero pic + name + bio, real top songs (owned full,
-/// unowned 30s previews), discography as fanned cover stacks.
+/// Artist page: SpotiFLAC anatomy in our skin — full-bleed hero with
+/// action row, featured album card, Popular top 5 + expander, Albums rail
+/// with counts, fan decks for the long tail, About block.
 /// Every block renders the moment it lands; no match = clean local page.
 class ArtistPage extends ConsumerStatefulWidget {
   final String artistName;
@@ -42,6 +45,7 @@ class ArtistPage extends ConsumerStatefulWidget {
 class _ArtistPageState extends ConsumerState<ArtistPage> {
   /// Currently bloomed fan hub, if any.
   String? _openHub;
+  bool _showAllPopular = false;
 
   @override
   void initState() {
@@ -70,14 +74,25 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
         slivers: [
           _Hero(
             name: widget.artistName,
-            count: local.length,
+            local: local,
             imageUrl: pic.value,
             followed: followed.contains(widget.artistName),
             onFollow: () => _toggleFollow(widget.artistName, followed.contains(widget.artistName)),
             onBack: () => Navigator.of(context).pop(),
+            onShare: () => SharePlus.instance.share(
+              ShareParams(text: widget.artistName),
+            ),
           ),
           SliverToBoxAdapter(child: _Bio(bio: bio)),
-          SliverToBoxAdapter(child: _TopSongs(top: top, local: local, artistName: widget.artistName)),
+          SliverToBoxAdapter(
+            child: _Popular(
+              top: top,
+              local: local,
+              artistName: widget.artistName,
+              expanded: _showAllPopular,
+              onExpand: () => setState(() => _showAllPopular = !_showAllPopular),
+            ),
+          ),
           SliverToBoxAdapter(
             child: _FanRow(
               releases: releases,
@@ -108,25 +123,27 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
 
 class _Hero extends StatelessWidget {
   final String name;
-  final int count;
+  final List<Song> local;
   final String? imageUrl;
   final bool followed;
   final VoidCallback onFollow;
   final VoidCallback onBack;
+  final VoidCallback onShare;
 
   const _Hero({
     required this.name,
-    required this.count,
+    required this.local,
     required this.imageUrl,
     required this.followed,
     required this.onFollow,
     required this.onBack,
+    required this.onShare,
   });
 
   @override
   Widget build(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 320,
+      expandedHeight: 380,
       pinned: true,
       backgroundColor: paper,
       leading: Padding(
@@ -164,7 +181,7 @@ class _Hero extends StatelessWidget {
                 child: Center(
                   child: Text(
                     name.isEmpty ? '?' : name[0].toUpperCase(),
-                    style: const TextStyle(color: archPink, fontSize: 96),
+                    style: const TextStyle(color: archPink, fontSize: 120),
                   ),
                 ),
               ),
@@ -173,7 +190,7 @@ class _Hero extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.transparent, Color(0xE6FFFFFF)],
+                  colors: [Colors.transparent, Colors.black38, Color(0xE6000000)],
                 ),
               ),
             ),
@@ -181,31 +198,26 @@ class _Hero extends StatelessWidget {
               left: 20,
               right: 20,
               bottom: 14,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        FocalEntrance(
-                          child: Text(name,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineLarge
-                                  ?.copyWith(letterSpacing: -0.5)),
-                        ),
-                        const SizedBox(height: 2),
-                        Text('$count songs on device',
-                            style: const TextStyle(color: archPink)),
-                      ],
-                    ),
+                  FocalEntrance(
+                    child: Text(name,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5)),
                   ),
-                  IconButton(
-                    onPressed: onFollow,
-                    iconSize: 28,
-                    color: followed ? archPink : ink,
-                    icon: Icon(followed ? Icons.favorite : Icons.favorite_border),
+                  const SizedBox(height: 4),
+                  Text('${local.length} song${local.length == 1 ? '' : 's'} on device',
+                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  _ActionRow(
+                    local: local,
+                    followed: followed,
+                    onFollow: onFollow,
+                    onShare: onShare,
                   ),
                 ],
               ),
@@ -217,19 +229,101 @@ class _Hero extends StatelessWidget {
   }
 }
 
+/// Share · big play · follow. No dead download control until Needle exists.
+class _ActionRow extends ConsumerWidget {
+  final List<Song> local;
+  final bool followed;
+  final VoidCallback onFollow;
+  final VoidCallback onShare;
+
+  const _ActionRow({
+    required this.local,
+    required this.followed,
+    required this.onFollow,
+    required this.onShare,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _RoundButton(icon: Icons.share_rounded, onTap: onShare),
+        GestureDetector(
+          onTap: () async {
+            if (local.isEmpty) return;
+            HapticFeedback.mediumImpact();
+            final handler = ref.read(audioHandlerProvider);
+            final opener = ref.read(playerOpenProvider.notifier);
+            await playGuarded(context, () => handler.playSong(local.first, local));
+            opener.state = true;
+          },
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            child: const Icon(Icons.play_arrow_rounded, color: ink, size: 36),
+          ),
+        ),
+        _RoundButton(
+          icon: followed ? Icons.star_rounded : Icons.star_outline_rounded,
+          color: followed ? archPink : Colors.white,
+          onTap: onFollow,
+        ),
+      ],
+    );
+  }
+}
+
+class _RoundButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color color;
+
+  const _RoundButton({required this.icon, required this.onTap, this.color = Colors.white});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.35),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+        ),
+        child: Icon(icon, color: color, size: 26),
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
   final String text;
-  const _SectionTitle(this.text);
+  final int? count;
+  const _SectionTitle(this.text, {this.count});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-      child: Text(text,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(color: archPink, fontWeight: FontWeight.w600)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(text,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: ink)),
+          if (count != null) ...[
+            const SizedBox(width: 8),
+            Text('$count', style: const TextStyle(color: inkDim, fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -278,24 +372,33 @@ class _ExpandableBioState extends State<_ExpandableBio> {
             widget.text,
             maxLines: _open ? null : 4,
             overflow: _open ? null : TextOverflow.ellipsis,
-            style: const TextStyle(color: inkDim, height: 1.5),
+            style: const TextStyle(color: ink, fontSize: 15, height: 1.6),
           ),
         ),
         TextButton(
           onPressed: () => setState(() => _open = !_open),
-          child: Text(_open ? 'Show less' : 'Read more'),
+          child: Text(_open ? 'Show less' : 'Read more',
+              style: const TextStyle(color: archPink, fontWeight: FontWeight.w600)),
         ),
       ],
     );
   }
 }
 
-class _TopSongs extends ConsumerWidget {
+class _Popular extends ConsumerWidget {
   final AsyncValue<List<TopTrack>> top;
   final List<Song> local;
   final String artistName;
+  final bool expanded;
+  final VoidCallback onExpand;
 
-  const _TopSongs({required this.top, required this.local, required this.artistName});
+  const _Popular({
+    required this.top,
+    required this.local,
+    required this.artistName,
+    required this.expanded,
+    required this.onExpand,
+  });
 
   Song? _owned(String title) {
     final norm = _norm(title);
@@ -314,28 +417,36 @@ class _TopSongs extends ConsumerWidget {
       loading: () => const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle('Top songs'),
+          _SectionTitle('Popular'),
           Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator(color: archPink)),
         ],
       ),
       error: (_, _) => const SizedBox.shrink(),
       data: (tracks) {
         if (tracks.isEmpty) return const SizedBox.shrink();
+        final shown = expanded ? tracks.take(10).toList() : tracks.take(5).toList();
         final currentId = ref.watch(currentSongProvider).value?.id;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle('Top songs'),
-            for (var i = 0; i < tracks.length; i++)
+            _SectionTitle('Popular', count: tracks.length),
+            for (var i = 0; i < shown.length; i++)
               _TopRow(
-                track: tracks[i],
-                owned: _owned(tracks[i].title),
-                // Match by id only: a preview id is -(rank+1), so exactly
-                // the tapped row lights — never the whole chart.
+                track: shown[i],
+                owned: _owned(shown[i].title),
                 isCurrent: currentId != null &&
-                    (currentId == _owned(tracks[i].title)?.id ||
-                        currentId == -(tracks[i].rank + 1)),
-                onTap: () => _play(ref, context, tracks[i]),
+                    (currentId == _owned(shown[i].title)?.id ||
+                        currentId == -(shown[i].rank + 1)),
+                onTap: () => _play(ref, context, shown[i]),
+                onOverflow: () => _trackActions(ref, context, shown[i]),
+              ),
+            if (tracks.length > 5)
+              Center(
+                child: TextButton(
+                  onPressed: onExpand,
+                  child: Text(expanded ? 'Show less' : 'Show all ${tracks.length}',
+                      style: const TextStyle(color: archPink, fontWeight: FontWeight.w600)),
+                ),
               ),
           ],
         );
@@ -373,6 +484,53 @@ class _TopSongs extends ConsumerWidget {
             ));
     opener.state = true;
   }
+
+  void _trackActions(WidgetRef ref, BuildContext context, TopTrack track) {
+    final owned = _owned(track.title);
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.play_arrow_rounded, color: archPink),
+              title: Text('Play ${track.title}', maxLines: 1),
+              onTap: () {
+                Navigator.of(context).pop();
+                _play(ref, context, track);
+              },
+            ),
+            if (owned != null)
+              ListTile(
+                leading: const Icon(Icons.album_rounded, color: ink),
+                title: Text('Go to album · ${owned.album}', maxLines: 1),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  final albums = ref.read(albumsProvider);
+                  for (final a in albums) {
+                    if (a.title == owned.album && a.artist == owned.artist) {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => AlbumDetail(album: a),
+                      ));
+                      return;
+                    }
+                  }
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.share_rounded, color: ink),
+              title: const Text('Share'),
+              onTap: () {
+                Navigator.of(context).pop();
+                SharePlus.instance.share(ShareParams(text: '${track.title} — $artistName'));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _TopRow extends StatelessWidget {
@@ -380,22 +538,28 @@ class _TopRow extends StatelessWidget {
   final Song? owned;
   final bool isCurrent;
   final VoidCallback onTap;
+  final VoidCallback onOverflow;
 
-  const _TopRow(
-      {required this.track, required this.owned, required this.isCurrent, required this.onTap});
+  const _TopRow({
+    required this.track,
+    required this.owned,
+    required this.isCurrent,
+    required this.onTap,
+    required this.onOverflow,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       onTap: onTap,
       leading: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            width: 24,
+            width: 28,
             child: Text('${track.rank}',
-                style: const TextStyle(color: inkDim, fontWeight: FontWeight.w600)),
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)),
           ),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
@@ -423,7 +587,7 @@ class _TopRow extends StatelessWidget {
         ],
       ),
       title: Text(track.title,
-          maxLines: 1, style: TextStyle(color: isCurrent ? archPink : ink)),
+          maxLines: 1, style: TextStyle(color: isCurrent ? archPink : ink, fontWeight: FontWeight.w600)),
       subtitle: Row(
         children: [
           if (owned == null)
@@ -442,9 +606,17 @@ class _TopRow extends StatelessWidget {
           ),
         ],
       ),
-      trailing: isCurrent
-          ? const NowBars()
-          : Text(fmtDuration(track.duration), style: const TextStyle(color: inkDim)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isCurrent) const NowBars()
+          else Text(fmtDuration(track.duration), style: const TextStyle(color: inkDim)),
+          IconButton(
+            icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
+            onPressed: onOverflow,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -470,9 +642,12 @@ class _FanRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return releases.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.all(20),
-        child: LinearProgressIndicator(color: archPink),
+      loading: () => const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionTitle('Discography'),
+          Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator(color: archPink)),
+        ],
       ),
       error: (_, _) => const SizedBox.shrink(),
       data: (list) {
@@ -482,10 +657,11 @@ class _FanRow extends StatelessWidget {
           groups.putIfAbsent(_labelOf(r.type), () => []).add(r);
         }
         final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
+        final total = groups.values.fold<int>(0, (n, g) => n + g.length);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle('Discography'),
+            _SectionTitle('Discography', count: total),
             SizedBox(
               height: 215,
               child: ListView.builder(

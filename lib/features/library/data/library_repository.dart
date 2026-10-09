@@ -37,6 +37,7 @@ class ChannelLibrary implements LibraryRepository {
           folderKey: 'media:$folder',
           folderLabel: folder,
           path: (m['path'] as String?) ?? '',
+          addedSecs: (m['addedSecs'] as num?)?.toInt() ?? 0,
         ));
       }
     }

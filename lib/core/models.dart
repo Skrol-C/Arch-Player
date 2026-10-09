@@ -14,6 +14,9 @@ class Song {
   /// Full device path (MediaStore DATA). Folder picks match by prefix.
   final String path;
 
+  /// MediaStore DATE_ADDED, seconds since epoch. Drives Recently Added.
+  final int addedSecs;
+
   const Song({
     required this.id,
     required this.uri,
@@ -26,6 +29,7 @@ class Song {
     required this.folderKey,
     required this.folderLabel,
     this.path = '',
+    this.addedSecs = 0,
   });
 }
 

@@ -10,6 +10,7 @@ import '../player/player_providers.dart';
 import 'artist_page.dart';
 import 'folder_sheet.dart';
 import 'library_providers.dart';
+import 'shelves.dart';
 import 'song_row.dart';
 
 class LibraryScreen extends ConsumerWidget {
@@ -86,6 +87,8 @@ class _LibraryBody extends ConsumerWidget {
         ),
         SliverToBoxAdapter(child: _SortRow()),
         SliverToBoxAdapter(child: _TabPills()),
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+        const SliverToBoxAdapter(child: Shelves()),
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
         if (visible.isEmpty)
           const SliverFillRemaining(

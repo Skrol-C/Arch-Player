@@ -5,6 +5,7 @@ import '../../core/log.dart';
 import '../../core/models.dart';
 import '../metadata/metadata_providers.dart';
 import 'data/folder_store.dart';
+import 'data/history_store.dart';
 import 'data/library_repository.dart';
 
 enum LibraryTab { songs, albums, artists }
@@ -15,6 +16,7 @@ enum ViewMode { grid, list }
 
 final libraryRepositoryProvider = Provider<LibraryRepository>((ref) => ChannelLibrary());
 final folderStoreProvider = Provider<FolderStore>((ref) => FolderStore());
+final historyStoreProvider = Provider<HistoryStore>((ref) => HistoryStore());
 
 /// All songs after picked-folder + exclude filtering.
 final songsProvider = FutureProvider<List<Song>>((ref) async {
@@ -164,3 +166,26 @@ Future<void> toggleFolder(WidgetRef ref, String key, bool excluded) async {
   ref.invalidate(songsProvider);
   ref.invalidate(excludedProvider);
 }
+
+/// Recently added to the device (MediaStore DATE_ADDED). Empty when the
+/// scan carries no dates — the rail hides instead of lying.
+final recentlyAddedProvider = Provider<List<Song>>((ref) {
+  final songs = ref.watch(songsProvider).value ?? [];
+  final dated = songs.where((s) => s.addedSecs > 0).toList()
+    ..sort((a, b) => b.addedSecs.compareTo(a.addedSecs));
+  return dated.take(12).toList();
+});
+
+/// Recently played, newest first. Empty until anything plays.
+final listenAgainProvider = FutureProvider<List<Song>>((ref) async {
+  final songs = ref.watch(songsProvider).value ?? [];
+  if (songs.isEmpty) return [];
+  final history = await ref.watch(historyStoreProvider).read();
+  if (history.isEmpty) return [];
+  final byId = {for (final s in songs) s.id: s};
+  final entries = history.entries
+      .where((e) => byId.containsKey(e.key))
+      .toList()
+    ..sort((a, b) => b.value.lastMs.compareTo(a.value.lastMs));
+  return [for (final e in entries.take(10)) byId[e.key]!];
+});

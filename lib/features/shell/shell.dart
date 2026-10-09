@@ -5,6 +5,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/log.dart';
 import '../../core/theme.dart';
+import '../library/library_providers.dart';
 import '../library/library_screen.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
@@ -27,6 +28,14 @@ class Shell extends ConsumerWidget {
     final dest = ref.watch(destinationProvider);
     final playerOpen = ref.watch(playerOpenProvider);
     ArchLog.i('nav', 'shell build dest=$dest playerOpen=$playerOpen');
+    // One hook: every newly current song counts as listened, wherever the
+    // tap happened. Feeds Listen Again + taste shelves.
+    ref.listen(currentSongProvider, (prev, next) {
+      final song = next.value;
+      if (song == null || song.id == prev?.value?.id) return;
+      ref.read(historyStoreProvider).recordPlay(song.id);
+      ref.invalidate(listenAgainProvider);
+    });
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
