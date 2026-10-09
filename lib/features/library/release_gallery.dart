@@ -72,6 +72,7 @@ class ReleaseGallery extends StatelessWidget {
                                 child: CachedNetworkImage(
                                   imageUrl: r.artUrl!,
                                   fit: BoxFit.cover,
+                                  memCacheWidth: 500,
                                   errorWidget: (_, _, _) =>
                                       const Icon(Icons.album, color: Colors.white, size: 48),
                                 ),

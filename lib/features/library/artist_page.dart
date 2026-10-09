@@ -742,6 +742,7 @@ class _CaaCover extends ConsumerWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      memCacheWidth: 300,
       errorWidget: (_, _, _) => Container(
         color: inkRaised,
         child: const Center(child: Icon(Icons.album, color: inkTextDim, size: 40)),

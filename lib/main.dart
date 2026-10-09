@@ -25,6 +25,10 @@ Future<void> main() async {
   // Compile glass shaders for first-frame glass instead of first-frame
   // frost. Fire-and-forget: ghost starts have no UI to warm for.
   LiquidGlassShaders.ensureLoaded().ignore();
+  // Bounded image caches: unbounded decoded images starved Impeller
+  // textures until content painted black and self-healed. Never again.
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
   runApp(
     ProviderScope(
       overrides: [audioHandlerProvider.overrideWithValue(handler)],
