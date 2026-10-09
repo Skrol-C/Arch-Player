@@ -20,6 +20,18 @@ class ArtistPage extends ConsumerStatefulWidget {
   final String artistName;
   const ArtistPage({super.key, required this.artistName});
 
+  /// Artists currently on the navigation stack. Pushing the same artist
+  /// twice stacked identical routes and their glass/hero layers — guard it.
+  static final Set<String> _open = {};
+
+  static bool openIfAbsent(BuildContext context, String artistName) {
+    if (_open.contains(artistName)) return false;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ArtistPage(artistName: artistName),
+    ));
+    return true;
+  }
+
   @override
   ConsumerState<ArtistPage> createState() => _ArtistPageState();
 }
@@ -27,6 +39,18 @@ class ArtistPage extends ConsumerStatefulWidget {
 class _ArtistPageState extends ConsumerState<ArtistPage> {
   /// Currently bloomed fan hub, if any.
   String? _openHub;
+
+  @override
+  void initState() {
+    super.initState();
+    ArtistPage._open.add(widget.artistName);
+  }
+
+  @override
+  void dispose() {
+    ArtistPage._open.remove(widget.artistName);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -386,27 +410,25 @@ class _TopRow extends StatelessWidget {
           ),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Hero(
-              // Artist + chart rank: structurally unique, even with
-              // duplicate titles in one chart. Never title-only.
-              tag: 'art-$artistName-${track.rank}',
-              child: track.coverUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: track.coverUrl!, width: 52, height: 52, fit: BoxFit.cover, memCacheWidth: 150,
-                      errorWidget: (_, _, _) => Container(
-                        width: 52,
-                        height: 52,
-                        color: inkRaised,
-                        child: const Icon(Icons.music_note, color: inkTextDim),
-                      ),
-                    )
-                  : Container(
+            // NOTE: no Hero here by design. Shared tags across re-pushed
+            // artist routes corrupted the navigator (blank pages); the
+            // flight wasn't worth the route risk. Fade-through instead.
+            child: track.coverUrl != null
+                ? CachedNetworkImage(
+                    imageUrl: track.coverUrl!, width: 52, height: 52, fit: BoxFit.cover, memCacheWidth: 150,
+                    errorWidget: (_, _, _) => Container(
                       width: 52,
                       height: 52,
                       color: inkRaised,
                       child: const Icon(Icons.music_note, color: inkTextDim),
                     ),
-            ),
+                  )
+                : Container(
+                    width: 52,
+                    height: 52,
+                    color: inkRaised,
+                    child: const Icon(Icons.music_note, color: inkTextDim),
+                  ),
           ),
         ],
       ),

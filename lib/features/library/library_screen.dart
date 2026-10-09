@@ -266,9 +266,7 @@ class _ArtistList extends ConsumerWidget {
         final entry = artists[i];
         final isFollowed = followed.contains(entry.name);
         return ListTile(
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ArtistPage(artistName: entry.name),
-          )),
+          onTap: () => ArtistPage.openIfAbsent(context, entry.name),
           leading: const CircleAvatar(
               backgroundColor: inkRaised, child: Icon(Icons.person, color: inkTextDim)),
           title: Text(entry.name, maxLines: 1),
