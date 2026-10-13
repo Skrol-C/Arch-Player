@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +17,7 @@ import '../library/artist_page.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart' show fmtDuration;
+import 'morph_icon.dart';
 
 /// One row in a context menu. Tap pops [value] back to the caller -
 /// the menu stays dumb, callers switch on the result.
@@ -75,7 +75,7 @@ Future<String?> showTrackMenu({
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       transitionDuration: Motion.reduced(context)
           ? Duration.zero
-          : const Duration(milliseconds: 320),
+          : const Duration(milliseconds: 450),
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
         final media = MediaQuery.of(context);
@@ -85,46 +85,45 @@ Future<String?> showTrackMenu({
           // is their 1:1 recipe: travel + grow + glass reveal.
           child: _MenuRows(quick: quick, groups: groups),
           builder: (context, child) {
-            // The #650 trick, calibrated: travel on an OPAQUE surface
-            // (zero backdrop cost - shimmer physically impossible),
-            // then a smoothstepped glass turn-on capped at 0.97, so
-            // the filter never snaps at full strength. The bloom is
-            // a smooth emergence glide (no overshoot - that read as
-            // poppy, not emerging); the trigger anchor does the
-            // talking, not the curve.
+            // One lens from frame zero, morphed params, no cover,
+            // no swap: travel plays on the lens at paper state
+            // (opaque white, zero blur, zero bend - visually paper,
+            // backdrop cost trivial), then tint, blur and bend grow
+            // together. The morph starts inside the fastest part of
+            // the travel (12%) so its most visible stretch hides
+            // where the eye is busiest. Nothing swaps, so no swap
+            // frame can flash.
+            final t = animation.value;
             final raw =
-                const Interval(0, 0.7, curve: Curves.easeOutCubic)
-                    .transform(animation.value);
+                const Interval(0, 0.5, curve: Curves.easeOutCubic)
+                    .transform(t);
             final motion = raw;
             final glide = Curves.easeOutCubic.transform(raw);
-            final g =
-                const Interval(0.7, 1, curve: Curves.easeInOut)
-                    .transform(animation.value);
-            final glass = (g * g * (3 - 2 * g)).clamp(0.0, 1.0);
-            return Opacity(
-              opacity: motion,
-              child: FocusScope(
-                // The menu takes no text: never let it (or a focus
-                // reclaim across rapid reopen) summon the keyboard.
-                canRequestFocus: false,
-                skipTraversal: true,
-                child: CustomSingleChildLayout(
-                  delegate: _MenuLayout(
-                    anchor: target,
-                    maxWidth: 300,
-                    padding: media.padding,
-                    progress: glide,
-                  ),
-                  child: Transform.scale(
-                    scale: 0.15 + 0.85 * glide,
+            final morphRaw = ((t - 0.12) / 0.88).clamp(0.0, 1.0);
+            final morph =
+                (morphRaw * morphRaw * (3 - 2 * morphRaw))
+                    .clamp(0.0, 1.0);
+            return FocusScope(
+              // The menu takes no text: never let it (or a focus
+              // reclaim across rapid reopen) summon the keyboard.
+              canRequestFocus: false,
+              skipTraversal: true,
+              child: CustomSingleChildLayout(
+                delegate: _MenuLayout(
+                  anchor: target,
+                  maxWidth: 300,
+                  padding: media.padding,
+                  progress: glide,
+                ),
+                child: Transform.scale(
+                  scale: 0.15 + 0.85 * glide,
                     child: IgnorePointer(
                       ignoring: motion < 1 ||
                           animation.status == AnimationStatus.reverse,
-                      child: _MenuShell(glass: glass, child: child!),
+                      child: _MenuShell(morph: morph, child: child!),
+                    ),
                 ),
               ),
-              ),
-            ),
             );
           },
         );
@@ -200,40 +199,22 @@ class _MenuLayout extends SingleChildLayoutDelegate {
 }
 
 class _MenuShell extends StatelessWidget {
-  final double glass;
+  final double morph;
   final Widget child;
-  const _MenuShell({required this.glass, required this.child});
+  const _MenuShell({required this.morph, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    // Cover, don't blend: the lens is either absent or at full
-    // strength - opacity never touches it, so its backdrop
-    // sampling can't break (the resting-grey bug was a lens held
-    // at fractional opacity). The plain paper cover is the only
-    // thing that fades, and fading plain color is cheap. End
-    // state: lens full, cover transparent but mounted (dismiss
-    // fades it back in with no pop).
-    final lensOn = glass > 0.01;
+    // One lens, always mounted, params morphed: at morph=0 it is
+    // visually paper (opaque white, no blur, no bend), at morph=1
+    // the full menu recipe. No cover, no swap, no blend - the tree
+    // never changes shape, so no frame can flash or seam.
     return Stack(
       children: [
-        if (lensOn)
-          Positioned.fill(
-            child: LiquidGlassLens(
-              style: ArchGlass.menu(),
-              child: SizedBox.expand(),
-            ),
-          ),
         Positioned.fill(
-          child: Opacity(
-            opacity: (1 - glass).clamp(0.0, 1.0),
-            child: Container(
-              decoration: BoxDecoration(
-                color: paper,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                    color: ink.withValues(alpha: 0.08), width: 1),
-              ),
-            ),
+          child: LiquidGlassLens(
+            style: ArchGlass.menuMorphed(morph),
+            child: SizedBox.expand(),
           ),
         ),
         child,
@@ -242,59 +223,7 @@ class _MenuShell extends StatelessWidget {
   }
 }
 
-/// Row entrance: each row springs out once on open, cascaded -
-/// 16px rise with overshoot ease, fading in. Mount-time only (one
-/// timer, one animation, then rests): zero per-tick cost.
-/// Reduced-motion renders the child straight, no timer. Ours.
-class _RowEntrance extends StatefulWidget {
-  final int delayMs;
-  final Widget child;
-  const _RowEntrance({required this.delayMs, required this.child});
-
-  @override
-  State<_RowEntrance> createState() => _RowEntranceState();
-}
-
-class _RowEntranceState extends State<_RowEntrance> {
-  bool _go = false;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    // No context reads here (MediaQuery is illegal before initState
-    // completes) - the reduced-motion branch lives in build.
-    _timer = Timer(Duration(milliseconds: widget.delayMs), () {
-      if (mounted) setState(() => _go = true);
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Reduced-motion renders the child straight: no timer chase,
-    // no tween, same pixels as the animation's end state.
-    if (Motion.reduced(context)) return widget.child;
-    if (!_go) return Opacity(opacity: 0, child: widget.child);
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutBack,
-      builder: (context, v, _) => Opacity(
-        opacity: v.clamp(0.0, 1.0),
-        child: Transform.translate(
-          offset: Offset(0, 16 * (1 - v)),
-          child: widget.child,
-        ),
-      ),
-    );
-  }
-}
+/// Menu rows: quick chips first, then groups top to bottom.
 class _MenuRows extends StatelessWidget {
   final List<MenuAction> quick;
   final List<List<MenuAction>> groups;
@@ -326,7 +255,7 @@ class _MenuRows extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     for (final a in quick)
-                      _RowEntrance(
+                      CascadeIn(
                           delayMs: (k++) * 30,
                           child: _QuickChip(action: a)),
                   ],
@@ -338,7 +267,7 @@ class _MenuRows extends StatelessWidget {
               if (g > 0)
                 const Divider(height: 8, indent: 16, endIndent: 16),
               for (final a in groups[g])
-                _RowEntrance(
+                CascadeIn(
                     delayMs: (k++) * 30,
                     child: _MenuRow(action: a)),
             ],
@@ -591,24 +520,29 @@ class TrackDetailsSheet extends StatelessWidget {
               child: SingleChildScrollView(
                 child: Column(
                   children: [
-                    for (final r in rows)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 5),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 88,
-                              child: Text(r[0],
-                                  style: TextStyle(color: sub)),
-                            ),
-                            Expanded(
-                              child: Text(r[1],
-                                  style: TextStyle(
-                                      color: title,
-                                      fontWeight: FontWeight.w600)),
-                            ),
-                          ],
+                    for (var i = 0; i < rows.length; i++)
+                      CascadeIn(
+                        delayMs: i * 30,
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 5),
+                          child: Row(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 88,
+                                child: Text(rows[i][0],
+                                    style: TextStyle(color: sub)),
+                              ),
+                              Expanded(
+                                child: Text(rows[i][1],
+                                    style: TextStyle(
+                                        color: title,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                   ],

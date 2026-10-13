@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
 import '../../core/theme.dart';
+import '../player/morph_icon.dart';
 import 'library_providers.dart';
 
 /// Unlimited folder control: picked homes, per-folder toggles, add more.
@@ -40,12 +41,18 @@ class FolderSheet extends ConsumerWidget {
                 itemBuilder: (context, i) {
                   final folder = folders[i];
                   final off = excluded.contains(folder.key);
-                  return SwitchListTile(
-                    title: Text(folder.label),
-                    subtitle: Text('${folder.count} songs'),
-                    value: !off,
-                    activeThumbColor: archPink,
-                    onChanged: (on) => toggleFolder(ref, folder.key, !on),
+                  return CascadeIn(
+                    // Cap the stagger: long folder lists shouldn't
+                    // ripple forever, and states persist so only
+                    // newly added rows ever replay.
+                    delayMs: i.clamp(0, 8) * 30,
+                    child: SwitchListTile(
+                      title: Text(folder.label),
+                      subtitle: Text('${folder.count} songs'),
+                      value: !off,
+                      activeThumbColor: archPink,
+                      onChanged: (on) => toggleFolder(ref, folder.key, !on),
+                    ),
                   );
                 },
               ),

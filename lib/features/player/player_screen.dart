@@ -18,6 +18,7 @@ import '../library/library_providers.dart';
 import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../lyrics/lyrics_view.dart';
+import 'audio_handler.dart';
 import 'format_marks.dart';
 import 'morph_icon.dart';
 import 'play_guarded.dart';
@@ -1329,11 +1330,6 @@ class _SleepSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sleep = ref.watch(sleepProvider).value;
     final handler = ref.read(audioHandlerProvider);
-    String label(Duration? d) {
-      if (d == null) return 'Off';
-      if (d.inHours > 0) return '${d.inHours} hour';
-      return '${d.inMinutes} min';
-    }
 
     return SafeArea(
       child: Padding(
@@ -1351,31 +1347,64 @@ class _SleepSheet extends ConsumerWidget {
                     style: const TextStyle(color: archPink)),
               ),
             const SizedBox(height: 12),
-            for (final d in _options)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(label(d),
-                    style: const TextStyle(
-                        color: ink, fontWeight: FontWeight.w600)),
-                trailing: (sleep == null && d == null) ||
-                        (sleep != null &&
-                            d != null &&
-                            (sleep - d).abs() < const Duration(minutes: 1))
-                    ? const Icon(CupertinoIcons.checkmark, color: archPink)
-                    : null,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  if (d == null) {
-                    handler.cancelSleep();
-                  } else {
-                    handler.startSleep(d);
-                  }
-                  Navigator.of(context).pop();
-                },
+            for (var i = 0; i < _options.length; i++)
+              CascadeIn(
+                delayMs: i * 30,
+                child: _SleepOption(
+                  d: _options[i],
+                  sleep: sleep,
+                  handler: handler,
+                ),
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// One sleep row: label + selected check, arms/cancels on tap.
+class _SleepOption extends StatelessWidget {
+  final Duration? d;
+  final Duration? sleep;
+  final ArchAudioHandler handler;
+
+  const _SleepOption(
+      {required this.d, required this.sleep, required this.handler});
+
+  static String _label(Duration? d) {
+    if (d == null) return 'Off';
+    if (d.inHours > 0) return '${d.inHours} hour';
+    return '${d.inMinutes} min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Locals: promotion doesn't narrow fields, so copy first.
+    final armed = sleep;
+    final option = d;
+    final selected = (armed == null && option == null) ||
+        (armed != null &&
+            option != null &&
+            (armed - option).abs() < const Duration(minutes: 1));
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(_label(d),
+          style:
+              const TextStyle(color: ink, fontWeight: FontWeight.w600)),
+      trailing: selected
+          ? const Icon(CupertinoIcons.checkmark, color: archPink)
+          : null,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        final option = d;
+        if (option == null) {
+          handler.cancelSleep();
+        } else {
+          handler.startSleep(option);
+        }
+        Navigator.of(context).pop();
+      },
     );
   }
 }

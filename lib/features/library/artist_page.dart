@@ -12,6 +12,7 @@ import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
+import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'library_providers.dart';
@@ -924,45 +925,50 @@ class _PopularState extends ConsumerState<_Popular> {
 
   void _trackActions(WidgetRef ref, BuildContext context, TopTrack track) {
     final owned = _owned(track.title);
+    final tiles = <Widget>[
+      ListTile(
+        leading: const Icon(Icons.play_arrow_rounded, color: archPink),
+        title: Text('Play ${track.title}', maxLines: 1),
+        onTap: () {
+          Navigator.of(context).pop();
+          _play(ref, context, track);
+        },
+      ),
+      if (owned != null)
+        ListTile(
+          leading: const Icon(Icons.album_rounded, color: ink),
+          title: Text('Go to album - ${owned.album}', maxLines: 1),
+          onTap: () {
+            Navigator.of(context).pop();
+            final albums = ref.read(albumsProvider);
+            for (final a in albums) {
+              if (a.title == owned.album && a.artist == owned.artist) {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => AlbumPage(album: a),
+                ));
+                return;
+              }
+            }
+          },
+        ),
+      ListTile(
+        leading: const Icon(Icons.share_rounded, color: ink),
+        title: const Text('Share'),
+        onTap: () {
+          Navigator.of(context).pop();
+          SharePlus.instance.share(ShareParams(text: '${track.title} - ${widget.artistName}'));
+        },
+      ),
+    ];
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.play_arrow_rounded, color: archPink),
-              title: Text('Play ${track.title}', maxLines: 1),
-              onTap: () {
-                Navigator.of(context).pop();
-                _play(ref, context, track);
-              },
-            ),
-            if (owned != null)
-              ListTile(
-                leading: const Icon(Icons.album_rounded, color: ink),
-                title: Text('Go to album - ${owned.album}', maxLines: 1),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  final albums = ref.read(albumsProvider);
-                  for (final a in albums) {
-                    if (a.title == owned.album && a.artist == owned.artist) {
-                      Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => AlbumPage(album: a),
-                      ));
-                      return;
-                    }
-                  }
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.share_rounded, color: ink),
-              title: const Text('Share'),
-              onTap: () {
-                Navigator.of(context).pop();
-                SharePlus.instance.share(ShareParams(text: '${track.title} - ${widget.artistName}'));
-              },
-            ),
+            // Same house cascade as menus: rows arrive staggered.
+            for (var i = 0; i < tiles.length; i++)
+              CascadeIn(delayMs: i * 30, child: tiles[i]),
           ],
         ),
       ),

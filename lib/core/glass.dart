@@ -70,4 +70,40 @@ abstract final class ArchGlass {
         refraction: const LiquidGlassRefraction(
             distortion: 0.13, distortionWidth: 14),
       );
+
+  /// Sigma-ramped menu lens: identical recipe, blur animated 0-12
+  /// across the entrance so consecutive frames differ
+  /// infinitesimally (no blend step, nowhere for a flash to live).
+  /// Refraction stays fixed - only blur moves, so the rim can't
+  /// swim. Rebuilt per tick during the ramp only; static after.
+  static LiquidGlassStyle menuWithSigma(double sigma) =>
+      LiquidGlassStyle(
+        shape: const LiquidGlassShape.continuousRoundedRectangle(
+            cornerRadius: 28, borderWidth: 1),
+        appearance: LiquidGlassAppearance(
+          color: const Color(0x66FFFFFF),
+          blur: LiquidGlassBlur(sigmaX: sigma, sigmaY: sigma),
+        ),
+        refraction: const LiquidGlassRefraction(
+            distortion: 0.13, distortionWidth: 14),
+      );
+
+  /// Morphed menu lens: the lens starts life AS the travel cover
+  /// (opaque paper-white, zero blur, zero bend) and becomes the
+  /// recipe as [p] goes 0-1. The swap frame is pixel-identical on
+  /// both sides, so no blend - and no flash - can exist. End
+  /// state (p=1) is pixel-identical to menu().
+  static LiquidGlassStyle menuMorphed(double p) {
+    final s = (p * p * (3 - 2 * p)).clamp(0.0, 1.0);
+    return LiquidGlassStyle(
+      shape: const LiquidGlassShape.continuousRoundedRectangle(
+          cornerRadius: 28, borderWidth: 1),
+      appearance: LiquidGlassAppearance(
+        color: Color.lerp(paper, const Color(0x66FFFFFF), s)!,
+        blur: LiquidGlassBlur(sigmaX: 12 * s, sigmaY: 12 * s),
+      ),
+      refraction: LiquidGlassRefraction(
+          distortion: 0.13 * s, distortionWidth: 14),
+    );
+  }
 }
