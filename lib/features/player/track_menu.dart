@@ -75,44 +75,56 @@ Future<String?> showTrackMenu({
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       transitionDuration: Motion.reduced(context)
           ? Duration.zero
-          : const Duration(milliseconds: 250),
+          : const Duration(milliseconds: 320),
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
         final media = MediaQuery.of(context);
         return AnimatedBuilder(
           animation: animation,
-          // Rows build once and stay cached; per-frame work below is
-          // opacity + one rise transform over a static region.
+          // Rows build once and stay cached; the choreography below
+          // is their 1:1 recipe: travel + grow + glass reveal.
           child: _MenuRows(quick: quick, groups: groups),
           builder: (context, child) {
-            // The shell never fades in either direction: fading a
-            // refractive lens re-renders refraction every frame
-            // (shimmer both ways). Open lands opaque; close fades
-            // only the plain rows (cheap content) in 100ms, then
-            // the route pops. No shimmer exists to be seen.
-            final dismissing = animation.status ==
-                AnimationStatus.reverse;
-            return FocusScope(
-              // The menu takes no text: never let it (or a focus
-              // reclaim across rapid reopen) summon the keyboard.
-              canRequestFocus: false,
-              skipTraversal: true,
-              child: CustomSingleChildLayout(
-                delegate: _MenuLayout(
-                  anchor: target,
-                  maxWidth: 300,
-                  padding: media.padding,
-                ),
-                child: IgnorePointer(
-                  ignoring: dismissing,
-                  child: _MenuShell(
-                      child: AnimatedOpacity(
-                    opacity: dismissing ? 0 : 1,
-                    duration: const Duration(milliseconds: 100),
-                    child: child!,
-                  )),
+            // The #650 trick, calibrated: travel on an OPAQUE surface
+            // (zero backdrop cost - shimmer physically impossible),
+            // then a smoothstepped glass turn-on capped at 0.97, so
+            // the filter never snaps at full strength. The bloom is
+            // a smooth emergence glide (no overshoot - that read as
+            // poppy, not emerging); the trigger anchor does the
+            // talking, not the curve.
+            final raw =
+                const Interval(0, 0.7, curve: Curves.easeOutCubic)
+                    .transform(animation.value);
+            final motion = raw;
+            final glide = Curves.easeOutCubic.transform(raw);
+            final g =
+                const Interval(0.7, 1, curve: Curves.easeInOut)
+                    .transform(animation.value);
+            final glass = (g * g * (3 - 2 * g)).clamp(0.0, 1.0);
+            return Opacity(
+              opacity: motion,
+              child: FocusScope(
+                // The menu takes no text: never let it (or a focus
+                // reclaim across rapid reopen) summon the keyboard.
+                canRequestFocus: false,
+                skipTraversal: true,
+                child: CustomSingleChildLayout(
+                  delegate: _MenuLayout(
+                    anchor: target,
+                    maxWidth: 300,
+                    padding: media.padding,
+                    progress: glide,
+                  ),
+                  child: Transform.scale(
+                    scale: 0.15 + 0.85 * glide,
+                    child: IgnorePointer(
+                      ignoring: motion < 1 ||
+                          animation.status == AnimationStatus.reverse,
+                      child: _MenuShell(glass: glass, child: child!),
                 ),
               ),
+              ),
+            ),
             );
           },
         );
@@ -125,12 +137,14 @@ class _MenuLayout extends SingleChildLayoutDelegate {
   final Rect? anchor;
   final EdgeInsets padding;
   final double maxWidth;
+  final double progress;
   static const _margin = 16.0;
 
   const _MenuLayout({
     required this.anchor,
     required this.padding,
     required this.maxWidth,
+    required this.progress,
   });
 
   @override
@@ -155,49 +169,83 @@ class _MenuLayout extends SingleChildLayoutDelegate {
         left, size.width - padding.right - _margin - childSize.width);
     final bottom = math.max(
         top, size.height - padding.bottom - _margin - childSize.height);
+    Offset resting;
     if (anchor == null) {
-      return Offset((size.width - childSize.width) / 2,
+      resting = Offset((size.width - childSize.width) / 2,
           size.height * 0.3 - childSize.height / 2);
+    } else {
+      final below = anchor!.bottom + 8;
+      final above = anchor!.top - childSize.height - 8;
+      final y = below <= bottom
+          ? below
+          : above >= top
+              ? above
+              : bottom;
+      resting = Offset(
+          (anchor!.right - childSize.width).clamp(left, right),
+          y.clamp(top, bottom));
     }
-    final below = anchor!.bottom + 8;
-    final above = anchor!.top - childSize.height - 8;
-    final y = below <= bottom
-        ? below
-        : above >= top
-            ? above
-            : bottom;
-    return Offset(
-        (anchor!.right - childSize.width).clamp(left, right),
-        y.clamp(top, bottom));
+    final origin = anchor?.center;
+    if (origin == null) return resting;
+    return Offset.lerp(
+        origin - childSize.center(Offset.zero), resting, progress)!;
   }
 
   @override
   bool shouldRelayout(_MenuLayout old) =>
       anchor != old.anchor ||
       padding != old.padding ||
-      maxWidth != old.maxWidth;
+      maxWidth != old.maxWidth ||
+      progress != old.progress;
 }
 
-/// Shell: the glassier menu lens over a static region from frame
-/// one. Never moves, never swaps - resolves once while a whisper
-/// of fade covers the pop. The motion lives in the rows.
 class _MenuShell extends StatelessWidget {
+  final double glass;
   final Widget child;
-  const _MenuShell({required this.child});
+  const _MenuShell({required this.glass, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return LiquidGlassLens(
-      style: ArchGlass.menu(),
-      child: child,
+    // Cover, don't blend: the lens is either absent or at full
+    // strength - opacity never touches it, so its backdrop
+    // sampling can't break (the resting-grey bug was a lens held
+    // at fractional opacity). The plain paper cover is the only
+    // thing that fades, and fading plain color is cheap. End
+    // state: lens full, cover transparent but mounted (dismiss
+    // fades it back in with no pop).
+    final lensOn = glass > 0.01;
+    return Stack(
+      children: [
+        if (lensOn)
+          Positioned.fill(
+            child: LiquidGlassLens(
+              style: ArchGlass.menu(),
+              child: SizedBox.expand(),
+            ),
+          ),
+        Positioned.fill(
+          child: Opacity(
+            opacity: (1 - glass).clamp(0.0, 1.0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: paper,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                    color: ink.withValues(alpha: 0.08), width: 1),
+              ),
+            ),
+          ),
+        ),
+        child,
+      ],
     );
   }
 }
 
-/// Row entrance: each row springs out once on open, cascaded by
-/// [delayMs] - 16px rise with overshoot ease, fading in. Mount-time
-/// only (one timer, one animation, then rests): zero per-tick cost.
-/// Reduced-motion renders the child straight, no timer.
+/// Row entrance: each row springs out once on open, cascaded -
+/// 16px rise with overshoot ease, fading in. Mount-time only (one
+/// timer, one animation, then rests): zero per-tick cost.
+/// Reduced-motion renders the child straight, no timer. Ours.
 class _RowEntrance extends StatefulWidget {
   final int delayMs;
   final Widget child;
@@ -235,7 +283,7 @@ class _RowEntranceState extends State<_RowEntrance> {
     if (!_go) return Opacity(opacity: 0, child: widget.child);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 260),
+      duration: const Duration(milliseconds: 200),
       curve: Curves.easeOutBack,
       builder: (context, v, _) => Opacity(
         opacity: v.clamp(0.0, 1.0),
@@ -247,7 +295,6 @@ class _RowEntranceState extends State<_RowEntrance> {
     );
   }
 }
-
 class _MenuRows extends StatelessWidget {
   final List<MenuAction> quick;
   final List<List<MenuAction>> groups;
@@ -257,7 +304,9 @@ class _MenuRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Cascade order: quick chips first, then groups top to bottom.
-    // 45ms apart - the panel releases its rows as a wave.
+    // 30ms apart with fast fades, so every row is visible inside
+    // the emergence glide - the bloom plays to an audience,
+    // never an empty stage.
     var k = 0;
     // Material canvas for the rows: ListTile paints ink on the
     // nearest Material ancestor, and a bare dialog route provides
@@ -278,7 +327,7 @@ class _MenuRows extends StatelessWidget {
                   children: [
                     for (final a in quick)
                       _RowEntrance(
-                          delayMs: (k++) * 45,
+                          delayMs: (k++) * 30,
                           child: _QuickChip(action: a)),
                   ],
                 ),
@@ -290,7 +339,7 @@ class _MenuRows extends StatelessWidget {
                 const Divider(height: 8, indent: 16, endIndent: 16),
               for (final a in groups[g])
                 _RowEntrance(
-                    delayMs: (k++) * 45,
+                    delayMs: (k++) * 30,
                     child: _MenuRow(action: a)),
             ],
           ],
