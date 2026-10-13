@@ -1,8 +1,11 @@
 package com.archstudios.arch_player
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ContentUris
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +17,52 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     // MediaStore scans and bitmap decodes NEVER run on the main thread.
     // That was the ANR: seconds of main-thread work while scrolling.
     private val io = java.util.concurrent.Executors.newCachedThreadPool()
+
+    // Playback channel at HIGH importance, created BEFORE audio_service
+    // posts anything: first creation wins, and the package default is
+    // LOW (invisible icon, buried shade, skipped carousels). The old
+    // LOW channel is deleted so no stale lock follows the user.
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                val manager = getSystemService(NotificationManager::class.java)
+                // Fresh channel id: deleting + recreating the SAME id
+                // restores its old sound (undelete keeps prior config),
+                // so silence needs an id the system has never seen.
+                // A user-disabled channel is still always respected.
+                val existing =
+                    manager.getNotificationChannel("com.archstudios.arch_player.media")
+                if (existing != null &&
+                    existing.importance == NotificationManager.IMPORTANCE_NONE
+                ) {
+                    android.util.Log.d("ArchPlayer", "media channel user-disabled, respecting")
+                } else {
+                    manager.deleteNotificationChannel("com.archstudios.arch_player.media")
+                    manager.createNotificationChannel(
+                        NotificationChannel(
+                            "com.archstudios.arch_player.media",
+                            "Arch Player",
+                            NotificationManager.IMPORTANCE_HIGH,
+                        ).apply {
+                            description = "Playback controls"
+                            setShowBadge(false)
+                            // Silent by design: audio_service re-posts on
+                            // every state/art update, and a pinging player
+                            // is a broken player. Visibility without noise.
+                            setSound(null, null)
+                            enableVibration(false)
+                        },
+                    )
+                    android.util.Log.d("ArchPlayer", "media channel ensured silent at HIGH")
+                }
+                manager.deleteNotificationChannel("com.archstudios.arch_player.playback")
+                manager.deleteNotificationChannel("com.archstudios.arch_player.channel")
+            } catch (e: Exception) {
+                android.util.Log.d("ArchPlayer", "playback channel setup failed: $e")
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,9 +77,21 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                     }
                     "loadArt" -> {
                         val albumId = (call.argument<Number>("albumId")?.toLong()) ?: 0L
-                        io.execute { result.success(loadArt(albumId)) }
+                        val targetPx = (call.argument<Number>("targetPx")?.toInt()) ?: 384
+                        io.execute { result.success(loadArt(albumId, targetPx.coerceIn(96, 2048))) }
                     }
                     "suggestFolders" -> io.execute { result.success(suggestFolders()) }
+                    "setKeepAwake" -> {
+                        val keep = (call.argument<Boolean>("keep") ?: false)
+                        runOnUiThread {
+                            if (keep) {
+                                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            } else {
+                                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            }
+                        }
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -92,7 +153,10 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         return out
     }
 
-    private fun loadArt(albumId: Long): ByteArray? {
+    /// Sized artwork: decode near the requested bucket, scale down
+    /// preserving aspect (never upscale, never squash square), JPEG q90.
+    /// 256px-for-everything was the blur; this is the fix.
+    private fun loadArt(albumId: Long, targetPx: Int): ByteArray? {
         if (albumId <= 0) return null
         return runCatching {
             val uri = ContentUris.withAppendedId(
@@ -100,16 +164,25 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                 albumId,
             )
             contentResolver.openInputStream(uri)?.use { input ->
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 val bytes = input.readBytes()
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                val sample = sampleSize(bounds.outWidth, bounds.outHeight, 256)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+                val sample = sampleSize(bounds.outWidth, bounds.outHeight, targetPx)
                 val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
                 val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
                     ?: return null
-                val scaled = Bitmap.createScaledBitmap(bmp, 256, 256, true)
+                // Downscale only, aspect-safe. Small sources ship as-is:
+                // upscaling natively would just be expensive blur.
+                val scale = minOf(1f, targetPx / maxOf(bmp.width, bmp.height).toFloat())
+                val out = if (scale < 1f) {
+                    Bitmap.createScaledBitmap(
+                        bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
+                } else {
+                    bmp
+                }
                 val stream = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                out.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 stream.toByteArray()
             }
         }.getOrNull()

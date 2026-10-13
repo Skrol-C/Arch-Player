@@ -33,6 +33,7 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
   liquid_glass_easy: ^4.3.4
   flutter_riverpod: ^3.4.3
   just_audio: ^0.10.6
@@ -45,6 +46,8 @@ dependencies:
   cached_network_image: ^4.0.4
   share_plus: ^13.3.1
   file_picker: ^13.1.0
+  flutter_lyric: ^4.0.0
+  audio_session: ^0.2.4
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +76,16 @@ flutter:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
+  # Codec marks (user-sourced PNGs, see docs/ASSET-NOTICES.md).
+  # Geometric fallback in code covers formats without a file.
+  assets:
+    - assets/logos/mp3.png
+    - assets/logos/m4a/m4a.png
+    - assets/logos/flac/flac.png
+    - assets/logos/aac/aac.png
+    - assets/logos/opus/opus.png
+    - assets/logos/ogg/vorbis.png
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 
@@ -98,3 +111,48 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+  # Artist hero voices: ten display faces (all SIL OFL, see
+  # fonts/OFL-*.txt). Assigned per artist by stable hash in the hero
+  # only — body type stays system.
+  fonts:
+    - family: ArchGrotesk
+      fonts:
+        - asset: fonts/ArchGrotesk-Bold.ttf
+          weight: 700
+    - family: ArchSerif
+      fonts:
+        - asset: fonts/ArchSerif-ExtraBold.ttf
+          weight: 800
+    - family: ArchGeometric
+      fonts:
+        - asset: fonts/ArchGeometric-SemiBold.ttf
+          weight: 600
+    - family: ArchBlack
+      fonts:
+        - asset: fonts/ArchBlack-Regular.ttf
+          weight: 400
+    - family: ArchDidone
+      fonts:
+        - asset: fonts/ArchDidone-Regular.ttf
+          weight: 400
+    - family: ArchMasthead
+      fonts:
+        - asset: fonts/ArchMasthead-Regular.ttf
+          weight: 400
+    - family: ArchPoster
+      fonts:
+        - asset: fonts/ArchPoster-Regular.ttf
+          weight: 400
+    - family: ArchSlab
+      fonts:
+        - asset: fonts/ArchSlab-Regular.ttf
+          weight: 400
+    - family: ArchUrban
+      fonts:
+        - asset: fonts/ArchUrban-Regular.ttf
+          weight: 400
+    - family: ArchChunk
+      fonts:
+        - asset: fonts/ArchChunk-Regular.ttf
+          weight: 400

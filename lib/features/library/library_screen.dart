@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
@@ -12,6 +15,8 @@ import 'folder_sheet.dart';
 import 'library_providers.dart';
 import 'shelves.dart';
 import 'song_row.dart';
+import '../player/track_menu.dart';
+import '../shell/dock.dart';
 
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
@@ -39,6 +44,11 @@ class _LibraryBody extends ConsumerWidget {
     final view = ref.watch(libraryViewProvider);
     final visible = ref.watch(visibleSongsProvider);
     final current = ref.watch(currentSongProvider).value;
+    // Clearance follows the docked unit so content never slides
+    // under it: collapsed unit is short, mini + pill is tall.
+    final collapsed = ref.watch(pillCollapsedProvider);
+    final bottomClear =
+        collapsed ? 120.0 : (ref.watch(miniVisibleProvider) ? 200.0 : 140.0);
     return CustomScrollView(
       slivers: [
         const SliverToBoxAdapter(child: SizedBox(height: 64)),
@@ -93,7 +103,7 @@ class _LibraryBody extends ConsumerWidget {
         if (visible.isEmpty)
           const SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text('No songs — check Folders.', style: TextStyle(color: inkDim))),
+            child: Center(child: Text('No songs - check Folders.', style: TextStyle(color: inkDim))),
           )
         else if (tab == LibraryTab.songs)
           view == ViewMode.grid ? _SongGrid(currentId: current?.id) : _SongList(currentId: current?.id)
@@ -101,7 +111,7 @@ class _LibraryBody extends ConsumerWidget {
           _AlbumGrid(currentId: current?.id)
         else
           const _ArtistList(),
-        const SliverToBoxAdapter(child: SizedBox(height: 140)),
+        SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
       ],
     );
   }
@@ -169,9 +179,7 @@ class _TabPills extends ConsumerWidget {
 
 Future<void> _tapToPlay(WidgetRef ref, BuildContext context, Song song, List<Song> queue) async {
   final handler = ref.read(audioHandlerProvider);
-  final opener = ref.read(playerOpenProvider.notifier);
-  await playGuarded(context, () => handler.playSong(song, queue));
-  opener.state = true;
+  await playAndOpen(ref, context, () => handler.playSong(song, queue));
 }
 
 class _SongList extends ConsumerWidget {
@@ -270,7 +278,7 @@ class _AlbumGrid extends ConsumerWidget {
           final album = albums[i];
           return GestureDetector(
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => AlbumDetail(album: album),
+              builder: (_) => AlbumPage(album: album),
             )),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -289,44 +297,248 @@ class _AlbumGrid extends ConsumerWidget {
   }
 }
 
-class AlbumDetail extends ConsumerWidget {
+/// A real album page: big art hero, voiced title, tappable artist,
+/// Play + shuffle, indexed tracklist with per-row menus. Reached from
+/// grids, featured card, gallery tiles, Popular overflow, and track
+/// menus - never a dead tap, never a bare list.
+class AlbumPage extends ConsumerWidget {
   final Album album;
-  const AlbumDetail({super.key, required this.album});
+  const AlbumPage({super.key, required this.album});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(currentSongProvider).value;
     final songs = album.songs;
+    // Mount footprint: proves which build is on the phone and what
+    // data arrived. Silence here means the route never built.
+    ArchLog.i('nav',
+        'album page: ${album.title} (${songs.length} tracks)');
+    // Empty can technically arrive (stale queue entry, moved files):
+    // an explicit empty state, never a blank page or a crash on
+    // songs.first.
+    if (songs.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Album')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.album_outlined, color: inkDim, size: 64),
+              const SizedBox(height: 12),
+              Text(album.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              const Text('No songs found for this album.',
+                  style: TextStyle(color: inkDim)),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                child: const Text('Go back',
+                    style: TextStyle(
+                        color: archPink, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    Future<void> play(bool shuffleFirst) async {
+      final handler = ref.read(audioHandlerProvider);
+      // Fire-and-forget: shuffle applies to the live player while the
+      // guarded entry below owns the context across its own awaits.
+      if (shuffleFirst) unawaited(handler.setShuffleEnabled(true));
+      await playAndOpen(
+          ref, context, () => handler.playSong(songs.first, songs));
+    }
+
+    final total = songs.fold(
+        Duration.zero, (sum, s) => sum + s.duration);
     return Scaffold(
       appBar: AppBar(title: const Text('Album')),
-      body: ListView(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
+      body: DockScrollReporter(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ListView(
+              padding: const EdgeInsets.only(bottom: 140),
               children: [
-                AlbumArt(albumId: songs.first.albumId, size: 128, radius: 16),
-                const SizedBox(width: 16),
-                Expanded(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(album.title, style: Theme.of(context).textTheme.headlineSmall),
-                      Text(album.artist, style: const TextStyle(color: archPink)),
-                      Text('${songs.length} songs', style: const TextStyle(color: inkDim)),
+                      FocalEntrance(
+                        // Bounded square: fill art needs finite height
+                        // and this Column offers infinity. Unbounded here
+                        // lays out never and blanks the page in release.
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Color(0x1A000000),
+                                    blurRadius: 28,
+                                    offset: Offset(0, 10)),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: AlbumArt(
+                                  albumId: songs.first.albumId,
+                                  fill: true,
+                                  radius: 0,
+                                  detail: true),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(album.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontFamily: artistVoiceOf(album.title),
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: voiceSpacing(
+                                  artistVoiceOf(album.title)))),
+                      GestureDetector(
+                        onTap: () => ArtistPage.openIfAbsent(
+                            context, album.artist),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(album.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: archPink,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                          '${songs.length} song${songs.length == 1 ? '' : 's'} - ${fmtDuration(total)}',
+                          style: const TextStyle(color: inkDim)),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.mediumImpact();
+                              play(false);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 40, vertical: 14),
+                              decoration: const BoxDecoration(
+                                color: archPink,
+                                borderRadius:
+                                    BorderRadius.all(Radius.circular(28)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.play_arrow_rounded,
+                                      color: Colors.white, size: 24),
+                                  SizedBox(width: 4),
+                                  Text('Play',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              play(true);
+                            },
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: paperRaised,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color: ink.withValues(alpha: 0.08)),
+                              ),
+                              child: const Icon(Icons.shuffle_rounded,
+                                  color: ink, size: 24),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < songs.length; i++)
+                  _AlbumTrackRow(
+                    song: songs[i],
+                    queue: songs,
+                    index: i + 1,
+                    isCurrent: songs[i].id == current?.id,
+                  ),
               ],
             ),
+            const NowPlayingDock(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumTrackRow extends ConsumerWidget {
+  final Song song;
+  final List<Song> queue;
+  final int index;
+  final bool isCurrent;
+
+  const _AlbumTrackRow(
+      {required this.song,
+      required this.queue,
+      required this.index,
+      required this.isCurrent});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      onTap: () => _tapToPlay(ref, context, song, queue),
+      leading: SizedBox(
+        width: 30,
+        child: Text('$index',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: isCurrent ? archPink : inkDim,
+                fontSize: 15,
+                fontWeight: FontWeight.w600)),
+      ),
+      title: Text(song.title,
+          maxLines: 1,
+          style: TextStyle(
+              color: isCurrent ? archPink : ink,
+              fontWeight: FontWeight.w600)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isCurrent) const NowBars() else Text(fmtDuration(song.duration), style: const TextStyle(color: inkDim)),
+          IconButton(
+            icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
+            onPressed: () => showSongMenu(ref, context, song),
           ),
-          for (final song in songs)
-            SongRow(
-              song: song,
-              art: AlbumArt(albumId: song.albumId),
-              isCurrent: song.id == current?.id,
-              onTap: () => _tapToPlay(ref, context, song, songs),
-            ),
         ],
       ),
     );

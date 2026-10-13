@@ -6,6 +6,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/art_tone.dart';
+import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -14,20 +15,25 @@ import '../metadata/metadata_providers.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'library_providers.dart';
-import 'library_screen.dart' show AlbumDetail;
+import 'library_screen.dart' show AlbumPage;
 import 'release_gallery.dart';
 import 'song_row.dart';
+import '../shell/dock.dart';
 
-/// Artist page: SpotiFLAC anatomy in our skin — full-bleed hero with
-/// action row, featured album card, Popular top 5 + expander, Albums rail
-/// with counts, fan decks for the long tail, About block.
+/// Artist page: SpotiFLAC anatomy in our skin - full-bleed hero melting
+/// into a full-bleed artist wash (Apple Music-style, no white page under
+/// a colorful photo), centered wordmark (true fanart.tv ClearLogo when
+/// the world has one, else the name in its assigned display voice and
+/// photo vibrant) with the action row on the photo, featured
+/// latest-release card, Popular top 5 + expander, fan decks for the long
+/// tail, About block.
 /// Every block renders the moment it lands; no match = clean local page.
 class ArtistPage extends ConsumerStatefulWidget {
   final String artistName;
   const ArtistPage({super.key, required this.artistName});
 
   /// Artists currently on the navigation stack. Pushing the same artist
-  /// twice stacked identical routes — guard it.
+  /// twice stacked identical routes - guard it.
   static final Set<String> _open = {};
 
   static bool openIfAbsent(BuildContext context, String artistName) {
@@ -46,7 +52,12 @@ class ArtistPage extends ConsumerStatefulWidget {
 class _ArtistPageState extends ConsumerState<ArtistPage> {
   /// Currently bloomed fan hub, if any.
   String? _openHub;
-  bool _showAllPopular = false;
+
+  /// Full-bleed page tint target, reported by the hero once the artist
+  /// tone lands. Plain nullable field on purpose: no `late`, no ticker,
+  /// so a hot reload across edits can never strand the state
+  /// uninitialized. The ease itself lives in a TweenAnimationBuilder.
+  Color? _washTarget;
 
   @override
   void initState() {
@@ -65,33 +76,65 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
     final songs = ref.watch(songsProvider).value ?? [];
     final local = songs.where((s) => s.artist == widget.artistName).toList();
     final pic = ref.watch(artistPicProvider(widget.artistName));
+    final logo = ref.watch(artistLogoProvider(widget.artistName));
     final bio = ref.watch(artistBioProvider(widget.artistName));
     final top = ref.watch(artistTopProvider(widget.artistName));
     final releases = ref.watch(artistReleasesProvider(widget.artistName));
     final followed = ref.watch(followedProvider);
 
-    return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          _Hero(
-            name: widget.artistName,
-            local: local,
-            imageUrl: pic.value,
-            followed: followed.contains(widget.artistName),
-            onFollow: () => _toggleFollow(widget.artistName, followed.contains(widget.artistName)),
-            onBack: () => Navigator.of(context).pop(),
-            onShare: () => SharePlus.instance.share(
-              ShareParams(text: widget.artistName),
+    // Full-bleed artist wash (Apple Music-style): page, bar and melt
+    // all share one tone, so the transparent status bar never sits on a
+    // stark white page above a colorful photo. Eased, never snapped.
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(begin: _washOf(null), end: _washTarget ?? _washOf(null)),
+      duration: Motion.reduced(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 400),
+      builder: (context, wash, _) {
+        final page = wash ?? _washOf(null);
+        // Clearance follows the docked unit so content never slides
+        // under it - same rule as the library.
+        final collapsed = ref.watch(pillCollapsedProvider);
+        final mini = ref.watch(miniVisibleProvider);
+        final bottomClear = collapsed ? 120.0 : (mini ? 200.0 : 140.0);
+        return Scaffold(
+          backgroundColor: page,
+          body: DockScrollReporter(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CustomScrollView(
+            slivers: [
+              _Hero(
+                name: widget.artistName,
+                local: local,
+                imageUrl: pic.value,
+                logoUrl: logo.value,
+                wash: page,
+                followed: followed.contains(widget.artistName),
+                onFollow: () => _toggleFollow(
+                    widget.artistName, followed.contains(widget.artistName)),
+                onShare: () => SharePlus.instance.share(
+                  ShareParams(text: widget.artistName),
+                ),
+                onWash: (c) {
+                  if (!mounted || c == _washTarget) return;
+                  setState(() => _washTarget = c);
+                },
+                onBack: () => Navigator.of(context).pop(),
+              ),
+          SliverToBoxAdapter(
+            child: _FeaturedRelease(
+              local: local,
+              releases: releases,
+              artistName: widget.artistName,
             ),
           ),
-          SliverToBoxAdapter(child: _Bio(bio: bio)),
           SliverToBoxAdapter(
             child: _Popular(
               top: top,
               local: local,
               artistName: widget.artistName,
-              expanded: _showAllPopular,
-              onExpand: () => setState(() => _showAllPopular = !_showAllPopular),
             ),
           ),
           SliverToBoxAdapter(
@@ -103,9 +146,16 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
               artistName: widget.artistName,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
-        ],
-      ),
+          SliverToBoxAdapter(child: _Bio(bio: bio)),
+          SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
+                ],
+                ),
+                const NowPlayingDock(),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -115,7 +165,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(wasFollowed ? 'Unfollowed $artist' : 'Following $artist — new releases will find you'),
+        content: Text(wasFollowed ? 'Unfollowed $artist' : 'Following $artist - new releases will find you'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -126,19 +176,31 @@ class _Hero extends StatefulWidget {
   final String name;
   final List<Song> local;
   final String? imageUrl;
+
+  /// True artist wordmark (fanart.tv HD ClearLogo), when the world has
+  /// one. Null = our display-font voice speaks the name instead.
+  final String? logoUrl;
+
+  /// Page-shared wash: bar background and melt target. Reported back up
+  /// via [onWash] once the artist tone resolves.
+  final Color wash;
+  final ValueChanged<Color>? onWash;
   final bool followed;
   final VoidCallback onFollow;
-  final VoidCallback onBack;
   final VoidCallback onShare;
+  final VoidCallback onBack;
 
   const _Hero({
     required this.name,
     required this.local,
     required this.imageUrl,
+    this.logoUrl,
+    required this.wash,
+    this.onWash,
     required this.followed,
     required this.onFollow,
-    required this.onBack,
     required this.onShare,
+    required this.onBack,
   });
 
   @override
@@ -146,141 +208,252 @@ class _Hero extends StatefulWidget {
 }
 
 class _HeroState extends State<_Hero> {
-  Future<Color?>? _tone;
+  Future<ArtPalette?>? _palette;
+  String? _reportedUrl;
+  static const _expanded = 440.0;
 
   @override
   void initState() {
     super.initState();
-    _tone = ArtTone.of(widget.imageUrl);
+    _palette = ArtTone.paletteOf(widget.imageUrl);
   }
 
   @override
   void didUpdateWidget(_Hero old) {
     super.didUpdateWidget(old);
-    if (old.imageUrl != widget.imageUrl) _tone = ArtTone.of(widget.imageUrl);
+    if (old.imageUrl != widget.imageUrl) {
+      _palette = ArtTone.paletteOf(widget.imageUrl);
+      _reportedUrl = null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final name = widget.name;
+    final topPad = MediaQuery.paddingOf(context).top;
     return SliverAppBar(
-      expandedHeight: 400,
+      expandedHeight: _expanded,
       pinned: true,
-      backgroundColor: paper,
+      stretch: !Motion.reduced(context),
+      backgroundColor: widget.wash,
+      surfaceTintColor: Colors.transparent,
+      // No scroll shadow: the bar and the page share one wash, and any
+      // elevation hairline would read as a split at the hero bottom.
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      shadowColor: Colors.transparent,
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
-          style: const LiquidGlassStyle(
-            shape: LiquidGlassShape.continuousRoundedRectangle(
-                cornerRadius: 24, borderWidth: 1),
-            refraction: LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10),
-          ),
+          style: ArchGlass.circle(radius: 24),
           child: IconButton(
               onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, color: ink)),
         ),
       ),
-      flexibleSpace: FlexibleSpaceBar(
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (widget.imageUrl != null)
-              CachedNetworkImage(
-                imageUrl: widget.imageUrl!,
-                fit: BoxFit.cover,
-                memCacheWidth: 800,
-                errorWidget: (_, _, _) => Container(color: paperRaised),
-              )
-            else
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment(0.5, 0.3),
-                    radius: 1.1,
-                    colors: [Color(0xFFFFD9DC), paperRaised],
+      flexibleSpace: LayoutBuilder(
+        builder: (context, constraints) {
+          final collapse = ((_expanded - constraints.maxHeight) /
+                  (_expanded - (kToolbarHeight + topPad)))
+              .clamp(0.0, 1.0);
+          // White status icons over the photo, dark icons once the bar
+          // has collapsed onto the light page wash.
+          final overlay = collapse > 0.5
+              ? SystemUiOverlayStyle.dark
+                  .copyWith(statusBarColor: Colors.transparent)
+              : SystemUiOverlayStyle.light
+                  .copyWith(statusBarColor: Colors.transparent);
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: overlay,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Static photo: it used to drift down on collapse while
+                // the melt stayed anchored, which tore a visible split
+                // at the hero bottom mid-scroll.
+                _photo(name),
+                // Fixed-pixel melt pinned to the hero bottom: constant
+                // softness through the collapse instead of fractional
+                // stops that squeeze harsher mid-scroll. Ends in the page
+                // wash, so hero and body always agree - no edge by
+                // construction.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 240,
+                  child: FutureBuilder<ArtPalette?>(
+                    future: _palette,
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.done &&
+                          widget.imageUrl != null &&
+                          _reportedUrl != widget.imageUrl) {
+                        _reportedUrl = widget.imageUrl;
+                        final toneWash = _washOf(snap.data?.wash);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          widget.onWash?.call(toneWash);
+                        });
+                      }
+                      return DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const [0.0, 0.4, 0.7, 1.0],
+                            colors: [
+                              Colors.transparent,
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.24),
+                              widget.wash,
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
-                child: Center(
-                  child: Text(
-                    name.isEmpty ? '?' : name[0].toUpperCase(),
-                    style: const TextStyle(color: archPink, fontSize: 120),
-                  ),
+              // Collapsed toolbar title fades in as the big name fades out.
+              Positioned(
+                top: topPad + 12,
+                left: 64,
+                right: 64,
+                child: Opacity(
+                  opacity: collapse,
+                  child: Text(name,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: ink, fontSize: 17, fontWeight: FontWeight.w700)),
                 ),
               ),
-            // Legibility scrim: long and smooth, holds the white text zone.
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.0, 0.42, 0.62, 0.78],
-                  colors: [Colors.transparent, Colors.transparent, Colors.black45, Colors.black54],
-                ),
-              ),
-            ),
-            // Melt band: photo dissolves into the page through the artist's
-            // own tone. No hard cutoff anywhere. Sits below the text block.
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 110,
-              child: FutureBuilder<Color?>(
-                future: _tone,
-                builder: (context, snap) {
-                  final tone = snap.data ?? paperRaised;
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          tone.withValues(alpha: 0.28),
-                          paper,
-                        ],
-                        stops: const [0.0, 0.45, 1.0],
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 64,
+                child: Opacity(
+                  opacity: 1 - collapse,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // True wordmark when the world has one for this
+                      // artist; otherwise the name in the artist's own
+                      // voice (assigned display font) and colors
+                      // (photo vibrant). All centered, all on the photo.
+                      if (widget.logoUrl != null)
+                        CachedNetworkImage(
+                          imageUrl: widget.logoUrl!,
+                          height: 64,
+                          fit: BoxFit.contain,
+                          memCacheHeight: 160,
+                          errorWidget: (_, _, _) => _voiceName(),
+                        )
+                      else
+                        _voiceName(),
+                      const SizedBox(height: 4),
+                      Text(
+                          '${widget.local.length} song${widget.local.length == 1 ? '' : 's'} on device',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              shadows: [
+                                Shadow(
+                                    color: Colors.black45,
+                                    blurRadius: 10,
+                                    offset: Offset(0, 1)),
+                              ])),
+                      // Action row lives fully on the photo, above the
+                      // melt: full circles on image pixels, never crossing
+                      // a background seam.
+                      const SizedBox(height: 12),
+                      _ActionRow(
+                        local: widget.local,
+                        followed: widget.followed,
+                        onFollow: widget.onFollow,
+                        onShare: widget.onShare,
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: 118,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FocalEntrance(
-                    child: Text(name,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5)),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text('${widget.local.length} song${widget.local.length == 1 ? '' : 's'} on device',
-                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  _ActionRow(
-                    local: widget.local,
-                    followed: widget.followed,
-                    onFollow: widget.onFollow,
-                    onShare: widget.onShare,
-                  ),
-                ],
+                ),
               ),
+              ],
             ),
-          ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The artist name in its assigned display voice, colored from the
+  /// photo's vibrant pick. White when the vibrant sits too close to its
+  /// own backdrop to read; ink when there is no photo at all (the
+  /// fallback background is light). Shadows only over photos.
+  Widget _voiceName() {
+    final voice = artistVoiceOf(widget.name);
+    return FutureBuilder<ArtPalette?>(
+      future: _palette,
+      builder: (context, snap) {
+        final palette = snap.data;
+        final hasPhoto = widget.imageUrl != null;
+        var color = Colors.white;
+        if (!hasPhoto) {
+          color = ink;
+        } else if (palette != null) {
+          final vibrant = palette.vibrant;
+          final close =
+              (vibrant.computeLuminance() - palette.photoLum).abs() < 0.25;
+          if (!close) color = vibrant;
+        }
+        return FocalEntrance(
+          child: Text(widget.name,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: color,
+                  fontFamily: voice,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: voiceSpacing(voice),
+                  shadows: hasPhoto
+                      ? const [
+                          Shadow(
+                              color: Colors.black45,
+                              blurRadius: 16,
+                              offset: Offset(0, 2)),
+                        ]
+                      : null)),
+        );
+      },
+    );
+  }
+
+  Widget _photo(String name) {
+    if (widget.imageUrl != null) {
+      return CachedNetworkImage(
+        imageUrl: widget.imageUrl!,
+        fit: BoxFit.cover,
+        memCacheWidth: 800,
+        errorWidget: (_, _, _) => Container(color: paperRaised),
+      );
+    }
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment(0.5, 0.3),
+          radius: 1.1,
+          colors: [Color(0xFFFFD9DC), paperRaised],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          name.isEmpty ? '?' : name[0].toUpperCase(),
+          style: const TextStyle(color: archPink, fontSize: 120),
         ),
       ),
     );
   }
 }
 
-/// Share · big play · follow. No dead download control until Needle exists.
+/// Share - big play - follow. No dead download control until Needle exists.
 class _ActionRow extends ConsumerWidget {
   final List<Song> local;
   final bool followed;
@@ -305,9 +478,7 @@ class _ActionRow extends ConsumerWidget {
             if (local.isEmpty) return;
             HapticFeedback.mediumImpact();
             final handler = ref.read(audioHandlerProvider);
-            final opener = ref.read(playerOpenProvider.notifier);
-            await playGuarded(context, () => handler.playSong(local.first, local));
-            opener.state = true;
+            await playAndOpen(ref, context, () => handler.playSong(local.first, local));
           },
           child: Container(
             width: 64,
@@ -349,6 +520,180 @@ class _RoundButton extends StatelessWidget {
           border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
         ),
         child: Icon(icon, color: color, size: 26),
+      ),
+    );
+  }
+}
+
+/// Page wash: the artist's own tone pulled most of the way to paper.
+/// Light enough for ink text, tinted enough for full-bleed. Null tone =
+/// the pre-load default, near-white like today.
+Color _washOf(Color? tone) {
+  final base = tone ?? paperRaised;
+  // Uniform darker page: sit much closer to the artist's own color-
+  var pull = 0.3;
+  var wash = Color.lerp(base, paper, pull)!;
+  // -but never darker than ink stays readable on. Walk back toward
+  // paper until contrast passes 4.5:1 - deep reds go properly dark,
+  // pale photos stop exactly where ink survives.
+  while (pull < 1.0 && _contrast(ink, wash) < 4.5) {
+    pull += 0.05;
+    wash = Color.lerp(base, paper, pull)!;
+  }
+  return wash;
+}
+
+double _contrast(Color a, Color b) {
+  final l1 = a.computeLuminance() + 0.05;
+  final l2 = b.computeLuminance() + 0.05;
+  return l1 > l2 ? l1 / l2 : l2 / l1;
+}
+
+/// Discography hub labels shared by the featured card and the fan row.
+String _hubLabel(String type) => switch (type) {
+      'album' => 'Albums',
+      'single' || 'ep' => 'Singles & EPs',
+      'live' => 'Live',
+      'compilation' => 'Compilations',
+      _ => 'More',
+    };
+
+/// Latest-release card floating right under the hero melt, like the
+/// reference's 1989 card: newest owned album first, else the newest
+/// remote release. Hides when there is nothing to feature.
+class _FeaturedRelease extends ConsumerWidget {
+  final List<Song> local;
+  final AsyncValue<List<ReleaseGroup>> releases;
+  final String artistName;
+
+  const _FeaturedRelease({
+    required this.local,
+    required this.releases,
+    required this.artistName,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    Album? owned;
+    if (local.isNotEmpty) {
+      final byAlbum = <String, List<Song>>{};
+      for (final s in local) {
+        byAlbum.putIfAbsent(s.album.toLowerCase(), () => []).add(s);
+      }
+      var bestYear = -1;
+      var bestCount = -1;
+      String? bestKey;
+      for (final e in byAlbum.entries) {
+        var year = 0;
+        for (final s in e.value) {
+          if (s.year > year) year = s.year;
+        }
+        if (year > bestYear || (year == bestYear && e.value.length > bestCount)) {
+          bestYear = year;
+          bestCount = e.value.length;
+          bestKey = e.key;
+        }
+      }
+      if (bestKey != null) {
+        final songs = List<Song>.from(byAlbum[bestKey]!)
+          ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        owned = Album(
+          key: '${songs.first.artist}\u0000${songs.first.album}',
+          title: songs.first.album,
+          artist: songs.first.artist,
+          songs: songs,
+        );
+      }
+    }
+
+    ReleaseGroup? remote;
+    List<ReleaseGroup>? hubItems;
+    final list = releases.value;
+    if (list != null && list.isNotEmpty) {
+      var pick = list.first;
+      for (final r in list) {
+        if (r.type == 'album') {
+          pick = r;
+          break;
+        }
+      }
+      remote = pick;
+      final label = _hubLabel(pick.type);
+      hubItems = list.where((r) => _hubLabel(r.type) == label).toList();
+    }
+
+    if (owned == null && remote == null) return const SizedBox.shrink();
+
+    final String yearText;
+    final String title;
+    final Widget cover;
+    void Function() open;
+    if (owned != null) {
+      final o = owned;
+      var year = 0;
+      for (final s in o.songs) {
+        if (s.year > year) year = s.year;
+      }
+      yearText = year > 0 ? '$year' : '${o.songs.length} songs';
+      title = o.title;
+      cover = AlbumArt(albumId: o.songs.first.albumId, size: 64, radius: 12);
+      open = () {
+        HapticFeedback.selectionClick();
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => AlbumPage(album: o),
+        ));
+      };
+    } else {
+      final r = remote!;
+      yearText = r.year != null ? '${r.year}' : _hubLabel(r.type);
+      title = r.title;
+      cover = ReleaseCover(release: r, owned: false, size: 64);
+      open = () {
+        HapticFeedback.selectionClick();
+        final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ReleaseGallery(
+              artistName: artistName,
+              label: _hubLabel(r.type),
+              items: hubItems ?? [r],
+              ownedTitles: ownedTitles),
+        ));
+      };
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+      child: GestureDetector(
+        onTap: open,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: paperRaised,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              cover,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(yearText,
+                        style: const TextStyle(color: inkDim, fontSize: 13)),
+                    const SizedBox(height: 2),
+                    Text(title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: ink, fontSize: 17, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: inkDim),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -436,24 +781,36 @@ class _ExpandableBioState extends State<_ExpandableBio> {
   }
 }
 
-class _Popular extends ConsumerWidget {
+/// Popular as swipeable pages (5 rows each) with ref-style dots.
+/// No ranks, no expander - swipe left/right for more songs.
+class _Popular extends ConsumerStatefulWidget {
   final AsyncValue<List<TopTrack>> top;
   final List<Song> local;
   final String artistName;
-  final bool expanded;
-  final VoidCallback onExpand;
 
   const _Popular({
     required this.top,
     required this.local,
     required this.artistName,
-    required this.expanded,
-    required this.onExpand,
   });
+
+  @override
+  ConsumerState<_Popular> createState() => _PopularState();
+}
+
+class _PopularState extends ConsumerState<_Popular> {
+  late final PageController _pages = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
 
   Song? _owned(String title) {
     final norm = _norm(title);
-    for (final s in local) {
+    for (final s in widget.local) {
       if (_norm(s.title) == norm) return s;
     }
     return null;
@@ -463,8 +820,9 @@ class _Popular extends ConsumerWidget {
       t.toLowerCase().replaceAll(RegExp(r'\s*\(.*?\)\s*'), '').trim();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return top.when(
+  Widget build(BuildContext context) {
+    final ref = this.ref;
+    return widget.top.when(
       loading: () => const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -475,28 +833,57 @@ class _Popular extends ConsumerWidget {
       error: (_, _) => const SizedBox.shrink(),
       data: (tracks) {
         if (tracks.isEmpty) return const SizedBox.shrink();
-        final shown = expanded ? tracks.take(10).toList() : tracks.take(5).toList();
+        final chunks = <List<TopTrack>>[];
+        for (var i = 0; i < tracks.length; i += 5) {
+          chunks.add(tracks.skip(i).take(5).toList());
+        }
         final currentId = ref.watch(currentSongProvider).value?.id;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _SectionTitle('Popular', count: tracks.length),
-            for (var i = 0; i < shown.length; i++)
-              _TopRow(
-                track: shown[i],
-                owned: _owned(shown[i].title),
-                isCurrent: currentId != null &&
-                    (currentId == _owned(shown[i].title)?.id ||
-                        currentId == -(shown[i].rank + 1)),
-                onTap: () => _play(ref, context, shown[i]),
-                onOverflow: () => _trackActions(ref, context, shown[i]),
+            SizedBox(
+              height: 350,
+              child: PageView.builder(
+                controller: _pages,
+                onPageChanged: (p) => setState(() => _page = p),
+                itemCount: chunks.length,
+                itemBuilder: (context, p) => Column(
+                  children: [
+                    for (final track in chunks[p])
+                      _TopRow(
+                        track: track,
+                        owned: _owned(track.title),
+                        isCurrent: currentId != null &&
+                            (currentId == _owned(track.title)?.id ||
+                                currentId == -(track.rank + 1)),
+                        onTap: () => _play(ref, context, track),
+                        onOverflow: () => _trackActions(ref, context, track),
+                      ),
+                  ],
+                ),
               ),
-            if (tracks.length > 5)
-              Center(
-                child: TextButton(
-                  onPressed: onExpand,
-                  child: Text(expanded ? 'Show less' : 'Show all ${tracks.length}',
-                      style: const TextStyle(color: archPink, fontWeight: FontWeight.w600)),
+            ),
+            if (chunks.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < chunks.length; i++)
+                      AnimatedContainer(
+                        duration: Motion.stateChange,
+                        width: i == _page ? 18 : 6,
+                        height: 6,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        decoration: BoxDecoration(
+                          color: i == _page
+                              ? archPink
+                              : inkDim.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                  ],
                 ),
               ),
           ],
@@ -507,11 +894,10 @@ class _Popular extends ConsumerWidget {
 
   Future<void> _play(WidgetRef ref, BuildContext context, TopTrack track) async {
     final handler = ref.read(audioHandlerProvider);
-    final opener = ref.read(playerOpenProvider.notifier);
+    final local = widget.local;
     final owned = _owned(track.title);
     if (owned != null) {
-      await playGuarded(context, () => handler.playSong(owned, local));
-      opener.state = true;
+      await playAndOpen(ref, context, () => handler.playSong(owned, local));
       return;
     }
     final url = track.previewUrl;
@@ -523,17 +909,17 @@ class _Popular extends ConsumerWidget {
       }
       return;
     }
-    await playGuarded(
+    await playAndOpen(
+        ref,
         context,
         () => handler.playPreview(
               uri: Uri.parse(url),
               title: track.title,
-              artist: local.isEmpty ? artistName : local.first.artist,
+              artist: local.isEmpty ? widget.artistName : local.first.artist,
               album: track.albumTitle,
               coverUrl: track.coverUrl,
               previewId: -(track.rank + 1),
             ));
-    opener.state = true;
   }
 
   void _trackActions(WidgetRef ref, BuildContext context, TopTrack track) {
@@ -555,14 +941,14 @@ class _Popular extends ConsumerWidget {
             if (owned != null)
               ListTile(
                 leading: const Icon(Icons.album_rounded, color: ink),
-                title: Text('Go to album · ${owned.album}', maxLines: 1),
+                title: Text('Go to album - ${owned.album}', maxLines: 1),
                 onTap: () {
                   Navigator.of(context).pop();
                   final albums = ref.read(albumsProvider);
                   for (final a in albums) {
                     if (a.title == owned.album && a.artist == owned.artist) {
                       Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => AlbumDetail(album: a),
+                        builder: (_) => AlbumPage(album: a),
                       ));
                       return;
                     }
@@ -574,7 +960,7 @@ class _Popular extends ConsumerWidget {
               title: const Text('Share'),
               onTap: () {
                 Navigator.of(context).pop();
-                SharePlus.instance.share(ShareParams(text: '${track.title} — $artistName'));
+                SharePlus.instance.share(ShareParams(text: '${track.title} - ${widget.artistName}'));
               },
             ),
           ],
@@ -604,15 +990,7 @@ class _TopRow extends StatelessWidget {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       onTap: onTap,
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 28,
-            child: Text('${track.rank}',
-                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: ink)),
-          ),
-          ClipRRect(
+      leading: ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: track.coverUrl != null
                 ? CachedNetworkImage(
@@ -635,8 +1013,6 @@ class _TopRow extends StatelessWidget {
                     child: const Icon(Icons.music_note, color: inkDim),
                   ),
           ),
-        ],
-      ),
       title: Text(track.title,
           maxLines: 1, style: TextStyle(color: isCurrent ? archPink : ink, fontWeight: FontWeight.w600)),
       subtitle: Row(
@@ -705,7 +1081,7 @@ class _FanRow extends StatelessWidget {
         if (list.isEmpty) return const SizedBox.shrink();
         final groups = <String, List<ReleaseGroup>>{};
         for (final r in list) {
-          groups.putIfAbsent(_labelOf(r.type), () => []).add(r);
+          groups.putIfAbsent(_hubLabel(r.type), () => []).add(r);
         }
         final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
         final total = groups.values.fold<int>(0, (n, g) => n + g.length);
@@ -737,14 +1113,6 @@ class _FanRow extends StatelessWidget {
       },
     );
   }
-
-  static String _labelOf(String type) => switch (type) {
-        'album' => 'Albums',
-        'single' || 'ep' => 'Singles & EPs',
-        'live' => 'Live',
-        'compilation' => 'Compilations',
-        _ => 'More',
-      };
 }
 
 class _FanStack extends StatefulWidget {

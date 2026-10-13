@@ -11,7 +11,7 @@ import 'library_providers.dart';
 import 'song_row.dart';
 
 /// Library shelves: hero deck, category tiles, art rails. Shown only when
-/// no search query is active — searching shows flat results instead.
+/// no search query is active - searching shows flat results instead.
 /// Art leads everywhere; text stays small and quiet.
 class Shelves extends ConsumerWidget {
   const Shelves({super.key});
@@ -94,9 +94,7 @@ class _HeroCard extends ConsumerWidget {
     return GestureDetector(
       onTap: () async {
         final handler = ref.read(audioHandlerProvider);
-        final opener = ref.read(playerOpenProvider.notifier);
-        await playGuarded(context, () => handler.playSong(songs.first, songs));
-        opener.state = true;
+        await playAndOpen(ref, context, () => handler.playSong(songs.first, songs));
       },
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -268,10 +266,8 @@ class _RailCard extends ConsumerWidget {
       child: GestureDetector(
         onTap: () async {
           final handler = ref.read(audioHandlerProvider);
-          final opener = ref.read(playerOpenProvider.notifier);
           final all = ref.read(songsProvider).value ?? [song];
-          await playGuarded(context, () => handler.playSong(song, all));
-          opener.state = true;
+          await playAndOpen(ref, context, () => handler.playSong(song, all));
         },
         child: Container(
           width: 120,

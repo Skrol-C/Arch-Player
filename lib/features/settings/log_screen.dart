@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,10 +31,27 @@ class _LogScreenState extends State<LogScreen> {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/arch.log');
       if (!await file.exists()) return 'No log entries yet.';
-      final lines = await file.readAsLines();
+      // Lenient decode: titles carry Japanese text, emoji, and old
+      // garbled fragments - strict readAsLines dies on one bad byte
+      // and blinds every future diagnosis. Never again.
+      final bytes = await file.readAsBytes();
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final lines = text.split('\n');
       return lines.reversed.take(400).join('\n');
-    } catch (e) {
-      return 'Could not read the log: $e';
+    } catch (_) {
+      // Last resort: rotate the poisoned file aside and start fresh
+      // instead of showing an error forever.
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        final bad = File('${dir.path}/arch.log');
+        if (await bad.exists()) {
+          await bad.rename('${dir.path}/arch.log.broken');
+        }
+        return 'Log was unreadable - rotated aside, fresh log started. '
+            'Reproduce the issue and read again.';
+      } catch (e) {
+        return 'Could not read the log: $e';
+      }
     }
   }
 

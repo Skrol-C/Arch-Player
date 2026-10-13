@@ -66,16 +66,27 @@ class ArtistMeta {
   final String? bio;
   final List<ReleaseGroup> releases;
 
-  const ArtistMeta({this.mbid, this.dzId, this.imageUrl, this.bio, this.releases = const []});
+  /// True artist wordmark (fanart.tv HD ClearLogo), when the world has
+  /// one for this artist. Null = display-font fallback voice.
+  final String? logoUrl;
+
+  const ArtistMeta(
+      {this.mbid, this.dzId, this.imageUrl, this.bio, this.releases = const [], this.logoUrl});
 
   ArtistMeta copyWith(
-      {String? mbid, int? dzId, String? imageUrl, String? bio, List<ReleaseGroup>? releases}) {
+      {String? mbid,
+      int? dzId,
+      String? imageUrl,
+      String? bio,
+      List<ReleaseGroup>? releases,
+      String? logoUrl}) {
     return ArtistMeta(
       mbid: mbid ?? this.mbid,
       dzId: dzId ?? this.dzId,
       imageUrl: imageUrl ?? this.imageUrl,
       bio: bio ?? this.bio,
       releases: releases ?? this.releases,
+      logoUrl: logoUrl ?? this.logoUrl,
     );
   }
 }
@@ -91,7 +102,7 @@ class ReleaseGroup {
   const ReleaseGroup({required this.type, required this.title, this.artUrl, this.year, this.rgMbid});
 }
 
-/// A chart top-track from Deezer. [previewUrl] expires — fetched fresh per
+/// A chart top-track from Deezer. [previewUrl] expires - fetched fresh per
 /// page open, never cached long-term. Everything else caches normally.
 class TopTrack {
   final int rank;
@@ -109,4 +120,27 @@ class TopTrack {
     required this.duration,
     this.previewUrl,
   });
+}
+
+/// Resolved lyrics for one track. [syncedLrc] is LRC text (from SYLT
+/// or LRCLib synced); [plain] is untimed prose. Resolution order:
+/// embedded -> LRCLib -> none. Never throws, never lies about source.
+enum LyricSource { embedded, lrclib, none }
+
+class LyricDoc {
+  final String? plain;
+  final String? syncedLrc;
+  final LyricSource source;
+  final bool instrumental;
+
+  const LyricDoc({
+    this.plain,
+    this.syncedLrc,
+    this.source = LyricSource.none,
+    this.instrumental = false,
+  });
+
+  bool get hasSynced =>
+      syncedLrc != null && syncedLrc!.trim().isNotEmpty;
+  bool get hasPlain => plain != null && plain!.trim().isNotEmpty;
 }

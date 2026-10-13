@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,38 +12,46 @@ import 'features/shell/shell.dart';
 
 /// Audio init stays first so cold media-resume entries reach a ready
 /// handler inside the foreground ANR window; shader warmup never blocks.
+///
+/// No runZonedGuarded: the guarded zone split binding init from runApp
+/// (debugCheckZone fired every launch). Modern handling instead -
+/// FlutterError for framework errors, platformDispatcher.onError for
+/// everything async - with all of it landing in arch.log either way.
 Future<void> main() async {
-  // Everything — including binding init — runs inside the guarded zone,
-  // or Flutter throws a zone-mismatch on every startup (caught live).
-  runZonedGuarded(
-    () async {
-      WidgetsFlutterBinding.ensureInitialized();
-      await ArchLog.init();
-      FlutterError.onError = (details) {
-        ArchLog.e('flutter', details.exceptionAsString(), details.stack);
-        FlutterError.presentError(details);
-      };
-      final handler = await AudioService.init(
-        builder: () => ArchAudioHandler(),
-        config: const AudioServiceConfig(
-          androidNotificationChannelId: 'com.archstudios.arch_player.channel',
-          androidNotificationChannelName: 'Arch Player',
-          androidNotificationIcon: 'drawable/ic_stat_music_note',
-        ),
-      );
-      // Glass shaders compile off the critical path: first glass frame may
-      // frost for a blink on cold start, then it's glass forever.
-      LiquidGlassShaders.ensureLoaded().ignore();
-      runApp(
-        ProviderScope(
-          overrides: [audioHandlerProvider.overrideWithValue(handler)],
-          child: const ArchApp(),
-        ),
-      );
-      ArchLog.i('app', 'arch player v2 up');
-    },
-    (err, stack) => ArchLog.e('zone', err, stack),
+  WidgetsFlutterBinding.ensureInitialized();
+  await ArchLog.init();
+  FlutterError.onError = (details) {
+    ArchLog.e('flutter', details.exceptionAsString(), details.stack);
+    FlutterError.presentError(details);
+  };
+  WidgetsBinding.instance.platformDispatcher.onError = (err, stack) {
+    ArchLog.e('zone', err, stack);
+    return true;
+  };
+  final handler = await AudioService.init(
+    builder: () => ArchAudioHandler(),
+      config: const AudioServiceConfig(
+        // Fresh channel id (native side pre-creates it silent HIGH):
+        // deleted ids resurrect with prior config, so silence needs
+        // an id the system has never seen.
+        androidNotificationChannelId: 'com.archstudios.arch_player.media',
+        androidNotificationChannelName: 'Arch Player',
+        androidNotificationIcon: 'drawable/ic_stat_music_note',
+        // Pinned while playing: swiping the notification must never
+        // orphan background audio into a silent death.
+        androidNotificationOngoing: true,
+      ),
   );
+  // Glass shaders compile off the critical path: first glass frame may
+  // frost for a blink on cold start, then it's glass forever.
+  LiquidGlassShaders.ensureLoaded().ignore();
+  runApp(
+    ProviderScope(
+      overrides: [audioHandlerProvider.overrideWithValue(handler)],
+      child: const ArchApp(),
+    ),
+  );
+  ArchLog.i('app', 'arch player v2 up');
 }
 
 class ArchApp extends StatelessWidget {
@@ -57,12 +63,29 @@ class ArchApp extends StatelessWidget {
       title: 'Arch Player',
       debugShowCheckedModeBanner: false,
       theme: archTheme(),
+      // Neutral overscroll app-wide: the default glow paints in
+      // colorScheme.primary (our pink-red) and reads as an error
+      // flash at every list edge.
+      scrollBehavior: const _NoGlowBehavior(),
       home: const SetupGate(child: Shell()),
       builder: (context, child) {
         // Blank is never a symptom: render failures name themselves.
         ErrorWidget.builder = (details) => _CrashCard(details: details);
         return child ?? const SizedBox.shrink();
       },
+    );
+  }
+}
+
+class _NoGlowBehavior extends ScrollBehavior {
+  const _NoGlowBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+      BuildContext context, Widget child, ScrollableDetails details) {
+    return StretchingOverscrollIndicator(
+      axisDirection: details.direction,
+      child: child,
     );
   }
 }

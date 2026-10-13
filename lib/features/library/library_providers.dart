@@ -89,7 +89,7 @@ final libraryQueryProvider = StateProvider<String>((ref) => '');
 final librarySortProvider = StateProvider<SortOrder>((ref) => SortOrder.title);
 final libraryViewProvider = StateProvider<ViewMode>((ref) => ViewMode.grid);
 
-/// Search-filtered + sorted songs. In-memory — never re-scans.
+/// Search-filtered + sorted songs. In-memory - never re-scans.
 final visibleSongsProvider = Provider<List<Song>>((ref) {
   final songs = ref.watch(songsProvider).value ?? [];
   final q = ref.watch(libraryQueryProvider).trim().toLowerCase();
@@ -168,7 +168,7 @@ Future<void> toggleFolder(WidgetRef ref, String key, bool excluded) async {
 }
 
 /// Recently added to the device (MediaStore DATE_ADDED). Empty when the
-/// scan carries no dates — the rail hides instead of lying.
+/// scan carries no dates - the rail hides instead of lying.
 final recentlyAddedProvider = Provider<List<Song>>((ref) {
   final songs = ref.watch(songsProvider).value ?? [];
   final dated = songs.where((s) => s.addedSecs > 0).toList()

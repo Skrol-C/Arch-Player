@@ -14,15 +14,23 @@ String fmtDuration(Duration d) {
 }
 
 /// Album art over our own channel, memory-cached. Falls back to a disc.
-/// Sized for rows; pass fill for grid cells.
+/// Sized for rows; pass fill for grid cells. [detail] pulls the large
+/// bucket (player hero); everything else takes small - 512px covers
+/// 3x density at every row, rail, and grid size in the app.
 class AlbumArt extends StatelessWidget {
   final int albumId;
   final double size;
   final double radius;
   final bool fill;
+  final bool detail;
 
   const AlbumArt(
-      {super.key, required this.albumId, this.size = 52, this.radius = 12, this.fill = false});
+      {super.key,
+      required this.albumId,
+      this.size = 52,
+      this.radius = 12,
+      this.fill = false,
+      this.detail = false});
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +41,8 @@ class AlbumArt extends StatelessWidget {
         children: [
           Container(color: paperRaised),
           FutureBuilder(
-            future: ArtCache.of(albumId),
+            future: ArtCache.of(
+                albumId, detail ? ArtBucket.large : ArtBucket.small),
             builder: (context, snap) {
               final bytes = snap.data;
               if (bytes != null && bytes.isNotEmpty) {

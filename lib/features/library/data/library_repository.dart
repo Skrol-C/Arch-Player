@@ -4,7 +4,7 @@ import '../../../core/log.dart';
 import '../../../core/models.dart';
 
 /// Scan boundary: UI talks to [LibraryRepository], never to plugins.
-/// Own MethodChannel scan (MediaStore + SAF trees) — no stale-plugin risk.
+/// Own MethodChannel scan (MediaStore + SAF trees) - no stale-plugin risk.
 abstract class LibraryRepository {
   Future<List<Song>> loadSongs();
   Future<List<String>> suggestFolders();
@@ -57,36 +57,48 @@ class ChannelLibrary implements LibraryRepository {
   }
 }
 
-/// Album art over the same channel. LRU-capped: unbounded growth once
-/// starved Impeller textures until content painted black.
+/// Album art over the same channel, bucketed by display size.
+/// small (512px) covers 3x density at every row, rail, grid, and card
+/// size; large (1024px) serves the player hero. LRU-capped: unbounded
+/// growth once starved Impeller textures until content painted black.
+enum ArtBucket {
+  small(512),
+  large(1024);
+
+  const ArtBucket(this.px);
+  final int px;
+}
+
 class ArtCache {
   static const _channel = MethodChannel('arch.player/library');
-  static const _cap = 100;
-  static final Map<int, Uint8List?> _cache = {};
-  static final List<int> _order = [];
+  static const _cap = 60;
+  static final Map<String, Uint8List?> _cache = {};
+  static final List<String> _order = [];
 
-  static Future<Uint8List?> of(int albumId) async {
+  static Future<Uint8List?> of(int albumId, [ArtBucket bucket = ArtBucket.small]) async {
     if (albumId <= 0) return null;
-    if (_cache.containsKey(albumId)) {
-      _order.remove(albumId);
-      _order.add(albumId);
-      return _cache[albumId];
+    final key = '${bucket.px}:$albumId';
+    if (_cache.containsKey(key)) {
+      _order.remove(key);
+      _order.add(key);
+      return _cache[key];
     }
     try {
-      final bytes = await _channel.invokeMethod<Uint8List>('loadArt', {'albumId': albumId});
-      _put(albumId, bytes);
+      final bytes = await _channel.invokeMethod<Uint8List>(
+          'loadArt', {'albumId': albumId, 'targetPx': bucket.px});
+      _put(key, bytes);
       return bytes;
     } catch (e) {
-      ArchLog.w('scan', 'loadArt($albumId) failed: $e');
-      _put(albumId, null);
+      ArchLog.w('scan', 'loadArt($albumId, ${bucket.px}) failed: $e');
+      _put(key, null);
       return null;
     }
   }
 
-  static void _put(int albumId, Uint8List? bytes) {
-    _cache[albumId] = bytes;
-    _order.remove(albumId);
-    _order.add(albumId);
+  static void _put(String key, Uint8List? bytes) {
+    _cache[key] = bytes;
+    _order.remove(key);
+    _order.add(key);
     while (_order.length > _cap) {
       _cache.remove(_order.removeAt(0));
     }

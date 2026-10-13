@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 
-/// Needle teaser: name, promise, no dead end. Engine lands per vision §8.
+/// Needle teaser: name, promise, no dead end. Engine lands per vision 8.
 class NeedleTeaser extends StatelessWidget {
   const NeedleTeaser({super.key});
 
@@ -19,7 +19,7 @@ class NeedleTeaser extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Music, gotten inside the app. Sources plug in as providers — no second app needed.',
+            'Music, gotten inside the app. Sources plug in as providers - no second app needed.',
             style: TextStyle(color: inkDim, height: 1.5),
           ),
           const SizedBox(height: 24),

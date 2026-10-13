@@ -9,7 +9,7 @@ import '../../core/models.dart';
 import '../../core/secrets.local.dart' as secrets;
 
 /// Enriches a local artist name: MusicBrainz (identity + discography),
-/// Deezer (portrait + top tracks), Last.fm (bio). Three independent lanes —
+/// Deezer (portrait + top tracks), Last.fm (bio). Three independent lanes -
 /// pic, bio, and discography fire in parallel and render as each lands.
 /// Every fetch is isolated: one dead provider degrades its block, never
 /// the page. Versioned atomic disk cache; offline renders last-known-good.
@@ -88,26 +88,277 @@ class MetadataService {
   }
 
   /// Discography: cache first, else MusicBrainz live (gated 1 req/s).
+  /// Also persists the artist MBID when the live path resolves it -
+  /// the wordmark lane keys off it.
   Future<List<ReleaseGroup>> releasesFor(String artistName) async {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.releases ?? [];
     if (cached.isNotEmpty) {
-      _refreshField(artistName, _mbReleasesFor(artistName), (m, v) => m.copyWith(releases: v));
+      _refreshField(artistName, _mbReleasesFor(artistName),
+          (m, v) => m.copyWith(releases: v?.releases));
       ArchLog.i('meta', 'releases cache hit: $artistName (${cached.length})');
       return cached;
     }
     try {
       final live = await _mbReleasesFor(artistName).timeout(const Duration(seconds: 30));
-      ArchLog.i('meta', 'releases live: $artistName (${live.length}, ${stopwatch.elapsedMilliseconds}ms)');
-      if (live.isNotEmpty) await _mergeCache(artistName, (m) => m.copyWith(releases: live));
-      return live;
+      ArchLog.i('meta',
+          'releases live: $artistName (${live.releases.length}, ${stopwatch.elapsedMilliseconds}ms)');
+      if (live.releases.isNotEmpty || live.mbid != null) {
+        await _mergeCache(
+            artistName, (m) => m.copyWith(releases: live.releases, mbid: live.mbid));
+      }
+      return live.releases;
     } catch (e) {
       ArchLog.w('meta', 'MB releases failed for $artistName: $e');
       return const [];
     }
   }
 
-  /// Chart top tracks. Preview URLs expire — call fresh per page open.
+  /// True artist wordmark (fanart.tv HD ClearLogo): cache first, else
+  /// MBID resolve + fanart live. Null when the world has no mark for
+  /// this artist - the hero falls back to our display-font voice.
+  /// Empty API key = local-only, no network attempted.
+  Future<String?> logoFor(String artistName) async {
+    final cached = (await _readCache(artistName))?.logoUrl;
+    if (cached != null) {
+      _refreshField(artistName, _liveLogo(artistName), (m, v) => m.copyWith(logoUrl: v));
+      ArchLog.i('meta', 'logo cache hit: $artistName');
+      return cached;
+    }
+    try {
+      final live = await _liveLogo(artistName).timeout(const Duration(seconds: 20));
+      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(logoUrl: live));
+      return live;
+    } catch (e) {
+      ArchLog.w('meta', 'logo failed for $artistName: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _liveLogo(String artistName) async {
+    var mbid = (await _readCache(artistName))?.mbid;
+    if (mbid == null || mbid.isEmpty) {
+      mbid = await _viaMbGate(() => _mbSearchArtist(artistName));
+      if (mbid == null) return null;
+      await _mergeCache(artistName, (m) => m.copyWith(mbid: mbid));
+    }
+    // Lane 1: fanart.tv HD ClearLogo.
+    final fanartKey = secrets.fanartApiKey;
+    if (fanartKey.isNotEmpty && fanartKey != 'PASTE_KEY_HERE') {
+      final memoKey = 'logo:$mbid';
+      if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+      try {
+        final uri =
+            Uri.parse('https://webservice.fanart.tv/v3/music/$mbid?api_key=$fanartKey');
+        final res = await http.get(uri).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          final body = jsonDecode(res.body) as Map;
+          String? pick(List? items) {
+            if (items == null || items.isEmpty) return null;
+            return (items.first as Map)['url'] as String?;
+          }
+
+          final url = pick(body['hdmusiclogo'] as List?) ??
+              pick(body['musiclogo'] as List?);
+          _caaMemo[memoKey] = url;
+          if (url != null) {
+            ArchLog.i('meta', 'logo live: $artistName (fanart)');
+            return url;
+          }
+        } else {
+          _caaMemo[memoKey] = null;
+        }
+      } catch (_) {
+        _caaMemo[memoKey] = null;
+      }
+    }
+    // Lane 2: TheAudioDB strArtistLogo (different community coverage).
+    final tadbKey = secrets.audioDbApiKey;
+    if (tadbKey.isNotEmpty && tadbKey != 'PASTE_KEY_HERE') {
+      final memoKey = 'tadb:$mbid';
+      if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+      try {
+        final uri = Uri.parse(
+            'https://www.theaudiodb.com/api/v1/json/$tadbKey/artist-mb.php?i=$mbid');
+        final res = await http.get(uri).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          final artists = (jsonDecode(res.body) as Map)['artists'];
+          String? url;
+          if (artists is List && artists.isNotEmpty) {
+            final logo = (artists.first as Map)['strArtistLogo'] as String?;
+            if (logo != null && logo.isNotEmpty) url = logo;
+          }
+          _caaMemo[memoKey] = url;
+          ArchLog.i('meta',
+              'logo live: $artistName ${url == null ? '(none)' : '(tadb)'}');
+          return url;
+        }
+        _caaMemo[memoKey] = null;
+      } catch (_) {
+        _caaMemo[memoKey] = null;
+      }
+    }
+    ArchLog.i('meta', 'logo live: $artistName (none)');
+    return null;
+  }
+
+  /// Lyrics: embedded tags win (handled by the lyrics slice before
+  /// calling here); LRCLib is the network fallback. Disk-cached per
+  /// track, capped - lyrics don't change, so no refresh lane.
+  /// A logged fallback ladder (full -> no album -> no duration ->
+  /// feat-stripped title) instead of one exact query: matching is
+  /// fuzzy in the wild, and every miss names its rung. 404/offline
+  /// at every rung = LyricDoc.none(), never an error surface.
+  Future<LyricDoc> lyricsFor({
+    required int songId,
+    required String artist,
+    required String title,
+    required String album,
+    required int durationSecs,
+  }) async {
+    final cached = await _readLyricCache(songId);
+    if (cached != null) return cached;
+    final cleanAlbum =
+        album.isNotEmpty && album.toLowerCase() != 'unknown album'
+            ? album
+            : null;
+    final strippedTitle = _stripFeat(title);
+    final rungs = <Map<String, String>>[
+      {
+        'artist_name': artist,
+        'track_name': title,
+        'album_name': ?cleanAlbum,
+        if (durationSecs > 0) 'duration': '$durationSecs',
+      },
+      {
+        'artist_name': artist,
+        'track_name': title,
+        if (durationSecs > 0) 'duration': '$durationSecs',
+      },
+      {
+        'artist_name': artist,
+        'track_name': title,
+      },
+      if (strippedTitle != title)
+        {
+          'artist_name': artist,
+          'track_name': strippedTitle,
+        },
+    ];
+    for (var r = 0; r < rungs.length; r++) {
+      try {
+        final uri = Uri.parse('https://lrclib.net/api/get')
+            .replace(queryParameters: rungs[r]);
+        final res =
+            await http.get(uri).timeout(const Duration(seconds: 12));
+        if (res.statusCode != 200) continue;
+        final m = jsonDecode(res.body) as Map;
+        final synced = (m['syncedLyrics'] as String?)?.trim();
+        final plain = (m['plainLyrics'] as String?)?.trim();
+        if ((synced == null || synced.isEmpty) &&
+            (plain == null || plain.isEmpty) &&
+            m['instrumental'] != true) {
+          continue;
+        }
+        final doc = LyricDoc(
+          plain: (plain == null || plain.isEmpty) ? null : plain,
+          syncedLrc: (synced == null || synced.isEmpty) ? null : synced,
+          source: LyricSource.lrclib,
+          instrumental: m['instrumental'] == true,
+        );
+        await _writeLyricCache(songId, doc);
+        ArchLog.i('meta',
+            'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasSynced ? 'synced' : doc.hasPlain ? 'plain' : 'instrumental'})');
+        return doc;
+      } catch (e) {
+        ArchLog.w(
+            'meta', 'LRCLib rung ${r + 1} failed for $artist - $title: $e');
+      }
+    }
+    return const LyricDoc();
+  }
+
+  static String _stripFeat(String title) {
+    var t = title;
+    t = t.replaceAll(
+        RegExp(r'\s*[\(\[]?\s*feat\.?\s+[^\)\]]*[\)\]]?\s*$',
+            caseSensitive: false),
+        '');
+    t = t.replaceAll(
+        RegExp(r'\s+ft\.?\s+.*$', caseSensitive: false), '');
+    return t.trim().isEmpty ? title : t.trim();
+  }
+
+  Future<Directory> _lyricDir() async {
+    final base = await getApplicationCacheDirectory();
+    final dir = Directory('${base.path}/lyrics_cache');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  Future<LyricDoc?> _readLyricCache(int songId) async {
+    try {
+      final file = File('${(await _lyricDir()).path}/$songId.json');
+      if (!await file.exists()) return null;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      if ((m['v'] as num?)?.toInt() != 1) {
+        await file.delete();
+        return null;
+      }
+      final synced = m['synced'] as String?;
+      final plain = m['plain'] as String?;
+      if ((synced == null || synced.isEmpty) &&
+          (plain == null || plain.isEmpty) &&
+          m['instrumental'] != true) {
+        return null;
+      }
+      return LyricDoc(
+        plain: plain,
+        syncedLrc: synced,
+        source: LyricSource.lrclib,
+        instrumental: m['instrumental'] == true,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeLyricCache(int songId, LyricDoc doc) async {
+    try {
+      // No doc worth keeping (and not instrumental) = don't cache air.
+      if (!doc.hasSynced && !doc.hasPlain && !doc.instrumental) return;
+      final dir = await _lyricDir();
+      final file = File('${dir.path}/$songId.json');
+      await file.writeAsString(jsonEncode({
+        'v': 1,
+        'plain': doc.plain,
+        'synced': doc.syncedLrc,
+        'instrumental': doc.instrumental,
+      }));
+      // Bounded: lyrics are small but infinite tracks aren't. Oldest
+      // files go once past the cap.
+      final files = await dir
+          .list()
+          .where((e) => e is File && e.path.endsWith('.json'))
+          .cast<File>()
+          .toList();
+      if (files.length > 300) {
+        final stats = <File, DateTime>{};
+        for (final f in files) {
+          stats[f] = await f.lastModified();
+        }
+        final ordered = stats.keys.toList()
+          ..sort((a, b) => stats[a]!.compareTo(stats[b]!));
+        for (final f in ordered.take(files.length - 300)) {
+          try {
+            await f.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Chart top tracks. Preview URLs expire - call fresh per page open.
   Future<List<TopTrack>> topTracks(String artistName) async {
     final stopwatch = Stopwatch()..start();
     try {
@@ -115,7 +366,7 @@ class MetadataService {
       dzId ??= (await _dzArtist(artistName))?.id;
       if (dzId == null || dzId == 0) return const [];
       await _mergeCache(artistName, (m) => m.copyWith(dzId: dzId));
-      final uri = Uri.parse('$_dzBase/artist/$dzId/top?limit=10');
+      final uri = Uri.parse('$_dzBase/artist/$dzId/top?limit=20');
       final res = await http.get(uri).timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return const [];
       final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
@@ -175,10 +426,11 @@ class MetadataService {
     }
   }
 
-  Future<List<ReleaseGroup>> _mbReleasesFor(String artistName) async {
+  Future<({String? mbid, List<ReleaseGroup> releases})> _mbReleasesFor(
+      String artistName) async {
     final mbid = await _viaMbGate(() => _mbSearchArtist(artistName));
-    if (mbid == null) return const [];
-    return _mbReleases(mbid);
+    if (mbid == null) return (mbid: null, releases: const <ReleaseGroup>[]);
+    return (mbid: mbid, releases: await _mbReleases(mbid));
   }
 
   /// Returns the MBID of the best match, or null when nothing is safe.
@@ -325,7 +577,7 @@ class MetadataService {
       if (!await file.exists()) return null;
       final m = jsonDecode(await file.readAsString()) as Map;
       // Version gate: unknown or corrupt schema self-deletes. Poison can
-      // never survive a restart — the app heals the way a data wipe does.
+      // never survive a restart - the app heals the way a data wipe does.
       if ((m['v'] as num?)?.toInt() != _schema) {
         await file.delete();
         return null;
@@ -335,6 +587,7 @@ class MetadataService {
         dzId: (m['dzId'] as num?)?.toInt(),
         imageUrl: m['imageUrl'] as String?,
         bio: m['bio'] as String?,
+        logoUrl: m['logoUrl'] as String?,
         releases: ((m['releases'] as List?) ?? []).map((e) {
           final r = e as Map;
           return ReleaseGroup(
@@ -362,6 +615,7 @@ class MetadataService {
         'dzId': meta.dzId,
         'imageUrl': meta.imageUrl,
         'bio': meta.bio,
+        'logoUrl': meta.logoUrl,
         'releases': [
           for (final r in meta.releases)
             {'type': r.type, 'title': r.title, 'artUrl': r.artUrl, 'year': r.year, 'rgMbid': r.rgMbid},

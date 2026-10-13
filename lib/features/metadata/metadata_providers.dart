@@ -24,6 +24,12 @@ final artistReleasesProvider =
   return ref.watch(metadataServiceProvider).releasesFor(artistName);
 });
 
+/// True artist wordmark (fanart.tv HD ClearLogo), when one exists.
+/// Null = the hero falls back to our display-font voice.
+final artistLogoProvider = FutureProvider.family<String?, String>((ref, artistName) {
+  return ref.watch(metadataServiceProvider).logoFor(artistName);
+});
+
 /// Chart top tracks, fresh per page open (preview URLs expire).
 final artistTopProvider = FutureProvider.family<List<TopTrack>, String>((ref, artistName) {
   return ref.watch(metadataServiceProvider).topTracks(artistName);

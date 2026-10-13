@@ -12,7 +12,7 @@ final _setupDoneProvider = FutureProvider<bool>((ref) {
   return ref.watch(folderStoreProvider).setupDone;
 });
 
-/// First-run front door: permission → where's your music → done.
+/// First-run front door: permission -> where's your music -> done.
 /// Calm white pages, one decision each, skippable nowhere that matters.
 class SetupGate extends ConsumerWidget {
   final Widget child;
@@ -110,7 +110,7 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
               children: [
                 Text('Arch needs\nyour music', style: Theme.of(context).textTheme.headlineLarge),
                 const SizedBox(height: 12),
-                const Text('Allow access to keep going — nothing leaves your phone.',
+                const Text('Allow access to keep going - nothing leaves your phone.',
                     style: TextStyle(color: inkDim, height: 1.5)),
                 const SizedBox(height: 24),
                 FilledButton(onPressed: _boot, child: const Text('Allow music access')),

@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import 'library_providers.dart';
+import 'library_screen.dart' show AlbumPage;
 import 'song_row.dart';
+import '../shell/dock.dart';
 
 /// One discography category, full grid. Owned in color + pink ring,
-/// missing grayed (tap routes to Needle later — never a dead end).
-class ReleaseGallery extends StatelessWidget {
+/// missing grayed. Owned tiles open the album; remote tiles say so
+/// honestly (Needle owns downloads) - no dead tiles anywhere.
+class ReleaseGallery extends ConsumerWidget {
   final String artistName;
   final String label;
   final List<ReleaseGroup> items;
@@ -22,11 +27,15 @@ class ReleaseGallery extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(title: Text('$artistName — $label')),
-      body: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+      appBar: AppBar(title: Text('$artistName - $label')),
+      body: DockScrollReporter(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GridView.builder(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
           crossAxisSpacing: 16,
@@ -39,22 +48,48 @@ class ReleaseGallery extends StatelessWidget {
           final owned = ownedTitles.contains(r.title.toLowerCase());
           return FocalEntrance(
             index: i,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: ReleaseCover(release: r, owned: owned, fill: true)),
-                const SizedBox(height: 6),
-                Text(r.title,
-                    maxLines: 1,
-                    style: TextStyle(
-                        color: owned ? ink : inkDim, fontWeight: FontWeight.w600)),
-                if (r.year != null)
-                  Text('${r.year}', style: const TextStyle(color: inkDim, fontSize: 12)),
-              ],
+            child: GestureDetector(
+              onTap: () => _open(context, ref, r, owned),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: ReleaseCover(release: r, owned: owned, fill: true)),
+                  const SizedBox(height: 6),
+                  Text(r.title,
+                      maxLines: 1,
+                      style: TextStyle(
+                          color: owned ? ink : inkDim, fontWeight: FontWeight.w600)),
+                  if (r.year != null)
+                    Text('${r.year}', style: const TextStyle(color: inkDim, fontSize: 12)),
+                ],
+              ),
             ),
           );
         },
+            ),
+            const NowPlayingDock(),
+          ],
+        ),
       ),
+    );
+  }
+
+  void _open(BuildContext context, WidgetRef ref, ReleaseGroup r, bool owned) {
+    if (owned) {
+      final needle = r.title.toLowerCase();
+      for (final a in ref.read(albumsProvider)) {
+        if (a.title.toLowerCase() == needle &&
+            a.artist.toLowerCase() == artistName.toLowerCase()) {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AlbumPage(album: a),
+          ));
+          return;
+        }
+      }
+    }
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(owned ? 'Album moved - check Folders' : '${r.title} isn\u2019t on this device - downloads land with Needle')),
     );
   }
 }
