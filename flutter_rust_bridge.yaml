@@ -1,0 +1,9 @@
+# flutter_rust_bridge codegen config (codegen 2.13.0).
+# NOTE: never run bare `generate` - it comments out lib/main.dart
+# for a throwaway demo and a crash leaves it unrestored. Back up
+# lib/main.dart first, restore + verify after.
+rust_input: crate::api
+rust_root: rust
+dart_output: lib/features/needle/bridge
+c_output: rust/bridge_headers
+dart_entrypoint_class_name: NeedleCore

@@ -18,7 +18,9 @@ import '../library/data/library_repository.dart';
 class NotifArt {
   static Future<String?> cacheCover(String url) async {
     try {
-      final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
       return await cacheBytes(res.bodyBytes, '${url.hashCode}');
     } catch (e) {
@@ -83,14 +85,16 @@ class ArchAudioHandler extends BaseAudioHandler {
   Future<void> _configureSession() async {
     try {
       final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration(
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.music,
-          usage: AndroidAudioUsage.media,
+      await session.configure(
+        const AudioSessionConfiguration(
+          androidAudioAttributes: AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+          androidWillPauseWhenDucked: true,
         ),
-        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-        androidWillPauseWhenDucked: true,
-      ));
+      );
       session.interruptionEventStream.listen((e) async {
         ArchLog.i('player', 'interruption begin=${e.begin} type=${e.type}');
         try {
@@ -176,41 +180,59 @@ class ArchAudioHandler extends BaseAudioHandler {
       waited++;
     }
     if (_busy) {
-      ArchLog.w('player',
-          'busy-wait capped id=${song.id} waited=${watch.elapsedMilliseconds}ms - resetting');
+      ArchLog.w(
+        'player',
+        'busy-wait capped id=${song.id} waited=${watch.elapsedMilliseconds}ms - resetting',
+      );
       _busy = false;
     } else if (waited > 0) {
-      ArchLog.i('player', 'busy-waited id=${song.id} waited=${watch.elapsedMilliseconds}ms');
+      ArchLog.i(
+        'player',
+        'busy-waited id=${song.id} waited=${watch.elapsedMilliseconds}ms',
+      );
     }
     _busy = true;
     try {
-      ArchLog.i('player', 'play id=${song.id} title=${song.title} scheme=${song.uri.scheme}');
+      ArchLog.i(
+        'player',
+        'play id=${song.id} title=${song.title} scheme=${song.uri.scheme}',
+      );
       final index = context.indexWhere((s) => s.id == song.id);
       if (index < 0) {
         ArchLog.w('player', 'tap song missing from context id=${song.id}');
         return;
       }
-      final sameQueue = _songs.length == context.length &&
+      final sameQueue =
+          _songs.length == context.length &&
           _songs.every((s) => context.any((c) => c.id == s.id));
       if (!sameQueue) {
         // Network previews can stall forever (expired URL, captive
         // portal). Bound it; failure surfaces, never wedges.
-        await setQueueSongs(context, startIndex: index)
-            .timeout(const Duration(seconds: 20));
-        ArchLog.i('player',
-            'queue rebuilt id=${song.id} n=${context.length} in=${watch.elapsedMilliseconds}ms');
+        await setQueueSongs(
+          context,
+          startIndex: index,
+        ).timeout(const Duration(seconds: 20));
+        ArchLog.i(
+          'player',
+          'queue rebuilt id=${song.id} n=${context.length} in=${watch.elapsedMilliseconds}ms',
+        );
       } else {
         await _player
             .seek(Duration.zero, index: index)
             .timeout(const Duration(seconds: 10));
-        ArchLog.i('player',
-            'same-queue seek id=${song.id} index=$index in=${watch.elapsedMilliseconds}ms');
+        ArchLog.i(
+          'player',
+          'same-queue seek id=${song.id} index=$index in=${watch.elapsedMilliseconds}ms',
+        );
       }
       // currentIndexStream fires too, but set it now so the first
       // notification frame is already correct — never one stale behind.
       mediaItem.value = song.toMediaItem();
       await _player.play().timeout(const Duration(seconds: 10));
-      ArchLog.i('player', 'playing id=${song.id} in=${watch.elapsedMilliseconds}ms');
+      ArchLog.i(
+        'player',
+        'playing id=${song.id} in=${watch.elapsedMilliseconds}ms',
+      );
       // Art follows behind the tap (zero tap cost): re-set the item
       // with a file-backed cover once resolved. Triple-guarded so a
       // slow fetch can never paint stale art over a newer track.
@@ -234,7 +256,8 @@ class ArchAudioHandler extends BaseAudioHandler {
       final current = mediaItem.value;
       if (current == null) return;
       mediaItem.value = current.copyWith(
-          extras: {...?current.extras, 'artCacheFile': file});
+        extras: {...?current.extras, 'artCacheFile': file},
+      );
       ArchLog.i('player', 'notif art attached id=${song.id}');
     } catch (_) {}
   }
@@ -288,7 +311,10 @@ class ArchAudioHandler extends BaseAudioHandler {
           .timeout(const Duration(seconds: 20));
       mediaItem.value = item;
       await _player.play().timeout(const Duration(seconds: 10));
-      ArchLog.i('player', 'preview playing title=$title in=${watch.elapsedMilliseconds}ms');
+      ArchLog.i(
+        'player',
+        'preview playing title=$title in=${watch.elapsedMilliseconds}ms',
+      );
     } finally {
       _busy = false;
     }
@@ -363,7 +389,10 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// surface). Names avoid the BaseAudioHandler queue-item overrides.
   Future<void> moveQueueIndex(int oldIndex, int newIndex) async {
     if (oldIndex == newIndex) return;
-    if (oldIndex < 0 || newIndex < 0 || oldIndex >= _songs.length || newIndex >= _songs.length) {
+    if (oldIndex < 0 ||
+        newIndex < 0 ||
+        oldIndex >= _songs.length ||
+        newIndex >= _songs.length) {
       return;
     }
     if (_songs.length < 2) return;
@@ -429,12 +458,12 @@ extension on Song {
   /// down with it. Art arrives file-backed via [_attachArtFile]
   /// instead — same preferred path previews already use.
   MediaItem toMediaItem() => MediaItem(
-        id: uri.toString(),
-        title: title,
-        artist: artist,
-        album: album,
-        duration: duration.inMilliseconds <= 0 ? null : duration,
-        artUri: null,
-        extras: {'songId': id, 'albumId': albumId},
-      );
+    id: uri.toString(),
+    title: title,
+    artist: artist,
+    album: album,
+    duration: duration.inMilliseconds <= 0 ? null : duration,
+    artUri: null,
+    extras: {'songId': id, 'albumId': albumId},
+  );
 }

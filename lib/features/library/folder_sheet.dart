@@ -25,13 +25,20 @@ class FolderSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Music folders', style: Theme.of(context).textTheme.titleLarge),
-            Text('${songs.length} songs in library',
-                style: const TextStyle(color: inkDim, fontSize: 13)),
+            Text(
+              'Music folders',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            Text(
+              '${songs.length} songs in library',
+              style: const TextStyle(color: inkDim, fontSize: 13),
+            ),
             if (picked.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text('Picked homes: ${picked.length}',
-                  style: const TextStyle(color: inkDim, fontSize: 13)),
+              Text(
+                'Picked homes: ${picked.length}',
+                style: const TextStyle(color: inkDim, fontSize: 13),
+              ),
             ],
             const SizedBox(height: 8),
             Flexible(
@@ -83,7 +90,9 @@ class FolderSheet extends ConsumerWidget {
 
   Future<void> _addFolder(BuildContext context, WidgetRef ref) async {
     try {
-      final path = await FilePicker.getDirectoryPath(dialogTitle: 'Where is your music?');
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Where is your music?',
+      );
       if (path == null) return;
       await ref.read(folderStoreProvider).addPicked(path);
       ArchLog.i('folders', 'picked: $path');

@@ -36,12 +36,16 @@ class HistoryStore {
       final prev = all[songId];
       all[songId] = PlayRecord(count: (prev?.count ?? 0) + 1, lastMs: now);
       if (all.length > _cap) {
-        final sorted = all.entries.toList()..sort((a, b) => a.value.lastMs.compareTo(b.value.lastMs));
+        final sorted = all.entries.toList()
+          ..sort((a, b) => a.value.lastMs.compareTo(b.value.lastMs));
         for (final e in sorted.take(all.length - _cap)) {
           all.remove(e.key);
         }
       }
-      await prefs.setString(_key, jsonEncode({for (final e in all.entries) '${e.key}': e.value.toMap()}));
+      await prefs.setString(
+        _key,
+        jsonEncode({for (final e in all.entries) '${e.key}': e.value.toMap()}),
+      );
     } catch (e) {
       ArchLog.w('history', 'record failed: $e');
     }
@@ -55,9 +59,9 @@ class PlayRecord {
   const PlayRecord({required this.count, required this.lastMs});
 
   factory PlayRecord.fromMap(Map<String, dynamic> m) => PlayRecord(
-        count: (m['c'] as num?)?.toInt() ?? 0,
-        lastMs: (m['l'] as num?)?.toInt() ?? 0,
-      );
+    count: (m['c'] as num?)?.toInt() ?? 0,
+    lastMs: (m['l'] as num?)?.toInt() ?? 0,
+  );
 
   Map<String, dynamic> toMap() => {'c': count, 'l': lastMs};
 }

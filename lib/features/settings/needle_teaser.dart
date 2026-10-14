@@ -15,7 +15,10 @@ class NeedleTeaser extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
         children: [
           FocalEntrance(
-            child: Text('Needle', style: Theme.of(context).textTheme.headlineLarge),
+            child: Text(
+              'Needle',
+              style: Theme.of(context).textTheme.headlineLarge,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -32,8 +35,13 @@ class NeedleTeaser extends StatelessWidget {
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('How it will work',
-                    style: TextStyle(color: archPink, fontWeight: FontWeight.w700)),
+                Text(
+                  'How it will work',
+                  style: TextStyle(
+                    color: archPink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 SizedBox(height: 8),
                 Text(
                   'Search a source, pick quality up to lossless, queue it, '

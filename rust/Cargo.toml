@@ -1,0 +1,23 @@
+[package]
+# Package name matches the cargokit output (librust_lib_arch_player.so)
+# so the bridge loader finds it without overrides.
+name = "rust_lib_arch_player"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# QuickJS via rquickjs 0.14 + local bindgen (their proven recipe):
+# bindings generate at build time against NDK headers. Host needs
+# libclang (LLVM install) + NDK sysroot/triple env at build time.
+# One engine only - the Boa detour is deleted, not kept.
+rquickjs = { version = "=0.14.0", features = ["bindgen"] }
+# Sync HTTP for host bridge calls (no async runtime needed inside
+# QuickJS callbacks). rustls = pure Rust TLS, builds everywhere.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-manual-roots", "json"] }
+base64 = "0.22"

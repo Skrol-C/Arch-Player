@@ -15,7 +15,10 @@ class FolderStore {
       (await SharedPreferences.getInstance()).setBool(_setupDoneKey, true);
 
   Future<Set<String>> picked() async =>
-      (await SharedPreferences.getInstance()).getStringList(_pickedKey)?.toSet() ?? {};
+      (await SharedPreferences.getInstance())
+          .getStringList(_pickedKey)
+          ?.toSet() ??
+      {};
 
   Future<void> addPicked(String uri) async {
     final prefs = await SharedPreferences.getInstance();
@@ -30,7 +33,10 @@ class FolderStore {
   }
 
   Future<Set<String>> excluded() async =>
-      (await SharedPreferences.getInstance()).getStringList(_excludedKey)?.toSet() ?? {};
+      (await SharedPreferences.getInstance())
+          .getStringList(_excludedKey)
+          ?.toSet() ??
+      {};
 
   Future<void> setExcluded(String key, bool excluded) async {
     final prefs = await SharedPreferences.getInstance();
@@ -44,7 +50,10 @@ class FolderStore {
   }
 
   Future<Set<String>> followedArtists() async =>
-      (await SharedPreferences.getInstance()).getStringList(_followedKey)?.toSet() ?? {};
+      (await SharedPreferences.getInstance())
+          .getStringList(_followedKey)
+          ?.toSet() ??
+      {};
 
   Future<void> setFollowed(String artist, bool followed) async {
     final prefs = await SharedPreferences.getInstance();

@@ -6,6 +6,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../needle/download_page.dart';
+import '../needle/extensions_page.dart';
+import '../needle/repo_page.dart';
 import 'log_screen.dart';
 import 'needle_teaser.dart';
 
@@ -21,63 +24,101 @@ class SettingsScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(20, 72, 20, 160),
       children: [
         FocalEntrance(
-          child: Text('Settings', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700)),
+          child: Text(
+            'Settings',
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
+          ),
         ),
         SizedBox(height: 16),
-        _Group(title: 'Library', children: [
-          _Row(
-            icon: Icons.folder_rounded,
-            title: 'Music folders',
-            subtitle: 'Counts, toggles and adding live in Library',
-            route: _SoonRoute(label: 'Folder management lives in Library > Folders'),
-          ),
-          _Row(
-            icon: Icons.refresh_rounded,
-            title: 'Rescan library',
-            subtitle: 'Pick up new and removed files',
-            route: _SoonRoute(label: 'Rescan arrives with the library engine'),
-          ),
-          _Row(
-            icon: Icons.image_rounded,
-            title: 'Artwork cache',
-            subtitle: 'Sizes and clearing live here when art lands',
-            route: _SoonRoute(label: 'Art cache controls arrive with artwork'),
-          ),
-        ]),
-        _Group(title: 'Metadata', children: [
-          _Row(
-            icon: Icons.hub_rounded,
-            title: 'Providers',
-            subtitle: 'MusicBrainz - Deezer - Last.fm status',
-            route: _SoonRoute(label: 'Provider status arrives with enrichment'),
-          ),
-        ]),
-        _Group(title: 'Downloads', children: [
-          _Row(
-            icon: Icons.download_rounded,
-            title: 'Needle',
-            subtitle: 'Quality, queue, storage - the one-stop shop',
-            push: NeedleTeaser(),
-          ),
-        ]),
-        _Group(title: 'Playback', children: [
-          _BatteryRow(),
-          _NotifRow(),
-        ]),
-        _Group(title: 'Diagnostics', children: [
-          _Row(
-            icon: Icons.receipt_long_rounded,
-            title: 'View log',
-            subtitle: 'What the app has been doing',
-            push: LogScreen(),
-          ),
-          _Row(
-            icon: Icons.info_outline_rounded,
-            title: 'About',
-            subtitle: 'Version and the Arch promise',
-            route: _SoonRoute(label: 'Arch Player v2 - Needle coming soon'),
-          ),
-        ]),
+        _Group(
+          title: 'Library',
+          children: [
+            _Row(
+              icon: Icons.folder_rounded,
+              title: 'Music folders',
+              subtitle: 'Counts, toggles and adding live in Library',
+              route: _SoonRoute(
+                label: 'Folder management lives in Library > Folders',
+              ),
+            ),
+            _Row(
+              icon: Icons.refresh_rounded,
+              title: 'Rescan library',
+              subtitle: 'Pick up new and removed files',
+              route: _SoonRoute(
+                label: 'Rescan arrives with the library engine',
+              ),
+            ),
+            _Row(
+              icon: Icons.image_rounded,
+              title: 'Artwork cache',
+              subtitle: 'Sizes and clearing live here when art lands',
+              route: _SoonRoute(
+                label: 'Art cache controls arrive with artwork',
+              ),
+            ),
+          ],
+        ),
+        _Group(
+          title: 'Metadata',
+          children: [
+            _Row(
+              icon: Icons.hub_rounded,
+              title: 'Providers',
+              subtitle: 'MusicBrainz - Deezer - Last.fm status',
+              route: _SoonRoute(
+                label: 'Provider status arrives with enrichment',
+              ),
+            ),
+          ],
+        ),
+        _Group(
+          title: 'Downloads',
+          children: [
+            _Row(
+              icon: Icons.extension_rounded,
+              title: 'Extensions',
+              subtitle: 'Providers plug in here - sandboxed',
+              push: ExtensionsPage(),
+            ),
+            _Row(
+              icon: Icons.store_rounded,
+              title: 'Repositories',
+              subtitle: 'Community default preloaded',
+              push: RepoPage(),
+            ),
+            _Row(
+              icon: Icons.tune_rounded,
+              title: 'Download prefs',
+              subtitle: 'Quality tier and storage folder',
+              push: DownloadPage(),
+            ),
+            _Row(
+              icon: Icons.download_rounded,
+              title: 'Needle',
+              subtitle: 'Quality, queue, storage - the one-stop shop',
+              push: NeedleTeaser(),
+            ),
+          ],
+        ),
+        _Group(title: 'Playback', children: [_BatteryRow(), _NotifRow()]),
+        _Group(
+          title: 'Diagnostics',
+          children: [
+            _Row(
+              icon: Icons.receipt_long_rounded,
+              title: 'View log',
+              subtitle: 'What the app has been doing',
+              push: LogScreen(),
+            ),
+            _Row(
+              icon: Icons.info_outline_rounded,
+              title: 'About',
+              subtitle: 'Version and the Arch promise',
+              route: _SoonRoute(label: 'Arch Player v2 - Needle coming soon'),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -96,9 +137,15 @@ class _Group extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-          child: Text(title.toUpperCase(),
-              style: const TextStyle(
-                  color: inkDim, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.6)),
+          child: Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              color: inkDim,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+            ),
+          ),
         ),
         Material(
           // Material owns the group background (not a DecoratedBox) so
@@ -143,23 +190,30 @@ class _BatteryRowState extends State<_BatteryRow> {
       leading: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(color: paper, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: paper,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Icon(
-            exempt == true
-                ? Icons.battery_full_rounded
-                : Icons.battery_alert_rounded,
-            color: archPink),
+          exempt == true
+              ? Icons.battery_full_rounded
+              : Icons.battery_alert_rounded,
+          color: archPink,
+        ),
       ),
-      title: const Text('Background playback',
-          style: TextStyle(fontWeight: FontWeight.w600)),
+      title: const Text(
+        'Background playback',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
       subtitle: Text(
-          exempt == null
-              ? 'Checking...'
-              : exempt
-                  ? 'Unrestricted - survives the background'
-                  : 'Restricted - tap to allow background play',
-          maxLines: 2,
-          style: const TextStyle(color: inkDim, fontSize: 13)),
+        exempt == null
+            ? 'Checking...'
+            : exempt
+            ? 'Unrestricted - survives the background'
+            : 'Restricted - tap to allow background play',
+        maxLines: 2,
+        style: const TextStyle(color: inkDim, fontSize: 13),
+      ),
       trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
       onTap: () async {
         HapticFeedback.selectionClick();
@@ -171,13 +225,16 @@ class _BatteryRowState extends State<_BatteryRow> {
           await Permission.ignoreBatteryOptimizations.request();
           await _check();
           final after = await Permission.ignoreBatteryOptimizations.status;
-          ArchLog.i('settings',
-              'battery exemption: was=${before.isGranted} now=${after.isGranted}');
+          ArchLog.i(
+            'settings',
+            'battery exemption: was=${before.isGranted} now=${after.isGranted}',
+          );
           if (!after.isGranted && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: const Text(
-                    'System screen did not open - allow it manually'),
+                  'System screen did not open - allow it manually',
+                ),
                 action: SnackBarAction(
                   label: 'Settings',
                   onPressed: () => openAppSettings(),
@@ -231,23 +288,30 @@ class _NotifRowState extends State<_NotifRow> {
       leading: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(color: paper, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: paper,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Icon(
-            granted == true
-                ? Icons.notifications_active_rounded
-                : Icons.notifications_off_rounded,
-            color: archPink),
+          granted == true
+              ? Icons.notifications_active_rounded
+              : Icons.notifications_off_rounded,
+          color: archPink,
+        ),
       ),
-      title: const Text('Playback notifications',
-          style: TextStyle(fontWeight: FontWeight.w600)),
+      title: const Text(
+        'Playback notifications',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
       subtitle: Text(
-          granted == null
-              ? 'Checking...'
-              : granted
-                  ? 'On - controls appear while playing'
-                  : 'Off - tap to enable in settings',
-          maxLines: 2,
-          style: const TextStyle(color: inkDim, fontSize: 13)),
+        granted == null
+            ? 'Checking...'
+            : granted
+            ? 'On - controls appear while playing'
+            : 'Off - tap to enable in settings',
+        maxLines: 2,
+        style: const TextStyle(color: inkDim, fontSize: 13),
+      ),
       trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
       onTap: () async {
         HapticFeedback.selectionClick();
@@ -257,6 +321,7 @@ class _NotifRowState extends State<_NotifRow> {
     );
   }
 }
+
 class _Row extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -264,7 +329,13 @@ class _Row extends StatelessWidget {
   final Widget? push;
   final _SoonRoute? route;
 
-  const _Row({required this.icon, required this.title, required this.subtitle, this.push, this.route});
+  const _Row({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.push,
+    this.route,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -272,11 +343,18 @@ class _Row extends StatelessWidget {
       leading: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(color: paper, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: paper,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Icon(icon, color: archPink),
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, maxLines: 2, style: const TextStyle(color: inkDim, fontSize: 13)),
+      subtitle: Text(
+        subtitle,
+        maxLines: 2,
+        style: const TextStyle(color: inkDim, fontSize: 13),
+      ),
       trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
       onTap: () {
         final target = push ?? route?.page;

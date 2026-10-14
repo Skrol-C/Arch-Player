@@ -17,8 +17,9 @@ import '../player/player_providers.dart';
 
 enum Destination { library, needle, settings }
 
-final destinationProvider =
-    StateProvider<Destination>((ref) => Destination.library);
+final destinationProvider = StateProvider<Destination>(
+  (ref) => Destination.library,
+);
 
 /// Scroll-collapse state: true = pill split into lobes with the compact
 /// mini between. Collapses on scroll-down, expands on tap, scroll-up,
@@ -29,7 +30,7 @@ const _labels = ['Library', 'Needle', 'Settings'];
 const _icons = [
   Icons.library_music_rounded,
   Icons.download_rounded,
-  Icons.settings_rounded
+  Icons.settings_rounded,
 ];
 
 /// Forwards vertical scroll intent to the collapse driver. Wrap every
@@ -46,8 +47,7 @@ class DockScrollReporter extends ConsumerWidget {
         final collapsed = ref.read(pillCollapsedProvider.notifier);
         // Sustained downward intent collapses; any upward motion
         // expands. Small gate (~80px) so flings and drags both count.
-        if (n.direction == ScrollDirection.forward &&
-            n.metrics.pixels > 80) {
+        if (n.direction == ScrollDirection.forward && n.metrics.pixels > 80) {
           if (!collapsed.state) {
             ArchLog.i('nav', 'pill collapse (scroll down)');
             collapsed.state = true;
@@ -97,73 +97,70 @@ class NowPlayingDock extends ConsumerWidget {
       bottom: bottom,
       child: LiquidGlassBatch(
         child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: collapsed ? 1.0 : 0.0),
-        duration: Motion.reduced(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 380),
-        curve: Motion.arrival,
-        builder: (context, t, _) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (miniVisible)
-                // Invisible layers must not eat taps: opacity alone
-                // still hit-tests. Guards flip at the halfway mark.
-                IgnorePointer(
-                  ignoring: t > 0.5,
-                  child: Opacity(
-                    opacity: 1 - t,
-                    child: Transform.translate(
-                      offset: Offset(0, -10 * t),
-                      child: SizedBox(
-                        width: miniWidth,
-                        // Remounts replay the entrance; track changes reuse
-                        // the mounted bar silently.
-                        child: t > 0.9
-                            ? const SizedBox.shrink()
-                            : const FocalEntrance(child: MiniPlayer()),
-                      ),
-                    ),
-                  ),
-                ),
-              if (miniVisible) SizedBox(height: (1 - t) * 12),
-              // Fixed-height slot: the TabBar sizes itself and demands
-              // bounded height, but this Column lives in a bottom-only
-              // Positioned (unbounded). Without the bound the TabBar's
-              // internals throw infinite-height on every frame. 76 fits
-              // its natural height with room for text scaling.
-              SizedBox(
-                width: pillWidth,
-                height: 76,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    IgnorePointer(
-                      ignoring: t > 0.5,
-                      child: Opacity(
-                        opacity: 1 - t,
-                        child: Transform.scale(
-                          scale: 1 - 0.15 * t,
+          tween: Tween(begin: 0, end: collapsed ? 1.0 : 0.0),
+          duration: Motion.reduced(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 380),
+          curve: Motion.arrival,
+          builder: (context, t, _) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (miniVisible)
+                  // Invisible layers must not eat taps: opacity alone
+                  // still hit-tests. Guards flip at the halfway mark.
+                  IgnorePointer(
+                    ignoring: t > 0.5,
+                    child: Opacity(
+                      opacity: 1 - t,
+                      child: Transform.translate(
+                        offset: Offset(0, -10 * t),
+                        child: SizedBox(
+                          width: miniWidth,
+                          // Remounts replay the entrance; track changes reuse
+                          // the mounted bar silently.
                           child: t > 0.9
                               ? const SizedBox.shrink()
-                              : const _FullPill(),
+                              : const FocalEntrance(child: MiniPlayer()),
                         ),
                       ),
                     ),
-                    IgnorePointer(
-                      ignoring: t <= 0.5,
-                      child: _SplitTravel(
-                        t: t,
-                        miniVisible: miniVisible,
+                  ),
+                if (miniVisible) SizedBox(height: (1 - t) * 12),
+                // Fixed-height slot: the TabBar sizes itself and demands
+                // bounded height, but this Column lives in a bottom-only
+                // Positioned (unbounded). Without the bound the TabBar's
+                // internals throw infinite-height on every frame. 76 fits
+                // its natural height with room for text scaling.
+                SizedBox(
+                  width: pillWidth,
+                  height: 76,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IgnorePointer(
+                        ignoring: t > 0.5,
+                        child: Opacity(
+                          opacity: 1 - t,
+                          child: Transform.scale(
+                            scale: 1 - 0.15 * t,
+                            child: t > 0.9
+                                ? const SizedBox.shrink()
+                                : const _FullPill(),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      IgnorePointer(
+                        ignoring: t <= 0.5,
+                        child: _SplitTravel(t: t, miniVisible: miniVisible),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            );
+          },
         ),
       ),
     );
@@ -206,18 +203,18 @@ class _FullPill extends ConsumerWidget {
         underGlassIconSize: 28,
         labelFontSize: 10,
       ),
-              pillStyle: const LiquidGlassTabPillStyle(
-                // The physics pill: squash-and-stretch travel, draggable,
-                // icon reveal. `animated: true` alone is only a slide -
-                // the mode is what buys the morphing glass.
-                mode: LiquidGlassPillMode.impellerOnly,
-                animated: true,
-                animationDuration: Duration(milliseconds: 400),
-              ),
-              style: LiquidGlassTabBar.defaultStyle.copyWith(
-                appearance: ArchGlass.frostAppearance,
-                adaptivity: ArchGlass.adaptive,
-              ),
+      pillStyle: const LiquidGlassTabPillStyle(
+        // The physics pill: squash-and-stretch travel, draggable,
+        // icon reveal. `animated: true` alone is only a slide -
+        // the mode is what buys the morphing glass.
+        mode: LiquidGlassPillMode.impellerOnly,
+        animated: true,
+        animationDuration: Duration(milliseconds: 400),
+      ),
+      style: LiquidGlassTabBar.defaultStyle.copyWith(
+        appearance: ArchGlass.frostAppearance,
+        adaptivity: ArchGlass.adaptive,
+      ),
     );
   }
 }
@@ -265,15 +262,13 @@ class _SplitTravelState extends ConsumerState<_SplitTravel> {
       _left = _Lobe(
         icon: _icons[dest.index],
         color: archPink,
-        onTap: () =>
-            ref.read(pillCollapsedProvider.notifier).state = false,
+        onTap: () => ref.read(pillCollapsedProvider.notifier).state = false,
       );
       _middle = widget.miniVisible ? const _CompactMini() : null;
       _right = _Lobe(
         icon: CupertinoIcons.ellipsis,
         color: inkDim,
-        onTap: () =>
-            ref.read(pillCollapsedProvider.notifier).state = false,
+        onTap: () => ref.read(pillCollapsedProvider.notifier).state = false,
       );
       _destIndex = dest.index;
       _miniVisible = widget.miniVisible;
@@ -291,10 +286,7 @@ class _SplitTravelState extends ConsumerState<_SplitTravel> {
           ),
           const SizedBox(width: 8),
           if (_middle != null) ...[
-            Transform.scale(
-              scale: 0.75 + 0.25 * t,
-              child: _middle!,
-            ),
+            Transform.scale(scale: 0.75 + 0.25 * t, child: _middle!),
             const SizedBox(width: 8),
           ],
           Transform.translate(
@@ -366,8 +358,11 @@ class _CompactMini extends ConsumerWidget {
                             color: paperRaised,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(CupertinoIcons.music_note,
-                              color: inkDim, size: 20),
+                          child: const Icon(
+                            CupertinoIcons.music_note,
+                            color: inkDim,
+                            size: 20,
+                          ),
                         ),
                 ),
               ),
@@ -378,13 +373,17 @@ class _CompactMini extends ConsumerWidget {
                 child: IconButton(
                   iconSize: 26,
                   color: ink,
-                  onPressed: () => playGuarded(context,
-                      () => playing ? handler.pause() : handler.play()),
+                  onPressed: () => playGuarded(
+                    context,
+                    () => playing ? handler.pause() : handler.play(),
+                  ),
                   icon: MorphIcon(
                     iconKey: playing,
-                    child: Icon(playing
-                        ? CupertinoIcons.pause_fill
-                        : CupertinoIcons.play_fill),
+                    child: Icon(
+                      playing
+                          ? CupertinoIcons.pause_fill
+                          : CupertinoIcons.play_fill,
+                    ),
                   ),
                 ),
               ),

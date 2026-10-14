@@ -25,7 +25,9 @@ class MetadataService {
 
   Future<T> _viaMbGate<T>(Future<T> Function() work) {
     final run = _mbGate.then((_) => work());
-    _mbGate = run.then((_) {}, onError: (_) {}).then((_) => Future.delayed(const Duration(seconds: 1)));
+    _mbGate = run
+        .then((_) {}, onError: (_) {})
+        .then((_) => Future.delayed(const Duration(seconds: 1)));
     return run;
   }
 
@@ -50,16 +52,28 @@ class MetadataService {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.imageUrl;
     if (cached != null) {
-      _refreshField(artistName, _dzPic(artistName), (m, v) => m.copyWith(imageUrl: v));
+      _refreshField(
+        artistName,
+        _dzPic(artistName),
+        (m, v) => m.copyWith(imageUrl: v),
+      );
       ArchLog.i('meta', 'pic cache hit: $artistName');
       return cached;
     }
     try {
-      final found = await _dzArtist(artistName).timeout(const Duration(seconds: 15));
+      final found = await _dzArtist(artistName)
+          .timeout(const Duration(seconds: 15));
       final live = found?.imageUrl;
-      ArchLog.i('meta', 'pic live: $artistName (${stopwatch.elapsedMilliseconds}ms)');
-      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(imageUrl: live));
-      if (found != null) await _mergeCache(artistName, (m) => m.copyWith(dzId: found.id));
+      ArchLog.i(
+        'meta',
+        'pic live: $artistName (${stopwatch.elapsedMilliseconds}ms)',
+      );
+      if (live != null) {
+        await _mergeCache(artistName, (m) => m.copyWith(imageUrl: live));
+      }
+      if (found != null) {
+        await _mergeCache(artistName, (m) => m.copyWith(dzId: found.id));
+      }
       return live;
     } catch (e) {
       ArchLog.w('meta', 'Deezer pic failed for $artistName: $e');
@@ -72,14 +86,24 @@ class MetadataService {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.bio;
     if (cached != null) {
-      _refreshField(artistName, _lfmBio(artistName), (m, v) => m.copyWith(bio: v));
+      _refreshField(
+        artistName,
+        _lfmBio(artistName),
+        (m, v) => m.copyWith(bio: v),
+      );
       ArchLog.i('meta', 'bio cache hit: $artistName');
       return cached;
     }
     try {
-      final live = await _lfmBio(artistName).timeout(const Duration(seconds: 15));
-      ArchLog.i('meta', 'bio live: $artistName (${stopwatch.elapsedMilliseconds}ms)');
-      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(bio: live));
+      final live = await _lfmBio(artistName)
+          .timeout(const Duration(seconds: 15));
+      ArchLog.i(
+        'meta',
+        'bio live: $artistName (${stopwatch.elapsedMilliseconds}ms)',
+      );
+      if (live != null) {
+        await _mergeCache(artistName, (m) => m.copyWith(bio: live));
+      }
       return live;
     } catch (e) {
       ArchLog.w('meta', 'Last.fm bio failed for $artistName: $e');
@@ -94,18 +118,26 @@ class MetadataService {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.releases ?? [];
     if (cached.isNotEmpty) {
-      _refreshField(artistName, _mbReleasesFor(artistName),
-          (m, v) => m.copyWith(releases: v?.releases));
+      _refreshField(
+        artistName,
+        _mbReleasesFor(artistName),
+        (m, v) => m.copyWith(releases: v?.releases),
+      );
       ArchLog.i('meta', 'releases cache hit: $artistName (${cached.length})');
       return cached;
     }
     try {
-      final live = await _mbReleasesFor(artistName).timeout(const Duration(seconds: 30));
-      ArchLog.i('meta',
-          'releases live: $artistName (${live.releases.length}, ${stopwatch.elapsedMilliseconds}ms)');
+      final live = await _mbReleasesFor(artistName)
+          .timeout(const Duration(seconds: 30));
+      ArchLog.i(
+        'meta',
+        'releases live: $artistName (${live.releases.length}, ${stopwatch.elapsedMilliseconds}ms)',
+      );
       if (live.releases.isNotEmpty || live.mbid != null) {
         await _mergeCache(
-            artistName, (m) => m.copyWith(releases: live.releases, mbid: live.mbid));
+          artistName,
+          (m) => m.copyWith(releases: live.releases, mbid: live.mbid),
+        );
       }
       return live.releases;
     } catch (e) {
@@ -121,13 +153,20 @@ class MetadataService {
   Future<String?> logoFor(String artistName) async {
     final cached = (await _readCache(artistName))?.logoUrl;
     if (cached != null) {
-      _refreshField(artistName, _liveLogo(artistName), (m, v) => m.copyWith(logoUrl: v));
+      _refreshField(
+        artistName,
+        _liveLogo(artistName),
+        (m, v) => m.copyWith(logoUrl: v),
+      );
       ArchLog.i('meta', 'logo cache hit: $artistName');
       return cached;
     }
     try {
-      final live = await _liveLogo(artistName).timeout(const Duration(seconds: 20));
-      if (live != null) await _mergeCache(artistName, (m) => m.copyWith(logoUrl: live));
+      final live = await _liveLogo(artistName)
+          .timeout(const Duration(seconds: 20));
+      if (live != null) {
+        await _mergeCache(artistName, (m) => m.copyWith(logoUrl: live));
+      }
       return live;
     } catch (e) {
       ArchLog.w('meta', 'logo failed for $artistName: $e');
@@ -148,8 +187,9 @@ class MetadataService {
       final memoKey = 'logo:$mbid';
       if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
       try {
-        final uri =
-            Uri.parse('https://webservice.fanart.tv/v3/music/$mbid?api_key=$fanartKey');
+        final uri = Uri.parse(
+          'https://webservice.fanart.tv/v3/music/$mbid?api_key=$fanartKey',
+        );
         final res = await http.get(uri).timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body) as Map;
@@ -158,7 +198,8 @@ class MetadataService {
             return (items.first as Map)['url'] as String?;
           }
 
-          final url = pick(body['hdmusiclogo'] as List?) ??
+          final url =
+              pick(body['hdmusiclogo'] as List?) ??
               pick(body['musiclogo'] as List?);
           _caaMemo[memoKey] = url;
           if (url != null) {
@@ -179,7 +220,8 @@ class MetadataService {
       if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
       try {
         final uri = Uri.parse(
-            'https://www.theaudiodb.com/api/v1/json/$tadbKey/artist-mb.php?i=$mbid');
+          'https://www.theaudiodb.com/api/v1/json/$tadbKey/artist-mb.php?i=$mbid',
+        );
         final res = await http.get(uri).timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           final artists = (jsonDecode(res.body) as Map)['artists'];
@@ -189,8 +231,10 @@ class MetadataService {
             if (logo != null && logo.isNotEmpty) url = logo;
           }
           _caaMemo[memoKey] = url;
-          ArchLog.i('meta',
-              'logo live: $artistName ${url == null ? '(none)' : '(tadb)'}');
+          ArchLog.i(
+            'meta',
+            'logo live: $artistName ${url == null ? '(none)' : '(tadb)'}',
+          );
           return url;
         }
         _caaMemo[memoKey] = null;
@@ -220,8 +264,8 @@ class MetadataService {
     if (cached != null) return cached;
     final cleanAlbum =
         album.isNotEmpty && album.toLowerCase() != 'unknown album'
-            ? album
-            : null;
+        ? album
+        : null;
     final strippedTitle = _stripFeat(title);
     final rungs = <Map<String, String>>[
       {
@@ -235,22 +279,15 @@ class MetadataService {
         'track_name': title,
         if (durationSecs > 0) 'duration': '$durationSecs',
       },
-      {
-        'artist_name': artist,
-        'track_name': title,
-      },
+      {'artist_name': artist, 'track_name': title},
       if (strippedTitle != title)
-        {
-          'artist_name': artist,
-          'track_name': strippedTitle,
-        },
+        {'artist_name': artist, 'track_name': strippedTitle},
     ];
     for (var r = 0; r < rungs.length; r++) {
       try {
         final uri = Uri.parse('https://lrclib.net/api/get')
             .replace(queryParameters: rungs[r]);
-        final res =
-            await http.get(uri).timeout(const Duration(seconds: 12));
+        final res = await http.get(uri).timeout(const Duration(seconds: 12));
         if (res.statusCode != 200) continue;
         final m = jsonDecode(res.body) as Map;
         final synced = (m['syncedLyrics'] as String?)?.trim();
@@ -267,12 +304,20 @@ class MetadataService {
           instrumental: m['instrumental'] == true,
         );
         await _writeLyricCache(songId, doc);
-        ArchLog.i('meta',
-            'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasSynced ? 'synced' : doc.hasPlain ? 'plain' : 'instrumental'})');
+        ArchLog.i(
+          'meta',
+          'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasSynced
+              ? 'synced'
+              : doc.hasPlain
+              ? 'plain'
+              : 'instrumental'})',
+        );
         return doc;
       } catch (e) {
         ArchLog.w(
-            'meta', 'LRCLib rung ${r + 1} failed for $artist - $title: $e');
+          'meta',
+          'LRCLib rung ${r + 1} failed for $artist - $title: $e',
+        );
       }
     }
     return const LyricDoc();
@@ -281,11 +326,13 @@ class MetadataService {
   static String _stripFeat(String title) {
     var t = title;
     t = t.replaceAll(
-        RegExp(r'\s*[\(\[]?\s*feat\.?\s+[^\)\]]*[\)\]]?\s*$',
-            caseSensitive: false),
-        '');
-    t = t.replaceAll(
-        RegExp(r'\s+ft\.?\s+.*$', caseSensitive: false), '');
+      RegExp(
+        r'\s*[\(\[]?\s*feat\.?\s+[^\)\]]*[\)\]]?\s*$',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    t = t.replaceAll(RegExp(r'\s+ft\.?\s+.*$', caseSensitive: false), '');
     return t.trim().isEmpty ? title : t.trim();
   }
 
@@ -329,12 +376,14 @@ class MetadataService {
       if (!doc.hasSynced && !doc.hasPlain && !doc.instrumental) return;
       final dir = await _lyricDir();
       final file = File('${dir.path}/$songId.json');
-      await file.writeAsString(jsonEncode({
-        'v': 1,
-        'plain': doc.plain,
-        'synced': doc.syncedLrc,
-        'instrumental': doc.instrumental,
-      }));
+      await file.writeAsString(
+        jsonEncode({
+          'v': 1,
+          'plain': doc.plain,
+          'synced': doc.syncedLrc,
+          'instrumental': doc.instrumental,
+        }),
+      );
       // Bounded: lyrics are small but infinite tracks aren't. Oldest
       // files go once past the cap.
       final files = await dir
@@ -376,17 +425,24 @@ class MetadataService {
         final m = t as Map;
         final album = m['album'] as Map?;
         rank++;
-        out.add(TopTrack(
-          rank: (m['rank'] as num?)?.toInt() ?? (1000000 - rank),
-          title: (m['title'] as String?) ?? 'Unknown title',
-          albumTitle: (album?['title'] as String?) ?? '',
-          coverUrl: (album?['cover_medium'] as String?) ?? (album?['cover'] as String?),
-          duration: Duration(seconds: (m['duration'] as num?)?.toInt() ?? 0),
-          previewUrl: m['preview'] as String?,
-        ));
+        out.add(
+          TopTrack(
+            rank: (m['rank'] as num?)?.toInt() ?? (1000000 - rank),
+            title: (m['title'] as String?) ?? 'Unknown title',
+            albumTitle: (album?['title'] as String?) ?? '',
+            coverUrl:
+                (album?['cover_medium'] as String?) ??
+                (album?['cover'] as String?),
+            duration: Duration(seconds: (m['duration'] as num?)?.toInt() ?? 0),
+            previewUrl: m['preview'] as String?,
+          ),
+        );
       }
       out.sort((a, b) => b.rank.compareTo(a.rank));
-      ArchLog.i('meta', 'top tracks: $artistName (${out.length}, ${stopwatch.elapsedMilliseconds}ms)');
+      ArchLog.i(
+        'meta',
+        'top tracks: $artistName (${out.length}, ${stopwatch.elapsedMilliseconds}ms)',
+      );
       return out;
     } catch (e) {
       ArchLog.w('meta', 'Deezer top failed for $artistName: $e');
@@ -400,10 +456,12 @@ class MetadataService {
     if (rgMbid == null || rgMbid.isEmpty) return null;
     if (_caaMemo.containsKey(rgMbid)) return _caaMemo[rgMbid];
     try {
-      final uri = Uri.parse('https://coverartarchive.org/release-group/$rgMbid');
-      final res = await http.get(uri, headers: {'User-Agent': _userAgent}).timeout(
-        const Duration(seconds: 10),
+      final uri = Uri.parse(
+        'https://coverartarchive.org/release-group/$rgMbid',
       );
+      final res = await http
+          .get(uri, headers: {'User-Agent': _userAgent})
+          .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) {
         _caaMemo[rgMbid] = null;
         return null;
@@ -413,7 +471,8 @@ class MetadataService {
         final m = img as Map;
         if (m['front'] == true) {
           final thumbs = m['thumbnails'] as Map?;
-          final url = (thumbs?['small'] ?? thumbs?['large'] ?? m['image']) as String?;
+          final url =
+              (thumbs?['small'] ?? thumbs?['large'] ?? m['image']) as String?;
           _caaMemo[rgMbid] = url;
           return url;
         }
@@ -427,7 +486,8 @@ class MetadataService {
   }
 
   Future<({String? mbid, List<ReleaseGroup> releases})> _mbReleasesFor(
-      String artistName) async {
+    String artistName,
+  ) async {
     final mbid = await _viaMbGate(() => _mbSearchArtist(artistName));
     if (mbid == null) return (mbid: null, releases: const <ReleaseGroup>[]);
     return (mbid: mbid, releases: await _mbReleases(mbid));
@@ -437,7 +497,9 @@ class MetadataService {
   /// No guessing: ambiguous = local-only page.
   Future<String?> _mbSearchArtist(String name) async {
     final clean = _cleanName(name);
-    final uri = Uri.parse('$_mbBase/artist/?query=artist:${Uri.encodeQueryComponent(clean)}&fmt=json&limit=5');
+    final uri = Uri.parse(
+      '$_mbBase/artist/?query=artist:${Uri.encodeQueryComponent(clean)}&fmt=json&limit=5',
+    );
     final res = await http.get(uri, headers: {'User-Agent': _userAgent});
     if (res.statusCode != 200) return null;
     final list = (jsonDecode(res.body) as Map)['artists'] as List? ?? [];
@@ -452,8 +514,12 @@ class MetadataService {
     final out = <ReleaseGroup>[];
     var offset = 0;
     for (var page = 0; page < 3; page++) {
-      final uri = Uri.parse('$_mbBase/release-group/?artist=$mbid&fmt=json&limit=100&offset=$offset');
-      final res = await _viaMbGate(() => http.get(uri, headers: {'User-Agent': _userAgent}));
+      final uri = Uri.parse(
+        '$_mbBase/release-group/?artist=$mbid&fmt=json&limit=100&offset=$offset',
+      );
+      final res = await _viaMbGate(
+        () => http.get(uri, headers: {'User-Agent': _userAgent}),
+      );
       if (res.statusCode != 200) break;
       final body = jsonDecode(res.body) as Map;
       final groups = body['release-groups'] as List? ?? [];
@@ -461,13 +527,17 @@ class MetadataService {
       for (final g in groups) {
         final m = g as Map;
         final primary = (m['primary-type'] as String? ?? '').toLowerCase();
-        final secondary = ((m['secondary-types'] as List?) ?? []).map((e) => '$e'.toLowerCase()).toList();
-        out.add(ReleaseGroup(
-          type: _classify(primary, secondary),
-          title: (m['title'] as String?) ?? 'Unknown release',
-          year: _yearOf(m['first-release-date'] as String?),
-          rgMbid: m['id'] as String?,
-        ));
+        final secondary = ((m['secondary-types'] as List?) ?? [])
+            .map((e) => '$e'.toLowerCase())
+            .toList();
+        out.add(
+          ReleaseGroup(
+            type: _classify(primary, secondary),
+            title: (m['title'] as String?) ?? 'Unknown release',
+            year: _yearOf(m['first-release-date'] as String?),
+            rgMbid: m['id'] as String?,
+          ),
+        );
       }
       final total = (body['release-group-count'] as num?)?.toInt() ?? 0;
       offset += groups.length;
@@ -492,7 +562,9 @@ class MetadataService {
   }
 
   Future<({int id, String? imageUrl})?> _dzArtist(String name) async {
-    final uri = Uri.parse('$_dzBase/search/artist?q=${Uri.encodeQueryComponent(name)}&limit=5');
+    final uri = Uri.parse(
+      '$_dzBase/search/artist?q=${Uri.encodeQueryComponent(name)}&limit=5',
+    );
     final res = await http.get(uri);
     if (res.statusCode != 200) return null;
     final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
@@ -508,10 +580,14 @@ class MetadataService {
     best ??= list.first as Map;
     if (!_closeEnough(name, (best['name'] as String?) ?? '')) return null;
     final pic = best['picture_xl'] as String?;
-    return (id: (best['id'] as num?)?.toInt() ?? 0, imageUrl: (pic == null || pic.isEmpty) ? null : pic);
+    return (
+      id: (best['id'] as num?)?.toInt() ?? 0,
+      imageUrl: (pic == null || pic.isEmpty) ? null : pic,
+    );
   }
 
-  Future<String?> _dzPic(String name) async => (await _dzArtist(name))?.imageUrl;
+  Future<String?> _dzPic(String name) async =>
+      (await _dzArtist(name))?.imageUrl;
 
   static bool _closeEnough(String a, String b) {
     final na = _cleanName(a), nb = _cleanName(b);
@@ -529,13 +605,17 @@ class MetadataService {
     final key = secrets.lastFmApiKey;
     if (key.isEmpty || key == 'PASTE_KEY_HERE') return null;
     String? bio = await _lfmBioWith(name, key);
-    bio ??= await _lfmBioWith(name, key.length > 32 ? key.substring(0, 32) : key);
+    bio ??= await _lfmBioWith(
+      name,
+      key.length > 32 ? key.substring(0, 32) : key,
+    );
     return bio;
   }
 
   Future<String?> _lfmBioWith(String name, String key) async {
     final uri = Uri.parse(
-        '$_lfmBase?method=artist.getinfo&artist=${Uri.encodeQueryComponent(name)}&api_key=$key&format=json&autocorrect=1');
+      '$_lfmBase?method=artist.getinfo&artist=${Uri.encodeQueryComponent(name)}&api_key=$key&format=json&autocorrect=1',
+    );
     final res = await http.get(uri);
     if (res.statusCode != 200) return null;
     final artist = (jsonDecode(res.body) as Map)['artist'] as Map?;
@@ -548,7 +628,11 @@ class MetadataService {
     return summary.split('<a href').first.trim();
   }
 
-  void _refreshField<T>(String artistName, Future<T?> fetch, ArtistMeta Function(ArtistMeta, T?) apply) {
+  void _refreshField<T>(
+    String artistName,
+    Future<T?> fetch,
+    ArtistMeta Function(ArtistMeta, T?) apply,
+  ) {
     fetch.then((v) async {
       if (v == null) return;
       if (v is List && v.isEmpty) return;
@@ -556,7 +640,10 @@ class MetadataService {
     }, onError: (_) {});
   }
 
-  Future<void> _mergeCache(String artistName, ArtistMeta Function(ArtistMeta) merge) async {
+  Future<void> _mergeCache(
+    String artistName,
+    ArtistMeta Function(ArtistMeta) merge,
+  ) async {
     final current = await _readCache(artistName) ?? const ArtistMeta();
     await _writeCache(artistName, merge(current));
   }
@@ -573,7 +660,9 @@ class MetadataService {
 
   Future<ArtistMeta?> _readCache(String artistName) async {
     try {
-      final file = File('${(await _cacheDir()).path}/${_keyOf(artistName)}.json');
+      final file = File(
+        '${(await _cacheDir()).path}/${_keyOf(artistName)}.json',
+      );
       if (!await file.exists()) return null;
       final m = jsonDecode(await file.readAsString()) as Map;
       // Version gate: unknown or corrupt schema self-deletes. Poison can
@@ -609,18 +698,566 @@ class MetadataService {
       final dir = await _cacheDir();
       final file = File('${dir.path}/${_keyOf(artistName)}.json');
       final tmp = File('${dir.path}/${_keyOf(artistName)}.tmp');
-      await tmp.writeAsString(jsonEncode({
-        'v': _schema,
-        'mbid': meta.mbid,
-        'dzId': meta.dzId,
-        'imageUrl': meta.imageUrl,
-        'bio': meta.bio,
-        'logoUrl': meta.logoUrl,
-        'releases': [
-          for (final r in meta.releases)
-            {'type': r.type, 'title': r.title, 'artUrl': r.artUrl, 'year': r.year, 'rgMbid': r.rgMbid},
-        ],
-      }));
+      await tmp.writeAsString(
+        jsonEncode({
+          'v': _schema,
+          'mbid': meta.mbid,
+          'dzId': meta.dzId,
+          'imageUrl': meta.imageUrl,
+          'bio': meta.bio,
+          'logoUrl': meta.logoUrl,
+          'releases': [
+            for (final r in meta.releases)
+              {
+                'type': r.type,
+                'title': r.title,
+                'artUrl': r.artUrl,
+                'year': r.year,
+                'rgMbid': r.rgMbid,
+              },
+          ],
+        }),
+      );
+      await tmp.rename(file.path);
+    } catch (_) {}
+  }
+
+  /// Full album tracklist: cache first, else Deezer live, else
+  /// MusicBrainz live (gated). Empty = unresolvable offline or
+  /// unknown - callers render owned-only, never a hole. Credits
+  /// ride along in the same file for the Relationships page.
+  Future<List<AlbumTrack>> albumTracksFor({
+    required String artist,
+    required String album,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    final cached = await _readAlbumTracks(artist, album);
+    if (cached != null && cached.isNotEmpty) {
+      ArchLog.i('meta', 'tracklist cache hit: $album (${cached.length})');
+      return cached;
+    }
+    try {
+      final dz = await _dzAlbumTracks(
+        artist,
+        album,
+      ).timeout(const Duration(seconds: 15));
+      if (dz.isNotEmpty) {
+        ArchLog.i(
+          'meta',
+          'tracklist live: $album (${dz.length}, deezer, ${stopwatch.elapsedMilliseconds}ms)',
+        );
+        List<AlbumCredit> credits = const [];
+        try {
+          credits = await _dzAlbumCredits(
+            artist,
+            album,
+          ).timeout(const Duration(seconds: 10));
+        } catch (_) {}
+        await _writeAlbumTracks(artist, album, dz, credits);
+        return dz;
+      }
+    } catch (e) {
+      ArchLog.w('meta', 'Deezer tracklist failed for $album: $e');
+    }
+    try {
+      final mb = await _mbAlbumTracks(
+        artist,
+        album,
+      ).timeout(const Duration(seconds: 30));
+      if (mb.tracks.isNotEmpty) {
+        ArchLog.i(
+          'meta',
+          'tracklist live: $album (${mb.tracks.length}, mb, ${stopwatch.elapsedMilliseconds}ms)',
+        );
+        await _writeAlbumTracks(artist, album, mb.tracks, mb.credits);
+      }
+      return mb.tracks;
+    } catch (e) {
+      ArchLog.w('meta', 'MB tracklist failed for $album: $e');
+      return const [];
+    }
+  }
+
+  /// Album credits for Relationships: cache-read (populated by the
+  /// tracklist fetch above). Empty = unknown, never an error.
+  Future<List<AlbumCredit>> creditsFor({
+    required String artist,
+    required String album,
+  }) async {
+    var credits = await _readAlbumCredits(artist, album);
+    if (credits != null) return credits;
+    await albumTracksFor(artist: artist, album: album);
+    return await _readAlbumCredits(artist, album) ?? const [];
+  }
+
+  /// Album genres: Last.fm folksonomy (keyed, junk-filtered), else
+  /// MusicBrainz curated genres, else Deezer's broad genre. Max two,
+  /// cached. Empty = the world says nothing usable.
+  Future<List<String>> genresFor({
+    required String artist,
+    required String album,
+  }) async {
+    final cached = await _readAlbumGenres(artist, album);
+    if (cached != null) return cached;
+    var genres = await _lfmGenres(artist, album);
+    genres = genres.isNotEmpty ? genres : await _mbGenres(artist, album);
+    genres = genres.isNotEmpty ? genres : await _dzGenre(artist, album);
+    await _writeAlbumGenres(artist, album, genres);
+    return genres;
+  }
+
+  static const _genreJunk = {
+    'albums i own',
+    'my albums',
+    'awesome',
+    'favourite',
+    'favorite',
+    'favorites',
+    'favourites',
+    'love',
+    'loved',
+    'seen live',
+    'own',
+    'owned',
+    'collection',
+    'cd',
+    'vinyl',
+    'mp3',
+    'flac',
+    'all',
+    'music',
+    'songs',
+    'song',
+    'album',
+    'albums',
+    'artist',
+    'artists',
+    'band',
+    'bands',
+    'good',
+    'great',
+    'best',
+    'love it',
+    'my favorite',
+    'own it',
+  };
+
+  Future<List<String>> _lfmGenres(String artist, String album) async {
+    final key = secrets.lastFmApiKey;
+    if (key.isEmpty || key == 'PASTE_KEY_HERE') return const [];
+    try {
+      final uri = Uri.parse(
+        '$_lfmBase?method=album.getTopTags&artist=${Uri.encodeQueryComponent(artist)}&album=${Uri.encodeQueryComponent(album)}&api_key=$key&format=json',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+      final tags = ((jsonDecode(res.body) as Map)['toptags'] as Map?)?['tag'];
+      final list = tags is List ? tags : (tags is Map ? [tags] : []);
+      final out = <String>[];
+      for (final t in list) {
+        final name = ((t as Map)['name'] as String?)?.trim() ?? '';
+        final n = name.toLowerCase();
+        if (n.length < 2 ||
+            _genreJunk.contains(n) ||
+            RegExp(r'^\d+$').hasMatch(n)) {
+          continue;
+        }
+        if (!out.any((e) => e.toLowerCase() == n)) out.add(name);
+        if (out.length >= 2) break;
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<String>> _mbGenres(String artist, String album) async {
+    try {
+      final rg = await _mbReleaseGroupId(artist, album);
+      if (rg == null) return const [];
+      final res = await _viaMbGate(
+        () => http.get(
+          Uri.parse('$_mbBase/release-group/$rg?inc=genres&fmt=json'),
+          headers: {'User-Agent': _userAgent},
+        ),
+      );
+      if (res.statusCode != 200) return const [];
+      final genres = (jsonDecode(res.body) as Map)['genres'] as List? ?? [];
+      final out = <String>[];
+      for (final g in genres) {
+        final name = ((g as Map)['name'] as String?)?.trim() ?? '';
+        if (name.isNotEmpty &&
+            !out.any((e) => e.toLowerCase() == name.toLowerCase())) {
+          out.add(name);
+        }
+        if (out.length >= 2) break;
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<String?> _mbReleaseGroupId(String artist, String album) async {
+    final q =
+        'release:"${album.replaceAll('"', '')}" AND artist:"${artist.replaceAll('"', '')}"';
+    final search = Uri.parse(
+      '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+    );
+    final res = await _viaMbGate(
+      () => http.get(search, headers: {'User-Agent': _userAgent}),
+    );
+    if (res.statusCode != 200) return null;
+    final list = (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
+    for (final r in list) {
+      final m = r as Map;
+      if (((m['score'] as num?)?.toInt() ?? 0) >= 85) {
+        final rg = m['release-group'] as Map?;
+        final id = rg?['id'] as String?;
+        if (id != null) return id;
+      }
+    }
+    return null;
+  }
+
+  Future<List<String>> _dzGenre(String artist, String album) async {
+    try {
+      final id = await _dzAlbumId(artist, album);
+      if (id == 0) return const [];
+      final res = await http.get(Uri.parse('$_dzBase/album/$id'));
+      if (res.statusCode != 200) return const [];
+      final body = jsonDecode(res.body) as Map;
+      final genres = body['genres'] as Map?;
+      final data = genres?['data'] as List?;
+      if (data == null || data.isEmpty) return const [];
+      final name = ((data.first as Map)['name'] as String?)?.trim() ?? '';
+      return name.isEmpty ? const [] : [name];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<int> _dzAlbumId(String artist, String album) async {
+    final q =
+        'artist:"${artist.replaceAll('"', '')}" album:"${album.replaceAll('"', '')}"';
+    final search = Uri.parse(
+      '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=5',
+    );
+    final res = await http.get(search);
+    if (res.statusCode != 200) return 0;
+    final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+    for (final a in list) {
+      final m = a as Map;
+      final am = m['artist'] as Map?;
+      if (_closeEnough(album, (m['title'] as String?) ?? '') &&
+          _closeEnough(artist, (am?['name'] as String?) ?? '')) {
+        return (m['id'] as num?)?.toInt() ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  Future<List<AlbumCredit>> _dzAlbumCredits(String artist, String album) async {
+    try {
+      final id = await _dzAlbumId(artist, album);
+      if (id == 0) return const [];
+      final res = await http.get(Uri.parse('$_dzBase/album/$id'));
+      if (res.statusCode != 200) return const [];
+      final contributors =
+          (jsonDecode(res.body) as Map)['contributors'] as List? ?? [];
+      final out = <AlbumCredit>[];
+      for (final c in contributors) {
+        final m = c as Map;
+        final name = (m['name'] as String?)?.trim() ?? '';
+        if (name.isEmpty ||
+            out.any((e) => e.name.toLowerCase() == name.toLowerCase())) {
+          continue;
+        }
+        out.add(
+          AlbumCredit(
+            name: name,
+            role: ((m['role'] as String?) ?? 'performer').toLowerCase(),
+          ),
+        );
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<AlbumTrack>> _dzAlbumTracks(String artist, String album) async {
+    final id = await _dzAlbumId(artist, album);
+    if (id == 0) return const [];
+    final tracks = await http.get(
+      Uri.parse('$_dzBase/album/$id/tracks?limit=100'),
+    );
+    if (tracks.statusCode != 200) return const [];
+    final data = (jsonDecode(tracks.body) as Map)['data'] as List? ?? [];
+    var pos = 0;
+    return [
+      for (final t in data)
+        AlbumTrack(
+          position: ((t as Map)['track_position'] as num?)?.toInt() ?? ++pos,
+          title: ((t)['title'] as String?) ?? 'Unknown track',
+          durationSecs: ((t)['duration'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  /// MB tracklist + credit rels in one release lookup
+  /// (inc=recordings+artist-rels): the credits ride free on a call
+  /// we already make. Roles filtered to real credits, deduped.
+  static const _creditRoles = {
+    'producer',
+    'engineer',
+    'mixer',
+    'mix',
+    'mastering',
+    'writer',
+    'composer',
+    'lyricist',
+    'arranger',
+    'orchestrator',
+    'conductor',
+    'performer',
+    'instrument',
+    'vocal',
+    'vocals',
+    'dj',
+    'remixer',
+    'remix',
+    'programming',
+  };
+
+  Future<({List<AlbumTrack> tracks, List<AlbumCredit> credits})> _mbAlbumTracks(
+    String artist,
+    String album,
+  ) async {
+    const empty = (tracks: <AlbumTrack>[], credits: <AlbumCredit>[]);
+    final q =
+        'release:"${album.replaceAll('"', '')}" AND artist:"${artist.replaceAll('"', '')}"';
+    final search = Uri.parse(
+      '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+    );
+    final res = await _viaMbGate(
+      () => http.get(search, headers: {'User-Agent': _userAgent}),
+    );
+    if (res.statusCode != 200) return empty;
+    final list = (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
+    Map? best;
+    for (final r in list) {
+      final m = r as Map;
+      if (((m['score'] as num?)?.toInt() ?? 0) >= 85) {
+        best = m;
+        break;
+      }
+    }
+    if (best == null) return empty;
+    final id = best['id'] as String?;
+    if (id == null) return empty;
+    final rel = await _viaMbGate(
+      () => http.get(
+        Uri.parse('$_mbBase/release/$id?inc=recordings+artist-rels&fmt=json'),
+        headers: {'User-Agent': _userAgent},
+      ),
+    );
+    if (rel.statusCode != 200) return empty;
+    final out = <AlbumTrack>[];
+    final credits = <AlbumCredit>[];
+    void addCredit(String name, String role, String? mbid) {
+      name = name.trim();
+      role = role.trim().toLowerCase();
+      if (name.isEmpty || !_creditRoles.contains(role)) return;
+      if (credits.any(
+        (e) => e.name.toLowerCase() == name.toLowerCase() && e.role == role,
+      )) {
+        return;
+      }
+      credits.add(AlbumCredit(name: name, role: role, mbid: mbid));
+    }
+
+    final media = (jsonDecode(rel.body) as Map)['media'] as List? ?? [];
+    for (final med in media) {
+      final tracks = ((med as Map)['tracks'] as List?) ?? [];
+      for (final tr in tracks) {
+        final m = tr as Map;
+        final lenMs = (m['length'] as num?)?.toInt() ?? 0;
+        out.add(
+          AlbumTrack(
+            position: (m['position'] as num?)?.toInt() ?? out.length + 1,
+            title: (m['title'] as String?) ?? 'Unknown track',
+            durationSecs: lenMs > 0 ? lenMs ~/ 1000 : 0,
+          ),
+        );
+        final relations = (m['relations'] as List?) ?? [];
+        for (final relEntry in relations) {
+          final rm = relEntry as Map;
+          final type = (rm['type'] as String?) ?? '';
+          final target = rm['artist'] as Map?;
+          if (target == null) continue;
+          addCredit(
+            (target['name'] as String?) ?? '',
+            type,
+            target['id'] as String?,
+          );
+        }
+      }
+    }
+    return (tracks: out, credits: credits);
+  }
+
+  Future<Directory> _albumTrackDir() async {
+    final base = await getApplicationCacheDirectory();
+    final dir = Directory('${base.path}/album_tracks');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  String _trackKeyOf(String artist, String album) =>
+      '${_keyOf(artist)}__${_keyOf(album)}';
+
+  Future<List<AlbumTrack>?> _readAlbumTracks(
+    String artist,
+    String album,
+  ) async {
+    try {
+      final file = File(
+        '${(await _albumTrackDir()).path}/${_trackKeyOf(artist, album)}.json',
+      );
+      if (!await file.exists()) return null;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      if ((m['v'] as num?)?.toInt() != _schema) {
+        await file.delete();
+        return null;
+      }
+      // Pre-credits cache files refetch once: the live write
+      // populates the complete schema. Offline stays owned-only.
+      if (!m.containsKey('credits')) return null;
+      return [
+        for (final e in (m['tracks'] as List? ?? []))
+          AlbumTrack(
+            position: ((e as Map)['p'] as num?)?.toInt() ?? 0,
+            title: (e['t'] as String?) ?? 'Unknown track',
+            durationSecs: (e['d'] as num?)?.toInt() ?? 0,
+          ),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeAlbumTracks(
+    String artist,
+    String album,
+    List<AlbumTrack> tracks,
+    List<AlbumCredit> credits,
+  ) async {
+    try {
+      final dir = await _albumTrackDir();
+      final file = File('${dir.path}/${_trackKeyOf(artist, album)}.json');
+      final tmp = File('${dir.path}/${_trackKeyOf(artist, album)}.tmp');
+      // Preserve already-cached genres: tracks and genres resolve
+      // on independent ladders and must never wipe each other.
+      List<String> genres = const [];
+      try {
+        if (await file.exists()) {
+          final prev = jsonDecode(await file.readAsString()) as Map;
+          genres = [
+            for (final g in (prev['genres'] as List? ?? []))
+              if ((g as String).isNotEmpty) g,
+          ];
+        }
+      } catch (_) {}
+      await tmp.writeAsString(
+        jsonEncode({
+          'v': _schema,
+          'tracks': [
+            for (final t in tracks)
+              {'p': t.position, 't': t.title, 'd': t.durationSecs},
+          ],
+          'credits': [
+            for (final c in credits) {'n': c.name, 'r': c.role, 'm': c.mbid},
+          ],
+          'genres': genres,
+        }),
+      );
+      await tmp.rename(file.path);
+    } catch (_) {}
+  }
+
+  Future<List<AlbumCredit>?> _readAlbumCredits(
+    String artist,
+    String album,
+  ) async {
+    try {
+      final file = File(
+        '${(await _albumTrackDir()).path}/${_trackKeyOf(artist, album)}.json',
+      );
+      if (!await file.exists()) return null;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      if ((m['v'] as num?)?.toInt() != _schema) return null;
+      // Absent key = fetched before credits existed: trigger a
+      // refetch via the caller, don't lie with an empty list.
+      if (!(m).containsKey('credits')) return null;
+      return [
+        for (final e in (m['credits'] as List? ?? []))
+          AlbumCredit(
+            name: ((e as Map)['n'] as String?) ?? '',
+            role: (e['r'] as String?) ?? 'performer',
+            mbid: e['m'] as String?,
+          ),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<String>?> _readAlbumGenres(String artist, String album) async {
+    try {
+      final file = File(
+        '${(await _albumTrackDir()).path}/${_trackKeyOf(artist, album)}.json',
+      );
+      if (!await file.exists()) return null;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      if ((m['v'] as num?)?.toInt() != _schema) return null;
+      if (!m.containsKey('genres')) return null;
+      return [
+        for (final g in (m['genres'] as List? ?? []))
+          if ((g as String).isNotEmpty) g,
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeAlbumGenres(
+    String artist,
+    String album,
+    List<String> genres,
+  ) async {
+    try {
+      final dir = await _albumTrackDir();
+      final file = File('${dir.path}/${_trackKeyOf(artist, album)}.json');
+      final tmp = File('${dir.path}/${_trackKeyOf(artist, album)}.tmp');
+      // Preserve tracks + credits resolved on their own ladder.
+      var tracks = [];
+      var credits = [];
+      try {
+        if (await file.exists()) {
+          final prev = jsonDecode(await file.readAsString()) as Map;
+          tracks = (prev['tracks'] as List?) ?? [];
+          credits = (prev['credits'] as List?) ?? [];
+        }
+      } catch (_) {}
+      await tmp.writeAsString(
+        jsonEncode({
+          'v': _schema,
+          'tracks': tracks,
+          'credits': credits,
+          'genres': genres,
+        }),
+      );
       await tmp.rename(file.path);
     } catch (_) {}
   }

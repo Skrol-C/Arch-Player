@@ -40,9 +40,9 @@ class ArtistPage extends ConsumerStatefulWidget {
   static bool openIfAbsent(BuildContext context, String artistName) {
     if (_open.contains(artistName)) return false;
     ArchLog.i('nav', 'artist open: $artistName');
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ArtistPage(artistName: artistName),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ArtistPage(artistName: artistName)),
+    );
     return true;
   }
 
@@ -75,7 +75,12 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   @override
   Widget build(BuildContext context) {
     final songs = ref.watch(songsProvider).value ?? [];
-    final local = songs.where((s) => s.artist == widget.artistName).toList();
+    final local = songs
+        .where(
+          (s) => splitArtists(s.artist)
+              .any((n) => n.toLowerCase() == widget.artistName.toLowerCase()),
+        )
+        .toList();
     final pic = ref.watch(artistPicProvider(widget.artistName));
     final logo = ref.watch(artistLogoProvider(widget.artistName));
     final bio = ref.watch(artistBioProvider(widget.artistName));
@@ -87,7 +92,10 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
     // all share one tone, so the transparent status bar never sits on a
     // stark white page above a colorful photo. Eased, never snapped.
     return TweenAnimationBuilder<Color?>(
-      tween: ColorTween(begin: _washOf(null), end: _washTarget ?? _washOf(null)),
+      tween: ColorTween(
+        begin: _washOf(null),
+        end: _washTarget ?? _washOf(null),
+      ),
       duration: Motion.reduced(context)
           ? Duration.zero
           : const Duration(milliseconds: 400),
@@ -105,51 +113,61 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
               fit: StackFit.expand,
               children: [
                 CustomScrollView(
-            slivers: [
-              _Hero(
-                name: widget.artistName,
-                local: local,
-                imageUrl: pic.value,
-                logoUrl: logo.value,
-                wash: page,
-                followed: followed.contains(widget.artistName),
-                onFollow: () => _toggleFollow(
-                    widget.artistName, followed.contains(widget.artistName)),
-                onShare: () => SharePlus.instance.share(
-                  ShareParams(text: widget.artistName),
-                ),
-                onWash: (c) {
-                  if (!mounted || c == _washTarget) return;
-                  setState(() => _washTarget = c);
-                },
-                onBack: () => Navigator.of(context).pop(),
-              ),
-          SliverToBoxAdapter(
-            child: _FeaturedRelease(
-              local: local,
-              releases: releases,
-              artistName: widget.artistName,
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _Popular(
-              top: top,
-              local: local,
-              artistName: widget.artistName,
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _FanRow(
-              releases: releases,
-              local: local,
-              openHub: _openHub,
-              onHub: (label) => setState(() => _openHub = _openHub == label ? null : label),
-              artistName: widget.artistName,
-            ),
-          ),
-          SliverToBoxAdapter(child: _Bio(bio: bio)),
-          SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
-                ],
+                  slivers: [
+                    _Hero(
+                      name: widget.artistName,
+                      local: local,
+                      imageUrl: pic.value,
+                      logoUrl: logo.value,
+                      wash: page,
+                      followed: followed.contains(widget.artistName),
+                      onFollow: () => _toggleFollow(
+                        widget.artistName,
+                        followed.contains(widget.artistName),
+                      ),
+                      onShare: () => SharePlus.instance.share(
+                        ShareParams(text: widget.artistName),
+                      ),
+                      onWash: (c) {
+                        if (!mounted || c == _washTarget) return;
+                        setState(() => _washTarget = c);
+                      },
+                      onBack: () => Navigator.of(context).pop(),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _FeaturedRelease(
+                        local: local,
+                        releases: releases,
+                        artistName: widget.artistName,
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _Popular(
+                        top: top,
+                        local: local,
+                        artistName: widget.artistName,
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _Collaborators(
+                        local: local,
+                        artistName: widget.artistName,
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _FanRow(
+                        releases: releases,
+                        local: local,
+                        openHub: _openHub,
+                        onHub: (label) => setState(
+                          () => _openHub = _openHub == label ? null : label,
+                        ),
+                        artistName: widget.artistName,
+                      ),
+                    ),
+                    SliverToBoxAdapter(child: _Bio(bio: bio)),
+                    SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
+                  ],
                 ),
                 const NowPlayingDock(),
               ],
@@ -166,7 +184,11 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(wasFollowed ? 'Unfollowed $artist' : 'Following $artist - new releases will find you'),
+        content: Text(
+          wasFollowed
+              ? 'Unfollowed $artist'
+              : 'Following $artist - new releases will find you',
+        ),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -248,21 +270,26 @@ class _HeroState extends State<_Hero> {
         child: LiquidGlassLens(
           style: ArchGlass.circle(radius: 24),
           child: IconButton(
-              onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, color: ink)),
+            onPressed: widget.onBack,
+            icon: const Icon(Icons.arrow_back, color: ink),
+          ),
         ),
       ),
       flexibleSpace: LayoutBuilder(
         builder: (context, constraints) {
-          final collapse = ((_expanded - constraints.maxHeight) /
-                  (_expanded - (kToolbarHeight + topPad)))
-              .clamp(0.0, 1.0);
+          final collapse =
+              ((_expanded - constraints.maxHeight) /
+                      (_expanded - (kToolbarHeight + topPad)))
+                  .clamp(0.0, 1.0);
           // White status icons over the photo, dark icons once the bar
           // has collapsed onto the light page wash.
           final overlay = collapse > 0.5
-              ? SystemUiOverlayStyle.dark
-                  .copyWith(statusBarColor: Colors.transparent)
-              : SystemUiOverlayStyle.light
-                  .copyWith(statusBarColor: Colors.transparent);
+              ? SystemUiOverlayStyle.dark.copyWith(
+                  statusBarColor: Colors.transparent,
+                )
+              : SystemUiOverlayStyle.light.copyWith(
+                  statusBarColor: Colors.transparent,
+                );
           return AnnotatedRegion<SystemUiOverlayStyle>(
             value: overlay,
             child: Stack(
@@ -312,71 +339,79 @@ class _HeroState extends State<_Hero> {
                     },
                   ),
                 ),
-              // Collapsed toolbar title fades in as the big name fades out.
-              Positioned(
-                top: topPad + 12,
-                left: 64,
-                right: 64,
-                child: Opacity(
-                  opacity: collapse,
-                  child: Text(name,
+                // Collapsed toolbar title fades in as the big name fades out.
+                Positioned(
+                  top: topPad + 12,
+                  left: 64,
+                  right: 64,
+                  child: Opacity(
+                    opacity: collapse,
+                    child: Text(
+                      name,
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: ink, fontSize: 17, fontWeight: FontWeight.w700)),
+                        color: ink,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              Positioned(
-                left: 20,
-                right: 20,
-                bottom: 64,
-                child: Opacity(
-                  opacity: 1 - collapse,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // True wordmark when the world has one for this
-                      // artist; otherwise the name in the artist's own
-                      // voice (assigned display font) and colors
-                      // (photo vibrant). All centered, all on the photo.
-                      if (widget.logoUrl != null)
-                        CachedNetworkImage(
-                          imageUrl: widget.logoUrl!,
-                          height: 64,
-                          fit: BoxFit.contain,
-                          memCacheHeight: 160,
-                          errorWidget: (_, _, _) => _voiceName(),
-                        )
-                      else
-                        _voiceName(),
-                      const SizedBox(height: 4),
-                      Text(
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 64,
+                  child: Opacity(
+                    opacity: 1 - collapse,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // True wordmark when the world has one for this
+                        // artist; otherwise the name in the artist's own
+                        // voice (assigned display font) and colors
+                        // (photo vibrant). All centered, all on the photo.
+                        if (widget.logoUrl != null)
+                          CachedNetworkImage(
+                            imageUrl: widget.logoUrl!,
+                            height: 64,
+                            fit: BoxFit.contain,
+                            memCacheHeight: 160,
+                            errorWidget: (_, _, _) => _voiceName(),
+                          )
+                        else
+                          _voiceName(),
+                        const SizedBox(height: 4),
+                        Text(
                           '${widget.local.length} song${widget.local.length == 1 ? '' : 's'} on device',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              shadows: [
-                                Shadow(
-                                    color: Colors.black45,
-                                    blurRadius: 10,
-                                    offset: Offset(0, 1)),
-                              ])),
-                      // Action row lives fully on the photo, above the
-                      // melt: full circles on image pixels, never crossing
-                      // a background seam.
-                      const SizedBox(height: 12),
-                      _ActionRow(
-                        local: widget.local,
-                        followed: widget.followed,
-                        onFollow: widget.onFollow,
-                        onShare: widget.onShare,
-                      ),
-                    ],
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black45,
+                                blurRadius: 10,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Action row lives fully on the photo, above the
+                        // melt: full circles on image pixels, never crossing
+                        // a background seam.
+                        const SizedBox(height: 12),
+                        _ActionRow(
+                          local: widget.local,
+                          followed: widget.followed,
+                          onFollow: widget.onFollow,
+                          onShare: widget.onShare,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               ],
             ),
           );
@@ -406,22 +441,26 @@ class _HeroState extends State<_Hero> {
           if (!close) color = vibrant;
         }
         return FocalEntrance(
-          child: Text(widget.name,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: color,
-                  fontFamily: voice,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: voiceSpacing(voice),
-                  shadows: hasPhoto
-                      ? const [
-                          Shadow(
-                              color: Colors.black45,
-                              blurRadius: 16,
-                              offset: Offset(0, 2)),
-                        ]
-                      : null)),
+          child: Text(
+            widget.name,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontFamily: voice,
+              fontSize: 34,
+              fontWeight: FontWeight.w800,
+              letterSpacing: voiceSpacing(voice),
+              shadows: hasPhoto
+                  ? const [
+                      Shadow(
+                        color: Colors.black45,
+                        blurRadius: 16,
+                        offset: Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
         );
       },
     );
@@ -479,12 +518,19 @@ class _ActionRow extends ConsumerWidget {
             if (local.isEmpty) return;
             HapticFeedback.mediumImpact();
             final handler = ref.read(audioHandlerProvider);
-            await playAndOpen(ref, context, () => handler.playSong(local.first, local));
+            await playAndOpen(
+              ref,
+              context,
+              () => handler.playSong(local.first, local),
+            );
           },
           child: Container(
             width: 64,
             height: 64,
-            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
             child: const Icon(Icons.play_arrow_rounded, color: ink, size: 36),
           ),
         ),
@@ -503,7 +549,11 @@ class _RoundButton extends StatelessWidget {
   final VoidCallback onTap;
   final Color color;
 
-  const _RoundButton({required this.icon, required this.onTap, this.color = Colors.white});
+  const _RoundButton({
+    required this.icon,
+    required this.onTap,
+    this.color = Colors.white,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -552,12 +602,12 @@ double _contrast(Color a, Color b) {
 
 /// Discography hub labels shared by the featured card and the fan row.
 String _hubLabel(String type) => switch (type) {
-      'album' => 'Albums',
-      'single' || 'ep' => 'Singles & EPs',
-      'live' => 'Live',
-      'compilation' => 'Compilations',
-      _ => 'More',
-    };
+  'album' => 'Albums',
+  'single' || 'ep' => 'Singles & EPs',
+  'live' => 'Live',
+  'compilation' => 'Compilations',
+  _ => 'More',
+};
 
 /// Latest-release card floating right under the hero melt, like the
 /// reference's 1989 card: newest owned album first, else the newest
@@ -589,7 +639,8 @@ class _FeaturedRelease extends ConsumerWidget {
         for (final s in e.value) {
           if (s.year > year) year = s.year;
         }
-        if (year > bestYear || (year == bestYear && e.value.length > bestCount)) {
+        if (year > bestYear ||
+            (year == bestYear && e.value.length > bestCount)) {
           bestYear = year;
           bestCount = e.value.length;
           bestKey = e.key;
@@ -597,7 +648,9 @@ class _FeaturedRelease extends ConsumerWidget {
       }
       if (bestKey != null) {
         final songs = List<Song>.from(byAlbum[bestKey]!)
-          ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+          ..sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+          );
         owned = Album(
           key: '${songs.first.artist}\u0000${songs.first.album}',
           title: songs.first.album,
@@ -640,9 +693,8 @@ class _FeaturedRelease extends ConsumerWidget {
       cover = AlbumArt(albumId: o.songs.first.albumId, size: 64, radius: 12);
       open = () {
         HapticFeedback.selectionClick();
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => AlbumPage(album: o),
-        ));
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => AlbumPage(album: o)));
       };
     } else {
       final r = remote!;
@@ -652,13 +704,16 @@ class _FeaturedRelease extends ConsumerWidget {
       open = () {
         HapticFeedback.selectionClick();
         final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ReleaseGallery(
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ReleaseGallery(
               artistName: artistName,
               label: _hubLabel(r.type),
               items: hubItems ?? [r],
-              ownedTitles: ownedTitles),
-        ));
+              ownedTitles: ownedTitles,
+            ),
+          ),
+        );
       };
     }
 
@@ -680,14 +735,21 @@ class _FeaturedRelease extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(yearText,
-                        style: const TextStyle(color: inkDim, fontSize: 13)),
+                    Text(
+                      yearText,
+                      style: const TextStyle(color: inkDim, fontSize: 13),
+                    ),
                     const SizedBox(height: 2),
-                    Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: ink, fontSize: 17, fontWeight: FontWeight.w700)),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ink,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -713,14 +775,93 @@ class _SectionTitle extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(text,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: ink)),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: ink,
+            ),
+          ),
           if (count != null) ...[
             const SizedBox(width: 8),
-            Text('$count', style: const TextStyle(color: inkDim, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(
+              '$count',
+              style: const TextStyle(
+                color: inkDim,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Collaborators: every other name sharing these songs, as sideways
+/// links. The merge killed phantom pages; this keeps the people
+/// reachable - tap opens their page (remote-only when needed).
+class _Collaborators extends StatelessWidget {
+  final List<Song> local;
+  final String artistName;
+
+  const _Collaborators({required this.local, required this.artistName});
+
+  @override
+  Widget build(BuildContext context) {
+    final self = artistName.toLowerCase();
+    final others = <String, String>{};
+    for (final s in local) {
+      for (final n in splitArtists(s.artist)) {
+        if (n.toLowerCase() == self) continue;
+        others.putIfAbsent(n.toLowerCase(), () => n);
+      }
+    }
+    if (others.isEmpty) return const SizedBox.shrink();
+    final names = others.values.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Collaborators', count: names.length),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final n in names)
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ArtistPage.openIfAbsent(context, n);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: paperRaised,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: ink.withValues(alpha: 0.08)),
+                    ),
+                    child: Text(
+                      n,
+                      style: const TextStyle(
+                        color: ink,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -774,8 +915,13 @@ class _ExpandableBioState extends State<_ExpandableBio> {
         ),
         TextButton(
           onPressed: () => setState(() => _open = !_open),
-          child: Text(_open ? 'Show less' : 'Read more',
-              style: const TextStyle(color: archPink, fontWeight: FontWeight.w600)),
+          child: Text(
+            _open ? 'Show less' : 'Read more',
+            style: const TextStyle(
+              color: archPink,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ],
     );
@@ -828,7 +974,10 @@ class _PopularState extends ConsumerState<_Popular> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle('Popular'),
-          Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator(color: archPink)),
+          Padding(
+            padding: EdgeInsets.all(20),
+            child: LinearProgressIndicator(color: archPink),
+          ),
         ],
       ),
       error: (_, _) => const SizedBox.shrink(),
@@ -855,7 +1004,8 @@ class _PopularState extends ConsumerState<_Popular> {
                       _TopRow(
                         track: track,
                         owned: _owned(track.title),
-                        isCurrent: currentId != null &&
+                        isCurrent:
+                            currentId != null &&
                             (currentId == _owned(track.title)?.id ||
                                 currentId == -(track.rank + 1)),
                         onTap: () => _play(ref, context, track),
@@ -893,7 +1043,11 @@ class _PopularState extends ConsumerState<_Popular> {
     );
   }
 
-  Future<void> _play(WidgetRef ref, BuildContext context, TopTrack track) async {
+  Future<void> _play(
+    WidgetRef ref,
+    BuildContext context,
+    TopTrack track,
+  ) async {
     final handler = ref.read(audioHandlerProvider);
     final local = widget.local;
     final owned = _owned(track.title);
@@ -911,16 +1065,17 @@ class _PopularState extends ConsumerState<_Popular> {
       return;
     }
     await playAndOpen(
-        ref,
-        context,
-        () => handler.playPreview(
-              uri: Uri.parse(url),
-              title: track.title,
-              artist: local.isEmpty ? widget.artistName : local.first.artist,
-              album: track.albumTitle,
-              coverUrl: track.coverUrl,
-              previewId: -(track.rank + 1),
-            ));
+      ref,
+      context,
+      () => handler.playPreview(
+        uri: Uri.parse(url),
+        title: track.title,
+        artist: local.isEmpty ? widget.artistName : local.first.artist,
+        album: track.albumTitle,
+        coverUrl: track.coverUrl,
+        previewId: -(track.rank + 1),
+      ),
+    );
   }
 
   void _trackActions(WidgetRef ref, BuildContext context, TopTrack track) {
@@ -942,10 +1097,11 @@ class _PopularState extends ConsumerState<_Popular> {
             Navigator.of(context).pop();
             final albums = ref.read(albumsProvider);
             for (final a in albums) {
-              if (a.title == owned.album && a.artist == owned.artist) {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => AlbumPage(album: a),
-                ));
+              if (normTitle(a.title) == normTitle(owned.album) &&
+                  a.songs.any((s) => artistsOverlap(s.artist, owned.artist))) {
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => AlbumPage(album: a)));
                 return;
               }
             }
@@ -956,7 +1112,9 @@ class _PopularState extends ConsumerState<_Popular> {
         title: const Text('Share'),
         onTap: () {
           Navigator.of(context).pop();
-          SharePlus.instance.share(ShareParams(text: '${track.title} - ${widget.artistName}'));
+          SharePlus.instance.share(
+            ShareParams(text: '${track.title} - ${widget.artistName}'),
+          );
         },
       ),
     ];
@@ -997,30 +1155,36 @@ class _TopRow extends StatelessWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       onTap: onTap,
       leading: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: track.coverUrl != null
-                ? CachedNetworkImage(
-                    imageUrl: track.coverUrl!,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
-                    memCacheWidth: 150,
-                    errorWidget: (_, _, _) => Container(
-                      width: 52,
-                      height: 52,
-                      color: paperRaised,
-                      child: const Icon(Icons.music_note, color: inkDim),
-                    ),
-                  )
-                : Container(
-                    width: 52,
-                    height: 52,
-                    color: paperRaised,
-                    child: const Icon(Icons.music_note, color: inkDim),
-                  ),
-          ),
-      title: Text(track.title,
-          maxLines: 1, style: TextStyle(color: isCurrent ? archPink : ink, fontWeight: FontWeight.w600)),
+        borderRadius: BorderRadius.circular(10),
+        child: track.coverUrl != null
+            ? CachedNetworkImage(
+                imageUrl: track.coverUrl!,
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+                memCacheWidth: 150,
+                errorWidget: (_, _, _) => Container(
+                  width: 52,
+                  height: 52,
+                  color: paperRaised,
+                  child: const Icon(Icons.music_note, color: inkDim),
+                ),
+              )
+            : Container(
+                width: 52,
+                height: 52,
+                color: paperRaised,
+                child: const Icon(Icons.music_note, color: inkDim),
+              ),
+      ),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        style: TextStyle(
+          color: isCurrent ? archPink : ink,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       subtitle: Row(
         children: [
           if (owned == null)
@@ -1031,19 +1195,34 @@ class _TopRow extends StatelessWidget {
                 border: Border.all(color: archPink.withValues(alpha: 0.6)),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text('PREVIEW',
-                  style: TextStyle(color: archPink, fontSize: 10, fontWeight: FontWeight.w700)),
+              child: const Text(
+                'PREVIEW',
+                style: TextStyle(
+                  color: archPink,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           Expanded(
-            child: Text(track.albumTitle, maxLines: 1, style: const TextStyle(color: inkDim)),
+            child: Text(
+              track.albumTitle,
+              maxLines: 1,
+              style: const TextStyle(color: inkDim),
+            ),
           ),
         ],
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (isCurrent) const NowBars()
-          else Text(fmtDuration(track.duration), style: const TextStyle(color: inkDim)),
+          if (isCurrent)
+            const NowBars()
+          else
+            Text(
+              fmtDuration(track.duration),
+              style: const TextStyle(color: inkDim),
+            ),
           IconButton(
             icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
             onPressed: onOverflow,
@@ -1079,7 +1258,10 @@ class _FanRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle('Discography'),
-          Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator(color: archPink)),
+          Padding(
+            padding: EdgeInsets.all(20),
+            child: LinearProgressIndicator(color: archPink),
+          ),
         ],
       ),
       error: (_, _) => const SizedBox.shrink(),
@@ -1142,13 +1324,17 @@ class _FanStack extends StatefulWidget {
   State<_FanStack> createState() => _FanStackState();
 }
 
-class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixin {
+class _FanStackState extends State<_FanStack>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
     if (widget.open) _c.value = 1;
   }
 
@@ -1157,9 +1343,17 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
     super.didUpdateWidget(old);
     if (widget.open != old.open) {
       if (widget.open) {
-        _c.animateTo(1, curve: Curves.easeOutBack, duration: const Duration(milliseconds: 450));
+        _c.animateTo(
+          1,
+          curve: Curves.easeOutBack,
+          duration: const Duration(milliseconds: 450),
+        );
       } else {
-        _c.animateTo(0, curve: Motion.settle, duration: const Duration(milliseconds: 220));
+        _c.animateTo(
+          0,
+          curve: Motion.settle,
+          duration: const Duration(milliseconds: 220),
+        );
       }
     }
   }
@@ -1170,16 +1364,20 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
     super.dispose();
   }
 
-  bool _owned(ReleaseGroup r) => widget.ownedTitles.contains(r.title.toLowerCase());
+  bool _owned(ReleaseGroup r) =>
+      widget.ownedTitles.contains(r.title.toLowerCase());
 
   void _gallery(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ReleaseGallery(
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReleaseGallery(
           artistName: widget.artistName,
           label: widget.label,
           items: widget.items,
-          ownedTitles: widget.ownedTitles),
-    ));
+          ownedTitles: widget.ownedTitles,
+        ),
+      ),
+    );
   }
 
   @override
@@ -1189,7 +1387,9 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        final t = Motion.reduced(context) ? (widget.open ? 1.0 : 0.0) : _c.value;
+        final t = Motion.reduced(context)
+            ? (widget.open ? 1.0 : 0.0)
+            : _c.value;
         return Container(
           width: 195,
           margin: const EdgeInsets.only(right: 20),
@@ -1202,7 +1402,10 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
                   children: [
                     for (var i = shown.length - 1; i >= 1; i--)
                       Transform.translate(
-                        offset: Offset((i.isEven ? -1 : 1) * i * 13.0 * t, -i * 3.0 * t),
+                        offset: Offset(
+                          (i.isEven ? -1 : 1) * i * 13.0 * t,
+                          -i * 3.0 * t,
+                        ),
                         child: Transform.rotate(
                           angle: (i.isEven ? -1 : 1) * i * 0.14 * t,
                           child: GestureDetector(
@@ -1216,7 +1419,9 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
                         ),
                       ),
                     GestureDetector(
-                      onTap: widget.open ? () => _gallery(context) : widget.onToggle,
+                      onTap: widget.open
+                          ? () => _gallery(context)
+                          : widget.onToggle,
                       child: ReleaseCover(
                         release: shown.first,
                         owned: _owned(shown.first),
@@ -1232,12 +1437,17 @@ class _FanStackState extends State<_FanStack> with SingleTickerProviderStateMixi
                   padding: const EdgeInsets.only(top: 6),
                   child: Column(
                     children: [
-                      Text(widget.label,
-                          style: TextStyle(
-                              color: widget.open ? archPink : ink,
-                              fontWeight: FontWeight.w600)),
-                      Text('${widget.items.length}',
-                          style: const TextStyle(color: inkDim, fontSize: 11)),
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          color: widget.open ? archPink : ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        '${widget.items.length}',
+                        style: const TextStyle(color: inkDim, fontSize: 11),
+                      ),
                     ],
                   ),
                 ),

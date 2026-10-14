@@ -9,7 +9,10 @@ import 'player_providers.dart';
 
 /// Every play tap funnels here: failures become a snackbar, never a
 /// wedged player or a red screen. playSong throws by design (timeouts).
-Future<void> playGuarded(BuildContext context, Future<void> Function() play) async {
+Future<void> playGuarded(
+  BuildContext context,
+  Future<void> Function() play,
+) async {
   try {
     await play();
   } catch (_) {
@@ -25,7 +28,11 @@ Future<void> playGuarded(BuildContext context, Future<void> Function() play) asy
 /// FIRST so every tap answers instantly, and the (possibly slow) queue
 /// swap resolves behind it. Never await play before opening - a tap
 /// that answers seconds later reads as broken.
-Future<void> playAndOpen(WidgetRef ref, BuildContext context, Future<void> Function() play) async {
+Future<void> playAndOpen(
+  WidgetRef ref,
+  BuildContext context,
+  Future<void> Function() play,
+) async {
   ref.read(playerOpenProvider.notifier).state = true;
   unawaited(_ensureNotification(context));
   await playGuarded(context, play);
@@ -41,7 +48,10 @@ Future<void> _ensureNotification(BuildContext context) async {
   try {
     final s = await Permission.notification.status;
     if (!s.isGranted && context.mounted) {
-      ArchLog.w('player', 'notification permission denied - controls cannot post');
+      ArchLog.w(
+        'player',
+        'notification permission denied - controls cannot post',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Allow notifications for playback controls'),

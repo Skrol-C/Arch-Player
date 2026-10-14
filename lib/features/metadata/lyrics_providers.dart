@@ -9,8 +9,10 @@ import 'metadata_providers.dart';
 
 /// Lyric resolution, one order: embedded tags -> LRCLib -> none.
 /// Keyed by song id; the doc carries its own source for honest UI.
-final lyricsDocProvider =
-    FutureProvider.family<LyricDoc, int>((ref, songId) async {
+final lyricsDocProvider = FutureProvider.family<LyricDoc, int>((
+  ref,
+  songId,
+) async {
   final songs = ref.watch(songsProvider).value ?? [];
   Song? song;
   for (final s in songs) {
@@ -25,7 +27,9 @@ final lyricsDocProvider =
     if (embedded.hasSynced || embedded.hasPlain) return embedded;
   }
   try {
-    return await ref.watch(metadataServiceProvider).lyricsFor(
+    return await ref
+        .watch(metadataServiceProvider)
+        .lyricsFor(
           songId: song.id,
           artist: song.artist,
           title: song.title,
@@ -43,8 +47,9 @@ final lyricJumpProvider = StateProvider<int>((ref) => 0);
 
 /// Haptic tick as lyric lines turn over. Default on; Settings V2
 /// wires the visible toggle. Persisted like shuffle/repeat.
-final lyricHapticsProvider =
-    NotifierProvider<LyricHapticsNotifier, bool>(LyricHapticsNotifier.new);
+final lyricHapticsProvider = NotifierProvider<LyricHapticsNotifier, bool>(
+  LyricHapticsNotifier.new,
+);
 
 class LyricHapticsNotifier extends Notifier<bool> {
   @override

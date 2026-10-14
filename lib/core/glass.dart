@@ -16,8 +16,10 @@ import 'theme.dart';
 /// janks, keep the frost and drop the sampling - legibility stays,
 /// polish flexes.
 abstract final class ArchGlass {
-  static const _refraction =
-      LiquidGlassRefraction(distortion: 0.08, distortionWidth: 10);
+  static const _refraction = LiquidGlassRefraction(
+    distortion: 0.08,
+    distortionWidth: 10,
+  );
 
   static const frostAppearance = LiquidGlassAppearance(
     color: Color(0x4DFFFFFF),
@@ -33,25 +35,27 @@ abstract final class ArchGlass {
 
   /// Capsules and bars (mini, back chip, sheets): refractive frost
   /// that adapts to the backdrop.
-  static LiquidGlassStyle capsule({double radius = 34}) =>
-      LiquidGlassStyle(
-        shape: LiquidGlassShape.continuousRoundedRectangle(
-            cornerRadius: radius, borderWidth: 1),
-        appearance: frostAppearance,
-        refraction: _refraction,
-        adaptivity: adaptive,
-      );
+  static LiquidGlassStyle capsule({double radius = 34}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1,
+    ),
+    appearance: frostAppearance,
+    refraction: _refraction,
+    adaptivity: adaptive,
+  );
 
   /// Circles and small buttons (lobes, mini circles): lite frost,
   /// no refraction pass.
-  static LiquidGlassStyle circle({double radius = 24}) =>
-      LiquidGlassStyle(
-        shape: LiquidGlassShape.continuousRoundedRectangle(
-            cornerRadius: radius, borderWidth: 1),
-        appearance: frostAppearance,
-        liteGlass: LiquidGlassLitePickup.surface,
-        adaptivity: adaptive,
-      );
+  static LiquidGlassStyle circle({double radius = 24}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1,
+    ),
+    appearance: frostAppearance,
+    liteGlass: LiquidGlassLitePickup.surface,
+    adaptivity: adaptive,
+  );
 
   /// Menus: glassier than the shared capsule - stronger rim bend,
   /// deeper frost, brighter tint. The menu shell never moves (static
@@ -59,34 +63,40 @@ abstract final class ArchGlass {
   /// Fixed light, no adaptivity sampling: day-mode white always
   /// resolves light, and the ~300ms sampling flip read as flicker
   /// on every open.
-  static LiquidGlassStyle menu({double radius = 28}) =>
-      LiquidGlassStyle(
-        shape: LiquidGlassShape.continuousRoundedRectangle(
-            cornerRadius: radius, borderWidth: 1),
-        appearance: const LiquidGlassAppearance(
-          color: Color(0x66FFFFFF),
-          blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
-        ),
-        refraction: const LiquidGlassRefraction(
-            distortion: 0.13, distortionWidth: 14),
-      );
+  static LiquidGlassStyle menu({double radius = 28}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1,
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x66FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
+    ),
+    refraction: const LiquidGlassRefraction(
+      distortion: 0.13,
+      distortionWidth: 14,
+    ),
+  );
 
   /// Sigma-ramped menu lens: identical recipe, blur animated 0-12
   /// across the entrance so consecutive frames differ
   /// infinitesimally (no blend step, nowhere for a flash to live).
   /// Refraction stays fixed - only blur moves, so the rim can't
   /// swim. Rebuilt per tick during the ramp only; static after.
-  static LiquidGlassStyle menuWithSigma(double sigma) =>
-      LiquidGlassStyle(
-        shape: const LiquidGlassShape.continuousRoundedRectangle(
-            cornerRadius: 28, borderWidth: 1),
-        appearance: LiquidGlassAppearance(
-          color: const Color(0x66FFFFFF),
-          blur: LiquidGlassBlur(sigmaX: sigma, sigmaY: sigma),
-        ),
-        refraction: const LiquidGlassRefraction(
-            distortion: 0.13, distortionWidth: 14),
-      );
+  static LiquidGlassStyle menuWithSigma(double sigma) => LiquidGlassStyle(
+    shape: const LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: 28,
+      borderWidth: 1,
+    ),
+    appearance: LiquidGlassAppearance(
+      color: const Color(0x66FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: sigma, sigmaY: sigma),
+    ),
+    refraction: const LiquidGlassRefraction(
+      distortion: 0.13,
+      distortionWidth: 14,
+    ),
+  );
 
   /// Morphed menu lens: the lens starts life AS the travel cover
   /// (opaque paper-white, zero blur, zero bend) and becomes the
@@ -97,13 +107,17 @@ abstract final class ArchGlass {
     final s = (p * p * (3 - 2 * p)).clamp(0.0, 1.0);
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
-          cornerRadius: 28, borderWidth: 1),
+        cornerRadius: 28,
+        borderWidth: 1,
+      ),
       appearance: LiquidGlassAppearance(
         color: Color.lerp(paper, const Color(0x66FFFFFF), s)!,
         blur: LiquidGlassBlur(sigmaX: 12 * s, sigmaY: 12 * s),
       ),
       refraction: LiquidGlassRefraction(
-          distortion: 0.13 * s, distortionWidth: 14),
+        distortion: 0.13 * s,
+        distortionWidth: 14,
+      ),
     );
   }
 }

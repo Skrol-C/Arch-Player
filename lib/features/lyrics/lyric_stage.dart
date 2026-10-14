@@ -34,8 +34,7 @@ class LyricStage extends ConsumerStatefulWidget {
   final String syncedLrc;
   final Duration offset;
 
-  const LyricStage(
-      {super.key, required this.syncedLrc, required this.offset});
+  const LyricStage({super.key, required this.syncedLrc, required this.offset});
 
   @override
   ConsumerState<LyricStage> createState() => _LyricStageState();
@@ -70,7 +69,10 @@ class _LyricStageState extends ConsumerState<LyricStage> {
     }
     // Blank timestamped lines carry no words; dropping them never
     // loses information (gaps are read from timing, not blanks).
-    _lines = [for (final l in lines) if (l.text.trim().isNotEmpty) l];
+    _lines = [
+      for (final l in lines)
+        if (l.text.trim().isNotEmpty) l,
+    ];
   }
 
   @override
@@ -103,11 +105,11 @@ class _LyricStageState extends ConsumerState<LyricStage> {
     // highlight but never re-fire the scroll, so call-and-response
     // stays anchored instead of bouncing.
     final prev = _active;
-    final grouped = next >= 0 &&
+    final grouped =
+        next >= 0 &&
         prev >= 0 &&
         (next - prev).abs() == 1 &&
-        (_isBacking(_lines[next].text) ||
-            _isBacking(_lines[prev].text));
+        (_isBacking(_lines[next].text) || _isBacking(_lines[prev].text));
     setState(() => _active = next);
     if (next < 0) return;
     // Phased handoff: scroll leads, the row grows into place, the
@@ -127,9 +129,7 @@ class _LyricStageState extends ConsumerState<LyricStage> {
   void _center(int index, {bool force = false}) {
     if (!mounted || !_scroller.hasClients) return;
     // Finger holds pause the follow; jumps override.
-    if (!force &&
-        _holdUntil != null &&
-        DateTime.now().isBefore(_holdUntil!)) {
+    if (!force && _holdUntil != null && DateTime.now().isBefore(_holdUntil!)) {
       return;
     }
     // One glide per flip: re-orders inside 1.5s are the same race,
@@ -158,8 +158,7 @@ class _LyricStageState extends ConsumerState<LyricStage> {
   Widget build(BuildContext context) {
     if (!_parseOk) return const SizedBox.shrink();
     final tick =
-        (ref.watch(positionProvider).value ?? Duration.zero) +
-            widget.offset;
+        (ref.watch(positionProvider).value ?? Duration.zero) + widget.offset;
     final playing = ref.watch(playingProvider).value ?? false;
     // Ticks are the truth; the flip timer only wakes the build
     // early so handoffs land on the beat, not on the next tick.
@@ -176,8 +175,7 @@ class _LyricStageState extends ConsumerState<LyricStage> {
     }
     final next = _indexFor(pos);
     if (next != _active) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _afterActive(next));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _afterActive(next));
     }
     // Wake for the coming flip so it lands on time, not on tick.
     // Paused pins everything: no flips, no sweeps, no timers.
@@ -186,7 +184,9 @@ class _LyricStageState extends ConsumerState<LyricStage> {
       final delay = _lines[_active + 1].start - pos;
       if (delay > Duration.zero) {
         _flipTimer = Timer(
-          delay > const Duration(seconds: 30) ? const Duration(seconds: 30) : delay,
+          delay > const Duration(seconds: 30)
+              ? const Duration(seconds: 30)
+              : delay,
           () {
             if (mounted) setState(() {});
           },
@@ -195,14 +195,14 @@ class _LyricStageState extends ConsumerState<LyricStage> {
     }
     // Gap before the next line: breathe instead of sitting dead.
     final upcoming = next + 1 < _lines.length ? next + 1 : -1;
-    final gap = upcoming >= 0 &&
+    final gap =
+        upcoming >= 0 &&
         _lines[upcoming].start - pos > const Duration(seconds: 10);
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
         // Finger drags pause the follow; programmatic glides never do.
         if (n is ScrollStartNotification && n.dragDetails != null) {
-          _holdUntil =
-              DateTime.now().add(const Duration(seconds: 5));
+          _holdUntil = DateTime.now().add(const Duration(seconds: 5));
         }
         return false;
       },
@@ -221,12 +221,12 @@ class _LyricStageState extends ConsumerState<LyricStage> {
           final sigma = _active < 0
               ? 0.0
               : dist == 0
-                  ? 0.0
-                  : dist == 1
-                      ? 0.7
-                      : dist == 2
-                          ? 1.5
-                          : 2.5;
+              ? 0.0
+              : dist == 1
+              ? 0.7
+              : dist == 2
+              ? 1.5
+              : 2.5;
           Widget row;
           if (i == _active) {
             // Sweep gating: the timed renderer only engages when the
@@ -236,19 +236,18 @@ class _LyricStageState extends ConsumerState<LyricStage> {
             if (words != null && words.isNotEmpty) {
               final end = _windowEnd(i);
               final span = end - line.start;
-            // Converging sweep: while playing the fill always lands
-            // exactly at 1.0 when the window ends (no chase lag);
-            // while paused it holds the frozen progress still.
-            final frozen = span.inMilliseconds <= 0
-                ? 1.0
-                : ((pos - line.start).inMilliseconds /
-                        span.inMilliseconds)
-                    .clamp(0.0, 1.0);
-            final target = playing ? 1.0 : frozen;
-            final chaseMs = playing
-                ? (end - pos).inMilliseconds.clamp(300, 12000)
-                : 200;
-            // Sibling trail is handled by rest rows below.
+              // Converging sweep: while playing the fill always lands
+              // exactly at 1.0 when the window ends (no chase lag);
+              // while paused it holds the frozen progress still.
+              final frozen = span.inMilliseconds <= 0
+                  ? 1.0
+                  : ((pos - line.start).inMilliseconds / span.inMilliseconds)
+                        .clamp(0.0, 1.0);
+              final target = playing ? 1.0 : frozen;
+              final chaseMs = playing
+                  ? (end - pos).inMilliseconds.clamp(300, 12000)
+                  : 200;
+              // Sibling trail is handled by rest rows below.
               row = _SungLine(
                 key: ValueKey('sung-$i-${line.start}'),
                 text: line.text,
@@ -270,8 +269,7 @@ class _LyricStageState extends ConsumerState<LyricStage> {
               );
             }
           } else {
-            final stagger =
-                (i - _active).clamp(0, 3) * 70;
+            final stagger = (i - _active).clamp(0, 3) * 70;
             row = _RestLine(
               text: line.text,
               translation: line.translation,
@@ -284,8 +282,7 @@ class _LyricStageState extends ConsumerState<LyricStage> {
           }
           if (sigma > 0) {
             row = ImageFiltered(
-              imageFilter:
-                  ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+              imageFilter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
               child: row,
             );
           }
@@ -344,21 +341,28 @@ class _PinkLine extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Column(
           children: [
-            Text(text,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: archPink,
-                  fontSize: backing ? 17 : 22,
-                  fontWeight: FontWeight.w800,
-                  height: 1.35,
-                )),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: archPink,
+                fontSize: backing ? 17 : 22,
+                fontWeight: FontWeight.w800,
+                height: 1.35,
+              ),
+            ),
             if (translation != null && translation!.trim().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(translation!.trim(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: inkDim, fontSize: 14, height: 1.4)),
+                child: Text(
+                  translation!.trim(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: inkDim,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
               ),
           ],
         ),
@@ -411,8 +415,7 @@ class _SungLine extends StatelessWidget {
           colors: const [archPink, archPink, Colors.white, ink, ink],
           stops: [0, tail, edge, tip, 1],
         ).createShader(bounds),
-        child: Text(text,
-            textAlign: TextAlign.center, style: style),
+        child: Text(text, textAlign: TextAlign.center, style: style),
       );
     }
 
@@ -426,18 +429,24 @@ class _SungLine extends StatelessWidget {
           children: [
             TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: target),
-              duration:
-                  reduced ? Duration.zero : Duration(milliseconds: chaseMs),
+              duration: reduced
+                  ? Duration.zero
+                  : Duration(milliseconds: chaseMs),
               curve: Curves.linear,
               builder: (context, p, _) => line(p),
             ),
             if (translation != null && translation!.trim().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(translation!.trim(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: inkDim, fontSize: 14, height: 1.4)),
+                child: Text(
+                  translation!.trim(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: inkDim,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
               ),
           ],
         ),
@@ -449,8 +458,7 @@ class _SungLine extends StatelessWidget {
       tween: Tween(begin: 0.96, end: 1.0),
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutBack,
-      builder: (context, s, _) =>
-          Transform.scale(scale: s, child: body),
+      builder: (context, s, _) => Transform.scale(scale: s, child: body),
     );
   }
 }
@@ -487,11 +495,11 @@ class _RestLineState extends State<_RestLine> {
   Timer? _timer;
 
   TextStyle _target() => TextStyle(
-        color: widget.past ? inkDim : ink.withValues(alpha: 0.75),
-        fontSize: widget.backing ? 13 : 16,
-        fontWeight: widget.past ? FontWeight.w600 : FontWeight.w500,
-        height: 1.5,
-      );
+    color: widget.past ? inkDim : ink.withValues(alpha: 0.75),
+    fontSize: widget.backing ? 13 : 16,
+    fontWeight: widget.past ? FontWeight.w600 : FontWeight.w500,
+    height: 1.5,
+  );
 
   void _apply(TextStyle style, {int delayMs = 0}) {
     _timer?.cancel();
@@ -515,14 +523,15 @@ class _RestLineState extends State<_RestLine> {
     super.didUpdateWidget(old);
     final reduced = Motion.reduced(context);
     final target = _target();
-    final changed = old.past != widget.past ||
+    final changed =
+        old.past != widget.past ||
         old.backing != widget.backing ||
         old.text != widget.text;
     if (changed) {
-      _apply(target,
-          delayMs: reduced || widget.staggerMs <= 0
-              ? 0
-              : widget.staggerMs);
+      _apply(
+        target,
+        delayMs: reduced || widget.staggerMs <= 0 ? 0 : widget.staggerMs,
+      );
     } else {
       // Unrelated rebuild (ticks): hold the shown style, never
       // restart the transition.
@@ -545,7 +554,9 @@ class _RestLineState extends State<_RestLine> {
       onTap: widget.onTap,
       child: Padding(
         padding: EdgeInsets.symmetric(
-            vertical: 7, horizontal: widget.backing ? 24 : 0),
+          vertical: 7,
+          horizontal: widget.backing ? 24 : 0,
+        ),
         child: Column(
           children: [
             AnimatedDefaultTextStyle(
@@ -561,10 +572,15 @@ class _RestLineState extends State<_RestLine> {
                 widget.translation!.trim().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
-                child: Text(widget.translation!.trim(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: inkDim, fontSize: 12, height: 1.4)),
+                child: Text(
+                  widget.translation!.trim(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: inkDim,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
               ),
           ],
         ),
@@ -593,8 +609,9 @@ class _BreatheState extends State<_Breathe>
   void initState() {
     super.initState();
     _anim = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 2400))
-      ..repeat(reverse: true);
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -607,10 +624,8 @@ class _BreatheState extends State<_Breathe>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _anim,
-      builder: (context, _) => Opacity(
-        opacity: 0.45 + 0.3 * _anim.value,
-        child: widget.child,
-      ),
+      builder: (context, _) =>
+          Opacity(opacity: 0.45 + 0.3 * _anim.value, child: widget.child),
     );
   }
 }

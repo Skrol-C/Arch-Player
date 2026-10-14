@@ -25,20 +25,24 @@ class ChannelLibrary implements LibraryRepository {
         final artist = (m['artist'] as String?) ?? '';
         final album = (m['album'] as String?) ?? '';
         final folder = (m['folder'] as String?) ?? 'Unknown folder';
-        out.add(Song(
-          id: (m['id'] as num?)?.toInt() ?? 0,
-          uri: Uri.parse((m['uri'] as String?) ?? ''),
-          title: title.isEmpty ? 'Unknown title' : title,
-          artist: artist.isEmpty ? 'Unknown artist' : artist,
-          album: album.isEmpty ? 'Unknown album' : album,
-          albumId: (m['albumId'] as num?)?.toInt() ?? 0,
-          duration: Duration(milliseconds: (m['durationMs'] as num?)?.toInt() ?? 0),
-          year: 0,
-          folderKey: 'media:$folder',
-          folderLabel: folder,
-          path: (m['path'] as String?) ?? '',
-          addedSecs: (m['addedSecs'] as num?)?.toInt() ?? 0,
-        ));
+        out.add(
+          Song(
+            id: (m['id'] as num?)?.toInt() ?? 0,
+            uri: Uri.parse((m['uri'] as String?) ?? ''),
+            title: title.isEmpty ? 'Unknown title' : title,
+            artist: artist.isEmpty ? 'Unknown artist' : artist,
+            album: album.isEmpty ? 'Unknown album' : album,
+            albumId: (m['albumId'] as num?)?.toInt() ?? 0,
+            duration: Duration(
+              milliseconds: (m['durationMs'] as num?)?.toInt() ?? 0,
+            ),
+            year: (m['year'] as num?)?.toInt() ?? 0,
+            folderKey: 'media:$folder',
+            folderLabel: folder,
+            path: (m['path'] as String?) ?? '',
+            addedSecs: (m['addedSecs'] as num?)?.toInt() ?? 0,
+          ),
+        );
       }
     }
     ArchLog.i('scan', 'querySongs done (${out.length})');
@@ -75,7 +79,10 @@ class ArtCache {
   static final Map<String, Uint8List?> _cache = {};
   static final List<String> _order = [];
 
-  static Future<Uint8List?> of(int albumId, [ArtBucket bucket = ArtBucket.small]) async {
+  static Future<Uint8List?> of(
+    int albumId, [
+    ArtBucket bucket = ArtBucket.small,
+  ]) async {
     if (albumId <= 0) return null;
     final key = '${bucket.px}:$albumId';
     if (_cache.containsKey(key)) {
@@ -84,8 +91,10 @@ class ArtCache {
       return _cache[key];
     }
     try {
-      final bytes = await _channel.invokeMethod<Uint8List>(
-          'loadArt', {'albumId': albumId, 'targetPx': bucket.px});
+      final bytes = await _channel.invokeMethod<Uint8List>('loadArt', {
+        'albumId': albumId,
+        'targetPx': bucket.px,
+      });
       _put(key, bytes);
       return bytes;
     } catch (e) {

@@ -14,7 +14,9 @@ import '../library/library_providers.dart';
 import 'audio_handler.dart';
 
 final audioHandlerProvider = Provider<ArchAudioHandler>((ref) {
-  throw UnimplementedError('audioHandlerProvider must be overridden at startup');
+  throw UnimplementedError(
+    'audioHandlerProvider must be overridden at startup',
+  );
 });
 
 final playerOpenProvider = StateProvider<bool>((ref) => false);
@@ -25,7 +27,9 @@ final playerOpenProvider = StateProvider<bool>((ref) => false);
 /// like the reference, not three screens.
 enum PlayerPanel { none, lyrics, queue }
 
-final playerPanelProvider = StateProvider<PlayerPanel>((ref) => PlayerPanel.none);
+final playerPanelProvider = StateProvider<PlayerPanel>(
+  (ref) => PlayerPanel.none,
+);
 
 /// Lyrics immersion: chrome fades after 3s idle on the lyrics
 /// panel, restored by any tap. The banner + words stay; everything
@@ -90,7 +94,11 @@ final currentSongProvider = StreamProvider<Song?>((ref) {
 });
 
 final playingProvider = StreamProvider<bool>((ref) {
-  return ref.watch(audioHandlerProvider).playbackState.map((s) => s.playing).distinct();
+  return ref
+      .watch(audioHandlerProvider)
+      .playbackState
+      .map((s) => s.playing)
+      .distinct();
 });
 
 final positionProvider = StreamProvider<Duration>((ref) {
@@ -109,17 +117,23 @@ final bufferedProvider = StreamProvider<Duration>((ref) {
 /// True while the engine is preparing or stalled: the player screen
 /// shows its loading state and parks the transport until audio flows.
 final bufferingProvider = StreamProvider<bool>((ref) {
-  return ref.watch(audioHandlerProvider).playbackState
-      .map((s) =>
-          s.processingState == AudioProcessingState.loading ||
-          s.processingState == AudioProcessingState.buffering)
+  return ref
+      .watch(audioHandlerProvider)
+      .playbackState
+      .map(
+        (s) =>
+            s.processingState == AudioProcessingState.loading ||
+            s.processingState == AudioProcessingState.buffering,
+      )
       .distinct();
 });
 
 /// Shuffle + repeat: state here, engine application + disk memory
 /// inside. Persisted across restarts, applied to the live player on
 /// load so state and engine never disagree.
-final shuffleProvider = NotifierProvider<ShuffleNotifier, bool>(ShuffleNotifier.new);
+final shuffleProvider = NotifierProvider<ShuffleNotifier, bool>(
+  ShuffleNotifier.new,
+);
 
 class ShuffleNotifier extends Notifier<bool> {
   @override
@@ -178,8 +192,9 @@ final sleepProvider = StreamProvider<Duration?>((ref) {
 final queueProvider = StreamProvider<List<Song>>((ref) {
   final songs = ref.watch(songsProvider).value ?? [];
   final handler = ref.watch(audioHandlerProvider);
-  return handler.queueStream
-      .map((items) => [for (final item in items) songFromItem(item, songs)]);
+  return handler.queueStream.map(
+    (items) => [for (final item in items) songFromItem(item, songs)],
+  );
 });
 
 /// Artwork palette for the current track, from bytes already held by

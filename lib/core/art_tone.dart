@@ -14,7 +14,11 @@ class ArtPalette {
   final Color vibrant;
   final double photoLum;
 
-  const ArtPalette({required this.wash, required this.vibrant, required this.photoLum});
+  const ArtPalette({
+    required this.wash,
+    required this.vibrant,
+    required this.photoLum,
+  });
 }
 
 /// Dominant muted tone of a network image, for melting heroes into pages.
@@ -40,7 +44,9 @@ abstract final class ArtTone {
     if (url == null || url.isEmpty) return null;
     if (_paletteMemo.containsKey(url)) return _paletteMemo[url];
     try {
-      final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
         _paletteMemo[url] = null;
         return null;
@@ -64,7 +70,9 @@ abstract final class ArtTone {
   static final Map<String, ArtPalette?> _bytesMemo = {};
 
   static Future<ArtPalette?> paletteFromBytes(
-      String key, Future<Uint8List?> Function() load) async {
+    String key,
+    Future<Uint8List?> Function() load,
+  ) async {
     if (_bytesMemo.containsKey(key)) return _bytesMemo[key];
     try {
       final bytes = await load();
@@ -84,13 +92,44 @@ abstract final class ArtTone {
     }
   }
 
+  /// Page wash: a tone pulled most of the way to paper. Light
+  /// enough for ink text, tinted enough for full-bleed. Null tone =
+  /// the pre-load default, near-white. Contrast-clamped: deep reds
+  /// go properly dark, pale art stops where ink survives. One
+  /// mapping shared by artist and album pages - no drift.
+  static Color pageWashOf(Color? tone) {
+    // paper/ink live here to keep this class dependency-free of
+    // the app theme; values mirror theme.dart.
+    const paper = Color(0xFFFFFFFF);
+    const ink = Color(0xFF0B0B0D);
+    const raised = Color(0xFFF6F6F8);
+    final base = tone ?? raised;
+    // A whisper of the cover tone, not a seat inside it: dim text
+    // stays legible with headroom on every backdrop.
+    var pull = 0.6;
+    var wash = Color.lerp(base, paper, pull)!;
+    double contrast(Color a, Color b) {
+      final l1 = a.computeLuminance() + 0.05;
+      final l2 = b.computeLuminance() + 0.05;
+      return l1 > l2 ? l1 / l2 : l2 / l1;
+    }
+
+    while (pull < 1.0 && contrast(ink, wash) < 4.5) {
+      pull += 0.05;
+      wash = Color.lerp(base, paper, pull)!;
+    }
+    return wash;
+  }
+
   /// One 32px engine decode -> palette. Shared by network and byte
   /// paths; null on anything undecodable.
   static Future<ArtPalette?> decode(Uint8List raw) async {
     try {
       final codec = await ui.instantiateImageCodec(raw, targetWidth: 112);
       final frame = await codec.getNextFrame();
-      final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final bytes = await frame.image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
       frame.image.dispose();
       codec.dispose();
       if (bytes == null) return null;
@@ -122,21 +161,38 @@ abstract final class ArtTone {
       fg += (gray - fg) * 0.35;
       fb += (gray - fb) * 0.35;
       final wash = Color.fromARGB(
-          255, fr.clamp(0, 255).round(), fg.clamp(0, 255).round(), fb.clamp(0, 255).round());
+        255,
+        fr.clamp(0, 255).round(),
+        fg.clamp(0, 255).round(),
+        fb.clamp(0, 255).round(),
+      );
       // Vibrant: saturated mean, or the dominant mean when the photo
       // runs monochrome. Never fully dark - text needs a voice.
       Color vibrant;
       if (vn > 0) {
-        vibrant = Color.fromARGB(255, (vr / vn).round(), (vg / vn).round(), (vb / vn).round());
+        vibrant = Color.fromARGB(
+          255,
+          (vr / vn).round(),
+          (vg / vn).round(),
+          (vb / vn).round(),
+        );
       } else {
-        vibrant = Color.fromARGB(255, (r / n).round(), (g / n).round(), (b / n).round());
+        vibrant = Color.fromARGB(
+          255,
+          (r / n).round(),
+          (g / n).round(),
+          (b / n).round(),
+        );
       }
       if (vibrant.computeLuminance() < 0.08) {
         vibrant = Color.lerp(vibrant, Colors.white, 0.25)!;
       }
-      final photoLum =
-          Color.fromARGB(255, (r / n).round(), (g / n).round(), (b / n).round())
-              .computeLuminance();
+      final photoLum = Color.fromARGB(
+        255,
+        (r / n).round(),
+        (g / n).round(),
+        (b / n).round(),
+      ).computeLuminance();
       return ArtPalette(wash: wash, vibrant: vibrant, photoLum: photoLum);
     } catch (_) {
       return null;

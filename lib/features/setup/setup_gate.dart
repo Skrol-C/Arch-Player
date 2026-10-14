@@ -22,7 +22,9 @@ class SetupGate extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final done = ref.watch(_setupDoneProvider);
     return done.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator(color: archPink))),
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: archPink)),
+      ),
       error: (e, _) => Scaffold(body: Center(child: Text('Setup failed: $e'))),
       data: (isDone) => isDone ? child : const _SetupFlow(),
     );
@@ -56,10 +58,14 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
     }
     await Permission.notification.request();
     List<String> suggestions = [];
-    if (status.isGranted || status.isLimited || (await Permission.storage.status).isGranted) {
+    if (status.isGranted ||
+        status.isLimited ||
+        (await Permission.storage.status).isGranted) {
       _musicOk = true;
       try {
-        suggestions = await ref.read(libraryRepositoryProvider).suggestFolders();
+        suggestions = await ref
+            .read(libraryRepositoryProvider)
+            .suggestFolders();
       } catch (e) {
         ArchLog.w('setup', 'suggestions failed: $e');
       }
@@ -75,7 +81,9 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
 
   Future<void> _pickCustom() async {
     try {
-      final path = await FilePicker.getDirectoryPath(dialogTitle: 'Where is your music?');
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Where is your music?',
+      );
       if (path == null) return;
       setState(() => _chosen.add(path));
     } catch (e) {
@@ -97,7 +105,9 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(color: archPink)));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: archPink)),
+      );
     }
     if (!_musicOk) {
       return Scaffold(
@@ -108,12 +118,20 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Arch needs\nyour music', style: Theme.of(context).textTheme.headlineLarge),
+                Text(
+                  'Arch needs\nyour music',
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
                 const SizedBox(height: 12),
-                const Text('Allow access to keep going - nothing leaves your phone.',
-                    style: TextStyle(color: inkDim, height: 1.5)),
+                const Text(
+                  'Allow access to keep going - nothing leaves your phone.',
+                  style: TextStyle(color: inkDim, height: 1.5),
+                ),
                 const SizedBox(height: 24),
-                FilledButton(onPressed: _boot, child: const Text('Allow music access')),
+                FilledButton(
+                  onPressed: _boot,
+                  child: const Text('Allow music access'),
+                ),
               ],
             ),
           ),
@@ -128,12 +146,16 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               FocalEntrance(
-                child: Text('Where\u2019s\nyour music?',
-                    style: Theme.of(context).textTheme.headlineLarge),
+                child: Text(
+                  'Where\u2019s\nyour music?',
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
               ),
               const SizedBox(height: 12),
-              const Text('Arch only looks where you point it. Add more folders anytime.',
-                  style: TextStyle(color: inkDim, height: 1.5)),
+              const Text(
+                'Arch only looks where you point it. Add more folders anytime.',
+                style: TextStyle(color: inkDim, height: 1.5),
+              ),
               const SizedBox(height: 20),
               Expanded(
                 child: ListView(
@@ -151,10 +173,15 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
                           }
                         }),
                       ),
-                    for (final c in _chosen.where((c) => !_suggestions.contains(c)))
+                    for (final c in _chosen.where(
+                      (c) => !_suggestions.contains(c),
+                    ))
                       ListTile(
                         title: Text(c),
-                        trailing: const Icon(Icons.check_circle, color: archPink),
+                        trailing: const Icon(
+                          Icons.check_circle,
+                          color: archPink,
+                        ),
                       ),
                     OutlinedButton.icon(
                       onPressed: _pickCustom,
@@ -168,9 +195,11 @@ class _SetupFlowState extends ConsumerState<_SetupFlow> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _chosen.isEmpty ? null : _finish,
-                  child: Text(_chosen.isEmpty
-                      ? 'Pick at least one folder'
-                      : 'Start listening (${_chosen.length})'),
+                  child: Text(
+                    _chosen.isEmpty
+                        ? 'Pick at least one folder'
+                        : 'Start listening (${_chosen.length})',
+                  ),
                 ),
               ),
             ],

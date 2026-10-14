@@ -45,10 +45,10 @@ String artistVoiceOf(String name) {
 /// Per-voice letterspacing: condensed voices breathe open, serifs tuck
 /// in, the rest sit neutral.
 double voiceSpacing(String voice) => switch (voice) {
-      'ArchGrotesk' || 'ArchBlack' || 'ArchPoster' => 0.5,
-      'ArchSerif' || 'ArchDidone' => -0.5,
-      _ => 0.0,
-    };
+  'ArchGrotesk' || 'ArchBlack' || 'ArchPoster' => 0.5,
+  'ArchSerif' || 'ArchDidone' => -0.5,
+  _ => 0.0,
+};
 
 ThemeData archTheme() {
   final base = ThemeData.light(useMaterial3: true);
@@ -61,9 +61,6 @@ ThemeData archTheme() {
       onSurface: ink,
       onSurfaceVariant: inkDim,
     ),
-    textTheme: base.textTheme.apply(
-      bodyColor: ink,
-      displayColor: ink,
-    ),
+    textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
   );
 }

@@ -36,36 +36,49 @@ class ReleaseGallery extends ConsumerWidget {
           children: [
             GridView.builder(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 24,
-          childAspectRatio: 0.78,
-        ),
-        itemCount: items.length,
-        itemBuilder: (context, i) {
-          final r = items[i];
-          final owned = ownedTitles.contains(r.title.toLowerCase());
-          return FocalEntrance(
-            index: i,
-            child: GestureDetector(
-              onTap: () => _open(context, ref, r, owned),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: ReleaseCover(release: r, owned: owned, fill: true)),
-                  const SizedBox(height: 6),
-                  Text(r.title,
-                      maxLines: 1,
-                      style: TextStyle(
-                          color: owned ? ink : inkDim, fontWeight: FontWeight.w600)),
-                  if (r.year != null)
-                    Text('${r.year}', style: const TextStyle(color: inkDim, fontSize: 12)),
-                ],
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 24,
+                childAspectRatio: 0.78,
               ),
-            ),
-          );
-        },
+              itemCount: items.length,
+              itemBuilder: (context, i) {
+                final r = items[i];
+                final owned = ownedTitles.contains(r.title.toLowerCase());
+                return FocalEntrance(
+                  index: i,
+                  child: GestureDetector(
+                    onTap: () => _open(context, ref, r, owned),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ReleaseCover(
+                            release: r,
+                            owned: owned,
+                            fill: true,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          r.title,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: owned ? ink : inkDim,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (r.year != null)
+                          Text(
+                            '${r.year}',
+                            style: const TextStyle(color: inkDim, fontSize: 12),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
             const NowPlayingDock(),
           ],
@@ -76,20 +89,28 @@ class ReleaseGallery extends ConsumerWidget {
 
   void _open(BuildContext context, WidgetRef ref, ReleaseGroup r, bool owned) {
     if (owned) {
-      final needle = r.title.toLowerCase();
       for (final a in ref.read(albumsProvider)) {
-        if (a.title.toLowerCase() == needle &&
-            a.artist.toLowerCase() == artistName.toLowerCase()) {
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => AlbumPage(album: a),
-          ));
+        if (normTitle(a.title) == normTitle(r.title) &&
+            a.songs.any(
+              (s) =>
+                  splitArtists(s.artist)
+                      .any((n) => n.toLowerCase() == artistName.toLowerCase()),
+            )) {
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => AlbumPage(album: a)));
           return;
         }
       }
     }
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(owned ? 'Album moved - check Folders' : '${r.title} isn\u2019t on this device - downloads land with Needle')),
+      SnackBar(
+        content: Text(
+          owned
+              ? 'Album moved - check Folders'
+              : '${r.title} isn\u2019t on this device - downloads land with Needle',
+        ),
+      ),
     );
   }
 }

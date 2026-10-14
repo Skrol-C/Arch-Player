@@ -44,21 +44,27 @@ class _HeroDeck extends ConsumerWidget {
     final again = ref.watch(listenAgainProvider).value ?? [];
     final cards = <_HeroCard>[];
     if (recent.isNotEmpty) {
-      final albumSongs = recent.where((s) => s.album == recent.first.album).toList();
-      cards.add(_HeroCard(
-        kicker: 'New to you',
-        title: recent.first.album,
-        subtitle: recent.first.artist,
-        songs: albumSongs.isEmpty ? [recent.first] : albumSongs,
-      ));
+      final albumSongs = recent
+          .where((s) => s.album == recent.first.album)
+          .toList();
+      cards.add(
+        _HeroCard(
+          kicker: 'New to you',
+          title: recent.first.album,
+          subtitle: recent.first.artist,
+          songs: albumSongs.isEmpty ? [recent.first] : albumSongs,
+        ),
+      );
     }
     if (again.isNotEmpty) {
-      cards.add(_HeroCard(
-        kicker: 'Listen again',
-        title: again.first.title,
-        subtitle: again.first.artist,
-        songs: [again.first],
-      ));
+      cards.add(
+        _HeroCard(
+          kicker: 'Listen again',
+          title: again.first.title,
+          subtitle: again.first.artist,
+          songs: [again.first],
+        ),
+      );
     }
     if (cards.isEmpty) return const SizedBox.shrink();
     return SizedBox(
@@ -66,10 +72,8 @@ class _HeroDeck extends ConsumerWidget {
       child: PageView.builder(
         controller: PageController(viewportFraction: 0.88),
         itemCount: cards.length,
-        itemBuilder: (context, i) => Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: cards[i],
-        ),
+        itemBuilder: (context, i) =>
+            Padding(padding: const EdgeInsets.only(right: 12), child: cards[i]),
       ),
     );
   }
@@ -94,7 +98,11 @@ class _HeroCard extends ConsumerWidget {
     return GestureDetector(
       onTap: () async {
         final handler = ref.read(audioHandlerProvider);
-        await playAndOpen(ref, context, () => handler.playSong(songs.first, songs));
+        await playAndOpen(
+          ref,
+          context,
+          () => handler.playSong(songs.first, songs),
+        );
       },
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -102,7 +110,11 @@ class _HeroCard extends ConsumerWidget {
           color: paperRaised,
           borderRadius: BorderRadius.circular(24),
           boxShadow: const [
-            BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 8)),
+            BoxShadow(
+              color: Color(0x14000000),
+              blurRadius: 20,
+              offset: Offset(0, 8),
+            ),
           ],
         ),
         child: Row(
@@ -114,20 +126,34 @@ class _HeroCard extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(kicker.toUpperCase(),
-                      style: const TextStyle(
-                          color: archPink, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                  Text(
+                    kicker.toUpperCase(),
+                    style: const TextStyle(
+                      color: archPink,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(title,
-                      maxLines: 2,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    style: Theme.of(context).textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 4),
-                  Text(subtitle, maxLines: 1, style: const TextStyle(color: inkDim)),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    style: const TextStyle(color: inkDim),
+                  ),
                   const SizedBox(height: 12),
-                  const Icon(Icons.play_circle_fill_rounded, color: archPink, size: 40),
+                  const Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: archPink,
+                    size: 40,
+                  ),
                 ],
               ),
             ),
@@ -163,11 +189,12 @@ class _CategoryTiles extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(12),
                   child: GridView.builder(
                     physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 2,
-                      mainAxisSpacing: 2,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 2,
+                          mainAxisSpacing: 2,
+                        ),
                     itemCount: 4,
                     itemBuilder: (context, i) => i < artIds.length
                         ? AlbumArt(albumId: artIds[i], fill: true, radius: 0)
@@ -177,14 +204,18 @@ class _CategoryTiles extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-              Text('$count', style: const TextStyle(color: inkDim, fontSize: 12)),
+              Text(
+                '$count',
+                style: const TextStyle(color: inkDim, fontSize: 12),
+              ),
             ],
           ),
         ),
       );
     }
 
-    List<int> artOf(List<Song> list) => list.take(4).map((s) => s.albumId).toList();
+    List<int> artOf(List<Song> list) =>
+        list.take(4).map((s) => s.albumId).toList();
     final tab = ref.watch(libraryTabProvider);
     void go(LibraryTab t) {
       ref.read(libraryTabProvider.notifier).state = t;
@@ -202,11 +233,23 @@ class _CategoryTiles extends ConsumerWidget {
         childAspectRatio: 1.15,
         children: [
           tile('Songs', songs.length, artOf(songs), () => go(LibraryTab.songs)),
-          tile('Albums', albums.length, artOf([for (final a in albums) ...a.songs]),
-              () => go(LibraryTab.albums)),
-          tile('Artists', artists.length, artOf(songs), () => go(LibraryTab.artists)),
+          tile(
+            'Albums',
+            albums.length,
+            artOf([for (final a in albums) ...a.songs]),
+            () => go(LibraryTab.albums),
+          ),
+          tile(
+            'Artists',
+            artists.length,
+            artOf(songs),
+            () => go(LibraryTab.artists),
+          ),
           tile('Folders', ref.watch(foldersProvider).length, artOf(songs), () {
-            showModalBottomSheet(context: context, builder: (_) => const FolderSheet());
+            showModalBottomSheet(
+              context: context,
+              builder: (_) => const FolderSheet(),
+            );
           }),
         ],
       ),
@@ -219,7 +262,11 @@ class _RailShell extends StatelessWidget {
   final List<Song> songs;
   final bool showNewBadge;
 
-  const _RailShell({required this.title, required this.songs, this.showNewBadge = false});
+  const _RailShell({
+    required this.title,
+    required this.songs,
+    this.showNewBadge = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -230,8 +277,11 @@ class _RailShell extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-          child: Text(title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
         ),
         SizedBox(
           height: 168,
@@ -242,7 +292,9 @@ class _RailShell extends StatelessWidget {
             itemBuilder: (context, i) {
               final song = songs[i];
               final isNew =
-                  showNewBadge && nowSecs - song.addedSecs < 7 * 24 * 3600 && song.addedSecs > 0;
+                  showNewBadge &&
+                  nowSecs - song.addedSecs < 7 * 24 * 3600 &&
+                  song.addedSecs > 0;
               return _RailCard(song: song, isNew: isNew, index: i);
             },
           ),
@@ -257,7 +309,11 @@ class _RailCard extends ConsumerWidget {
   final bool isNew;
   final int index;
 
-  const _RailCard({required this.song, required this.isNew, required this.index});
+  const _RailCard({
+    required this.song,
+    required this.isNew,
+    required this.index,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -282,18 +338,32 @@ class _RailCard extends ConsumerWidget {
                   if (isNew)
                     const Padding(
                       padding: EdgeInsets.only(right: 4),
-                      child: Text('NEW',
-                          style: TextStyle(
-                              color: archPink, fontSize: 10, fontWeight: FontWeight.w800)),
+                      child: Text(
+                        'NEW',
+                        style: TextStyle(
+                          color: archPink,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   Expanded(
-                    child: Text(song.title,
-                        maxLines: 1, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    child: Text(
+                      song.title,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              Text(song.artist,
-                  maxLines: 1, style: const TextStyle(color: inkDim, fontSize: 12)),
+              Text(
+                song.artist,
+                maxLines: 1,
+                style: const TextStyle(color: inkDim, fontSize: 12),
+              ),
             ],
           ),
         ),
@@ -308,7 +378,10 @@ class _RecentlyAddedRail extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return _RailShell(
-        title: 'Recently Added', songs: ref.watch(recentlyAddedProvider), showNewBadge: true);
+      title: 'Recently Added',
+      songs: ref.watch(recentlyAddedProvider),
+      showNewBadge: true,
+    );
   }
 }
 

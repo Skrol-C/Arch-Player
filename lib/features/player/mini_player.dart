@@ -54,14 +54,19 @@ class MiniPlayer extends ConsumerWidget {
                           height: 44,
                           child: song.albumId > 0
                               ? AlbumArt(
-                                  albumId: song.albumId, size: 44, radius: 12)
+                                  albumId: song.albumId,
+                                  size: 44,
+                                  radius: 12,
+                                )
                               : Container(
                                   decoration: BoxDecoration(
                                     color: paperRaised,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const Icon(CupertinoIcons.music_note,
-                                      color: inkDim),
+                                  child: const Icon(
+                                    CupertinoIcons.music_note,
+                                    color: inkDim,
+                                  ),
                                 ),
                         ),
                       ),
@@ -74,32 +79,41 @@ class MiniPlayer extends ConsumerWidget {
                             _Marquee(
                               text: song.title,
                               style: TextStyle(
-                                  color: playing ? archPink : ink,
-                                  fontWeight: FontWeight.w600),
+                                color: playing ? archPink : ink,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                            Text(song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: inkDim, fontSize: 12)),
+                            Text(
+                              song.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: inkDim,
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       _GlassCircle(
                         icon: MorphIcon(
                           iconKey: playing,
-                          child: Icon(playing
-                              ? CupertinoIcons.pause_fill
-                              : CupertinoIcons.play_fill),
+                          child: Icon(
+                            playing
+                                ? CupertinoIcons.pause_fill
+                                : CupertinoIcons.play_fill,
+                          ),
                         ),
-                        onTap: () => playGuarded(context,
-                            () => playing ? handler.pause() : handler.play()),
+                        onTap: () => playGuarded(
+                          context,
+                          () => playing ? handler.pause() : handler.play(),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       _GlassCircle(
                         icon: const Icon(CupertinoIcons.forward_end_fill),
-                        onTap: () => playGuarded(
-                            context, () => handler.skipToNext()),
+                        onTap: () =>
+                            playGuarded(context, () => handler.skipToNext()),
                       ),
                     ],
                   ),
@@ -207,16 +221,19 @@ class _MarqueeState extends State<_Marquee> {
       if (!_scroller.hasClients) return;
       final max = _scroller.position.maxScrollExtent;
       if (max <= 0) return;
-      await _scroller.animateTo(max,
-          duration:
-              Duration(milliseconds: (max * 15).clamp(1500, 6000).toInt()),
-          curve: Curves.easeInOut);
+      await _scroller.animateTo(
+        max,
+        duration: Duration(milliseconds: (max * 15).clamp(1500, 6000).toInt()),
+        curve: Curves.easeInOut,
+      );
       if (!mounted || gen != _gen) return;
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted || gen != _gen) return;
-      await _scroller.animateTo(0,
-          duration: const Duration(milliseconds: 800),
-          curve: Curves.easeInOut);
+      await _scroller.animateTo(
+        0,
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeInOut,
+      );
       cycles++;
       await Future.delayed(const Duration(seconds: 2));
     }
@@ -232,10 +249,12 @@ class _MarqueeState extends State<_Marquee> {
   @override
   Widget build(BuildContext context) {
     if (Motion.reduced(context)) {
-      return Text(widget.text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: widget.style);
+      return Text(
+        widget.text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: widget.style,
+      );
     }
     return SingleChildScrollView(
       controller: _scroller,

@@ -31,8 +31,8 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
     if (song == null) return const SizedBox.shrink();
     final docAsync = ref.watch(lyricsDocProvider(song.id));
     return docAsync.when(
-      loading: () => const Center(
-          child: CircularProgressIndicator(color: archPink)),
+      loading: () =>
+          const Center(child: CircularProgressIndicator(color: archPink)),
       error: (_, _) => _note(context, 'Lyrics unavailable right now.'),
       data: (doc) {
         if (doc.instrumental && !doc.hasSynced && !doc.hasPlain) {
@@ -58,10 +58,15 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(32, 12, 32, 24),
-                  child: Text(doc.plain!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          color: ink, fontSize: 16, height: 1.8)),
+                  child: Text(
+                    doc.plain!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: ink,
+                      fontSize: 16,
+                      height: 1.8,
+                    ),
+                  ),
                 ),
               ),
               _sourceLine(doc),
@@ -82,8 +87,7 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
     if (label.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Text(label,
-          style: const TextStyle(color: inkDim, fontSize: 11)),
+      child: Text(label, style: const TextStyle(color: inkDim, fontSize: 11)),
     );
   }
 
@@ -91,9 +95,11 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 48),
-        child: Text(text,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: inkDim, fontSize: 14)),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: inkDim, fontSize: 14),
+        ),
       ),
     );
   }

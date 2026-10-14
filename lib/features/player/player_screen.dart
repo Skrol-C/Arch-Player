@@ -46,21 +46,30 @@ class PlayerScreen extends ConsumerWidget {
               children: [
                 const Icon(CupertinoIcons.music_note, color: inkDim, size: 64),
                 const SizedBox(height: 12),
-                const Text('Nothing playing',
-                    style: TextStyle(
-                        color: ink,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700)),
+                const Text(
+                  'Nothing playing',
+                  style: TextStyle(
+                    color: ink,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                const Text('Pick a song from the library',
-                    style: TextStyle(color: inkDim)),
+                const Text(
+                  'Pick a song from the library',
+                  style: TextStyle(color: inkDim),
+                ),
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: () =>
                       ref.read(playerOpenProvider.notifier).state = false,
-                  child: const Text('Back to library',
-                      style: TextStyle(
-                          color: archPink, fontWeight: FontWeight.w600)),
+                  child: const Text(
+                    'Back to library',
+                    style: TextStyle(
+                      color: archPink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -73,8 +82,9 @@ class PlayerScreen extends ConsumerWidget {
     final palette = ref.watch(playerPaletteProvider).value;
     final wash = playerWashOf(palette);
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark
-          .copyWith(statusBarColor: Colors.transparent),
+      value: SystemUiOverlayStyle.dark.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: paper,
         body: AnimatedContainer(
@@ -87,9 +97,13 @@ class PlayerScreen extends ConsumerWidget {
             child: _ImmersionScope(
               child: Column(
                 children: [
-                  _Immersed(child: _DismissDrag(child: _TopBar(
-                    onMore: () => _openPlayerMenu(ref, context, song),
-                  ))),
+                  _Immersed(
+                    child: _DismissDrag(
+                      child: _TopBar(
+                        onMore: () => _openPlayerMenu(ref, context, song),
+                      ),
+                    ),
+                  ),
                   Expanded(child: _Stage(song: song)),
                   _Immersed(child: _Scrub(song: song)),
                   const _Immersed(child: _Transport()),
@@ -119,8 +133,7 @@ class _Stage extends ConsumerWidget {
     final panel = ref.watch(playerPanelProvider);
     final compact = panel != PlayerPanel.none;
     final playing = ref.watch(playingProvider).value ?? false;
-    final artSize =
-        math.min(MediaQuery.widthOf(context) - 64, 360.0);
+    final artSize = math.min(MediaQuery.widthOf(context) - 64, 360.0);
     // Hoisted layers: built once per build and reused as identical
     // instances on every animation tick, so ticks only recompute the
     // cheap wrappers (opacity/offset/scale) and never reconcile the
@@ -147,9 +160,7 @@ class _Stage extends ConsumerWidget {
                 opacity: t,
                 child: Transform.translate(
                   offset: Offset(0, -16 * (1 - t)),
-                  child: t < 0.02
-                      ? const SizedBox.shrink()
-                      : headerLayer,
+                  child: t < 0.02 ? const SizedBox.shrink() : headerLayer,
                 ),
               ),
             ),
@@ -158,9 +169,7 @@ class _Stage extends ConsumerWidget {
               top: 104,
               child: Opacity(
                 opacity: t,
-                child: t < 0.02
-                    ? const SizedBox.shrink()
-                    : panelLayer,
+                child: t < 0.02 ? const SizedBox.shrink() : panelLayer,
               ),
             ),
             // Full cover: art + titles, settling out as the panel lands.
@@ -168,9 +177,7 @@ class _Stage extends ConsumerWidget {
               opacity: 1 - t,
               child: Transform.scale(
                 scale: (1 - 0.08 * t) * (playing ? 1.0 : 0.94),
-                child: t > 0.98
-                    ? const SizedBox.shrink()
-                    : heroLayer,
+                child: t > 0.98 ? const SizedBox.shrink() : heroLayer,
               ),
             ),
           ],
@@ -192,9 +199,7 @@ class _PanelStack extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lyrics = panel == PlayerPanel.lyrics;
-    final fade = Motion.reduced(context)
-        ? Duration.zero
-        : Motion.stateChange;
+    final fade = Motion.reduced(context) ? Duration.zero : Motion.stateChange;
     return Offstage(
       offstage: panel == PlayerPanel.none,
       child: Stack(
@@ -204,10 +209,7 @@ class _PanelStack extends StatelessWidget {
             opacity: lyrics ? 1.0 : 0.0,
             duration: fade,
             curve: Curves.easeOut,
-            child: IgnorePointer(
-              ignoring: !lyrics,
-              child: const LyricsSlot(),
-            ),
+            child: IgnorePointer(ignoring: !lyrics, child: const LyricsSlot()),
           ),
           AnimatedOpacity(
             opacity: lyrics ? 0.0 : 1.0,
@@ -255,8 +257,11 @@ class _CompactHeader extends ConsumerWidget {
                         color: paperRaised,
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: const Icon(CupertinoIcons.music_note,
-                          color: inkDim, size: 32),
+                      child: const Icon(
+                        CupertinoIcons.music_note,
+                        color: inkDim,
+                        size: 32,
+                      ),
                     ),
             ),
           ),
@@ -266,16 +271,21 @@ class _CompactHeader extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w700)),
-                Text(song.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        const TextStyle(color: inkDim, fontSize: 13)),
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: inkDim, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -329,8 +339,7 @@ class _ImmersionScopeState extends ConsumerState<_ImmersionScope> {
   @override
   Widget build(BuildContext context) {
     final panel = ref.watch(playerPanelProvider);
-    if (panel != PlayerPanel.lyrics &&
-        ref.read(immersionProvider)) {
+    if (panel != PlayerPanel.lyrics && ref.read(immersionProvider)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ref.read(immersionProvider.notifier).state = false;
@@ -340,8 +349,7 @@ class _ImmersionScopeState extends ConsumerState<_ImmersionScope> {
     // Arm on arrival: mount + panel switches both build here.
     // Taps re-arm via poke; the active timer is never restarted
     // under itself.
-    if (panel == PlayerPanel.lyrics &&
-        (_timer == null || !_timer!.isActive)) {
+    if (panel == PlayerPanel.lyrics && (_timer == null || !_timer!.isActive)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _arm());
     }
     return Listener(
@@ -481,7 +489,9 @@ class _DragHeroState extends ConsumerState<_DragHero>
   void initState() {
     super.initState();
     _snap = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 260));
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
     _snap.addListener(() {
       if (mounted && _returning != null) {
         setState(() => _dragY = _returning!.value);
@@ -496,19 +506,19 @@ class _DragHeroState extends ConsumerState<_DragHero>
   }
 
   void _springBack() {
-    _returning = Tween(begin: _dragY, end: 0.0).animate(
-        CurvedAnimation(parent: _snap, curve: Curves.easeOutBack));
+    _returning = Tween(
+      begin: _dragY,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _snap, curve: Curves.easeOutBack));
     _snap.forward(from: 0);
   }
 
-  bool get _panelUp =>
-      ref.read(playerPanelProvider) != PlayerPanel.none;
+  bool get _panelUp => ref.read(playerPanelProvider) != PlayerPanel.none;
 
   @override
   Widget build(BuildContext context) {
     final song = widget.song;
-    final isPreview =
-        song.folderKey == 'preview' || song.id < 0;
+    final isPreview = song.folderKey == 'preview' || song.id < 0;
     return GestureDetector(
       onVerticalDragUpdate: (d) {
         if (Motion.reduced(context) || _panelUp) return;
@@ -551,11 +561,11 @@ class _DragHeroState extends ConsumerState<_DragHero>
       },
       child: Transform.translate(
         offset: Offset(0, _dragY),
-          child: Opacity(
-            opacity: (1 - _dragY / 500).clamp(0.0, 1.0),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Column(
+        child: Opacity(
+          opacity: (1 - _dragY / 500).clamp(0.0, 1.0),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Column(
               // Bottom-packed: art + titles ground above the scrub
               // instead of floating centered, so the whole cluster
               // rises as one body. Empty wash collects up top.
@@ -564,147 +574,172 @@ class _DragHeroState extends ConsumerState<_DragHero>
               mainAxisSize: MainAxisSize.max,
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-              // Art floats above the titles on its own: one constant,
-              // titles stay grounded. Nests inside the drag-follow
-              // above, unaffected by it.
-              Transform.translate(
-                offset: const Offset(0, -20),
-                child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 450),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                // Directional handoff: incoming art slides in from the
-                // swipe side; programmatic changes fade-settle in place.
-                transitionBuilder: (child, anim) {
-                  if (Motion.reduced(context)) {
-                    return FadeTransition(opacity: anim, child: child);
-                  }
-                  return FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                        position: anim.drive(Tween(
-                                begin: Offset(0.35 * _swipeDir, 0.04),
-                                end: Offset.zero)
-                            .chain(CurveTween(curve: Motion.arrival))),
-                        child: ScaleTransition(
-                            scale: anim.drive(Tween(begin: 0.96, end: 1.0)
-                                .chain(CurveTween(curve: Motion.arrival))),
-                            child: child)),
-                  );
-                },
-                child: Container(
-                  key: ValueKey(song.albumId),
-                  width: widget.artSize,
-                  height: widget.artSize,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: const [
-                      BoxShadow(
-                          color: Color(0x1A000000),
-                          blurRadius: 32,
-                          offset: Offset(0, 12)),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
-                    child: song.albumId > 0
-                        ? AlbumArt(
-                            albumId: song.albumId,
-                            fill: true,
-                            radius: 0,
-                            detail: true)
-                        : Container(
-                            color: paperRaised,
-                            child: const Icon(CupertinoIcons.music_note,
-                                color: inkDim, size: 96),
+                // Art floats above the titles on its own: one constant,
+                // titles stay grounded. Nests inside the drag-follow
+                // above, unaffected by it.
+                Transform.translate(
+                  offset: const Offset(0, -20),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 450),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    // Directional handoff: incoming art slides in from the
+                    // swipe side; programmatic changes fade-settle in place.
+                    transitionBuilder: (child, anim) {
+                      if (Motion.reduced(context)) {
+                        return FadeTransition(opacity: anim, child: child);
+                      }
+                      return FadeTransition(
+                        opacity: anim,
+                        child: SlideTransition(
+                          position: anim.drive(
+                            Tween(
+                              begin: Offset(0.35 * _swipeDir, 0.04),
+                              end: Offset.zero,
+                            ).chain(CurveTween(curve: Motion.arrival)),
                           ),
+                          child: ScaleTransition(
+                            scale: anim.drive(
+                              Tween(
+                                begin: 0.96,
+                                end: 1.0,
+                              ).chain(CurveTween(curve: Motion.arrival)),
+                            ),
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      key: ValueKey(song.albumId),
+                      width: widget.artSize,
+                      height: widget.artSize,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x1A000000),
+                            blurRadius: 32,
+                            offset: Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: song.albumId > 0
+                            ? AlbumArt(
+                                albumId: song.albumId,
+                                fill: true,
+                                radius: 0,
+                                detail: true,
+                              )
+                            : Container(
+                                color: paperRaised,
+                                child: const Icon(
+                                  CupertinoIcons.music_note,
+                                  color: inkDim,
+                                  size: 96,
+                                ),
+                              ),
+                      ),
+                    ),
                   ),
                 ),
-                ),
-                ),
-              const SizedBox(height: 16),
-              if (isPreview)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                        color: archPink.withValues(alpha: 0.6)),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text('PREVIEW - 30s',
+                const SizedBox(height: 16),
+                if (isPreview)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: archPink.withValues(alpha: 0.6),
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'PREVIEW - 30s',
                       style: TextStyle(
-                          color: archPink,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700)),
-                ),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, anim) {
-                  if (Motion.reduced(context)) {
-                    return FadeTransition(opacity: anim, child: child);
-                  }
-                  return FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                        position: anim.drive(Tween(
-                                begin: Offset(
-                                    0.25 * _swipeDir, 0.15),
-                                end: Offset.zero)
-                            .chain(CurveTween(curve: Motion.arrival))),
-                        child: child),
-                  );
-                },
-                child: GestureDetector(
-                  key: ValueKey(song.id),
-                  onTap: () => showTrackNavMenu(ref, context, song),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(song.title,
+                        color: archPink,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 350),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, anim) {
+                    if (Motion.reduced(context)) {
+                      return FadeTransition(opacity: anim, child: child);
+                    }
+                    return FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: anim.drive(
+                          Tween(
+                            begin: Offset(0.25 * _swipeDir, 0.15),
+                            end: Offset.zero,
+                          ).chain(CurveTween(curve: Motion.arrival)),
+                        ),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: GestureDetector(
+                    key: ValueKey(song.id),
+                    onTap: () => showTrackNavMenu(ref, context, song),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            song.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                fontFamily:
-                                    artistVoiceOf(song.artist),
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: voiceSpacing(
-                                    artistVoiceOf(song.artist)))),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(song.artist,
+                              fontFamily: artistVoiceOf(song.artist),
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: voiceSpacing(
+                                artistVoiceOf(song.artist),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  song.artist,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                      color: inkDim)),
-                            ),
-                            const SizedBox(width: 8),
-                            FormatChip(path: song.path),
-                          ],
+                                  style: const TextStyle(color: inkDim),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              FormatChip(path: song.path),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 }
@@ -741,8 +776,10 @@ class _ScrubState extends ConsumerState<_Scrub> {
     final totalMs = song.duration.inMilliseconds;
     final max = (totalMs > 0 ? totalMs : 1).toDouble();
     final position = ref.watch(positionProvider).value ?? Duration.zero;
-    final shownMs =
-        (_dragMs ?? position.inMilliseconds.toDouble()).clamp(0.0, max);
+    final shownMs = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
+      0.0,
+      max,
+    );
     final remainingMs = (totalMs - shownMs.toInt()).clamp(0, totalMs);
     final handler = ref.read(audioHandlerProvider);
     final dragging = _dragMs != null;
@@ -760,11 +797,12 @@ class _ScrubState extends ConsumerState<_Scrub> {
               child: dragging
                   ? Center(
                       child: Text(
-                          fmtDuration(Duration(
-                              milliseconds: shownMs.toInt())),
-                          style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700)),
+                        fmtDuration(Duration(milliseconds: shownMs.toInt())),
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     )
                   : null,
             ),
@@ -778,16 +816,14 @@ class _ScrubState extends ConsumerState<_Scrub> {
           LayoutBuilder(
             builder: (context, constraints) {
               final w = constraints.maxWidth;
-              final frac =
-                  max > 0 ? (shownMs / max).clamp(0.0, 1.0) : 0.0;
+              final frac = max > 0 ? (shownMs / max).clamp(0.0, 1.0) : 0.0;
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onHorizontalDragStart: (d) {
                   _anchorMs = shownMs;
                   _anchorGlobal = d.globalPosition;
                   _anchorWidth = w;
-                  setState(
-                      () => _dragMs = shownMs.clamp(0.0, max));
+                  setState(() => _dragMs = shownMs.clamp(0.0, max));
                 },
                 onHorizontalDragUpdate: (d) {
                   final anchor = _anchorMs;
@@ -795,15 +831,11 @@ class _ScrubState extends ConsumerState<_Scrub> {
                   if (anchor == null || origin == null) return;
                   final dx = d.globalPosition.dx - origin.dx;
                   final dyDown = d.globalPosition.dy - origin.dy;
-                  final ms = (anchor +
-                          dx /
-                              _anchorWidth *
-                              max *
-                              _sensitivity(dyDown))
-                      .clamp(0.0, max);
+                  final ms =
+                      (anchor + dx / _anchorWidth * max * _sensitivity(dyDown))
+                          .clamp(0.0, max);
                   // Deadband: sub-0.2% tremble never moves the fill.
-                  if ((ms - (_dragMs ?? anchor)).abs() <
-                      max * 0.002) {
+                  if ((ms - (_dragMs ?? anchor)).abs() < max * 0.002) {
                     return;
                   }
                   setState(() => _dragMs = ms);
@@ -814,8 +846,10 @@ class _ScrubState extends ConsumerState<_Scrub> {
                   _anchorGlobal = null;
                   setState(() => _dragMs = null);
                   if (v == null) return;
-                  playGuarded(context,
-                      () => handler.seek(Duration(milliseconds: v.toInt())));
+                  playGuarded(
+                    context,
+                    () => handler.seek(Duration(milliseconds: v.toInt())),
+                  );
                   LyricsSlot.jumpToActive(ref);
                 },
                 onHorizontalDragCancel: () {
@@ -842,8 +876,9 @@ class _ScrubState extends ConsumerState<_Scrub> {
                           borderRadius: BorderRadius.circular(5),
                           child: Container(
                             height: dragging ? 10 : 5,
-                            color: Colors.white
-                                .withValues(alpha: dragging ? 0.35 : 0.22),
+                            color: Colors.white.withValues(
+                              alpha: dragging ? 0.35 : 0.22,
+                            ),
                             child: FractionallySizedBox(
                               alignment: Alignment.centerLeft,
                               widthFactor: frac,
@@ -861,10 +896,14 @@ class _ScrubState extends ConsumerState<_Scrub> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(fmtDuration(Duration(milliseconds: shownMs.toInt())),
-                  style: const TextStyle(color: inkDim, fontSize: 12)),
-              Text('-${fmtDuration(Duration(milliseconds: remainingMs))}',
-                  style: const TextStyle(color: inkDim, fontSize: 12)),
+              Text(
+                fmtDuration(Duration(milliseconds: shownMs.toInt())),
+                style: const TextStyle(color: inkDim, fontSize: 12),
+              ),
+              Text(
+                '-${fmtDuration(Duration(milliseconds: remainingMs))}',
+                style: const TextStyle(color: inkDim, fontSize: 12),
+              ),
             ],
           ),
         ],
@@ -910,8 +949,7 @@ class _Transport extends ConsumerWidget {
             color: ink,
             onPressed: loading
                 ? null
-                : () =>
-                    playGuarded(context, () => handler.skipToPrevious()),
+                : () => playGuarded(context, () => handler.skipToPrevious()),
             icon: const Icon(CupertinoIcons.backward_end_fill),
           ),
           IconButton(
@@ -919,13 +957,15 @@ class _Transport extends ConsumerWidget {
             color: archPink,
             onPressed: loading
                 ? null
-                : () => playGuarded(context,
-                    () => playing ? handler.pause() : handler.play()),
+                : () => playGuarded(
+                    context,
+                    () => playing ? handler.pause() : handler.play(),
+                  ),
             icon: MorphIcon(
               iconKey: playing,
-              child: Icon(playing
-                  ? CupertinoIcons.pause_fill
-                  : CupertinoIcons.play_fill),
+              child: Icon(
+                playing ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
+              ),
             ),
           ),
           IconButton(
@@ -946,9 +986,11 @@ class _Transport extends ConsumerWidget {
             },
             icon: MorphIcon(
               iconKey: loop,
-              child: Icon(loop == LoopMode.one
-                  ? CupertinoIcons.repeat_1
-                  : CupertinoIcons.repeat),
+              child: Icon(
+                loop == LoopMode.one
+                    ? CupertinoIcons.repeat_1
+                    : CupertinoIcons.repeat,
+              ),
             ),
           ),
         ],
@@ -966,8 +1008,9 @@ class _UtilityRow extends ConsumerWidget {
 
   void _togglePanel(WidgetRef ref, PlayerPanel panel) {
     final current = ref.read(playerPanelProvider);
-    ref.read(playerPanelProvider.notifier).state =
-        current == panel ? PlayerPanel.none : panel;
+    ref.read(playerPanelProvider.notifier).state = current == panel
+        ? PlayerPanel.none
+        : panel;
     if (current != panel && panel == PlayerPanel.lyrics) {
       LyricsSlot.jumpToActive(ref);
     }
@@ -1011,11 +1054,12 @@ class _GlassAction extends StatelessWidget {
   final VoidCallback? onTap;
   final bool selected;
 
-  const _GlassAction(
-      {required this.icon,
-      required this.tooltip,
-      required this.onTap,
-      this.selected = false});
+  const _GlassAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.selected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1068,15 +1112,18 @@ class _QueuePanel extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 4, 16, 4),
           child: Row(
             children: [
-              Text('Up Next',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                'Up Next',
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const Spacer(),
               _PanelModeBtn(
-                icon: Icon(CupertinoIcons.infinite,
-                    size: 20, color: inkDim.withValues(alpha: 0.4)),
+                icon: Icon(
+                  CupertinoIcons.infinite,
+                  size: 20,
+                  color: inkDim.withValues(alpha: 0.4),
+                ),
                 tooltip: 'Autoplay',
                 active: false,
                 dimmed: true,
@@ -1084,8 +1131,8 @@ class _QueuePanel extends ConsumerWidget {
                   HapticFeedback.selectionClick();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                        content:
-                            Text('Autoplay arrives with harmonic flow')),
+                      content: Text('Autoplay arrives with harmonic flow'),
+                    ),
                   );
                 },
               ),
@@ -1093,9 +1140,11 @@ class _QueuePanel extends ConsumerWidget {
               _PanelModeBtn(
                 icon: MorphIcon(
                   iconKey: loop,
-                  child: Icon(loop == LoopMode.one
-                      ? CupertinoIcons.repeat_1
-                      : CupertinoIcons.repeat),
+                  child: Icon(
+                    loop == LoopMode.one
+                        ? CupertinoIcons.repeat_1
+                        : CupertinoIcons.repeat,
+                  ),
                 ),
                 tooltip: 'Repeat',
                 active: loop != LoopMode.off,
@@ -1130,13 +1179,19 @@ class _QueuePanel extends ConsumerWidget {
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(CupertinoIcons.shuffle_medium,
-                            color: archPink, size: 18),
+                        Icon(
+                          CupertinoIcons.shuffle_medium,
+                          color: archPink,
+                          size: 18,
+                        ),
                         SizedBox(width: 8),
-                        Text('Shuffle Library',
-                            style: TextStyle(
-                                color: archPink,
-                                fontWeight: FontWeight.w700)),
+                        Text(
+                          'Shuffle Library',
+                          style: TextStyle(
+                            color: archPink,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1147,12 +1202,15 @@ class _QueuePanel extends ConsumerWidget {
                     ? null
                     : () {
                         HapticFeedback.selectionClick();
-                        playGuarded(
-                            context, () => handler.clearQueue());
+                        playGuarded(context, () => handler.clearQueue());
                       },
-                child: const Text('Clear',
-                    style: TextStyle(
-                        color: archPink, fontWeight: FontWeight.w600)),
+                child: const Text(
+                  'Clear',
+                  style: TextStyle(
+                    color: archPink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1160,16 +1218,20 @@ class _QueuePanel extends ConsumerWidget {
         Expanded(
           child: queue.isEmpty
               ? const Center(
-                  child: Text('Queue is empty - play something.',
-                      style: TextStyle(color: inkDim)),
+                  child: Text(
+                    'Queue is empty - play something.',
+                    style: TextStyle(color: inkDim),
+                  ),
                 )
               : ReorderableListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
                   itemCount: queue.length,
                   onReorderItem: (oldIndex, newIndex) {
                     HapticFeedback.selectionClick();
-                    playGuarded(context, () =>
-                        handler.moveQueueIndex(oldIndex, newIndex));
+                    playGuarded(
+                      context,
+                      () => handler.moveQueueIndex(oldIndex, newIndex),
+                    );
                   },
                   proxyDecorator: (child, _, _) => Material(
                     elevation: 4,
@@ -1188,52 +1250,67 @@ class _QueuePanel extends ConsumerWidget {
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.only(right: 24),
                         color: archPink.withValues(alpha: 0.12),
-                        child: const Icon(CupertinoIcons.trash,
-                            color: archPink),
+                        child: const Icon(
+                          CupertinoIcons.trash,
+                          color: archPink,
+                        ),
                       ),
-                      onDismissed: (_) => playGuarded(context,
-                          () => handler.removeQueueIndex(i)),
+                      onDismissed: (_) => playGuarded(
+                        context,
+                        () => handler.removeQueueIndex(i),
+                      ),
                       child: ListTile(
                         selected: current,
-                        selectedTileColor:
-                            archPink.withValues(alpha: 0.1),
-                        contentPadding:
-                            const EdgeInsets.only(left: 16, right: 4),
-                        onTap: () => playGuarded(context,
-                            () => handler.playSong(song, queue)),
+                        selectedTileColor: archPink.withValues(alpha: 0.1),
+                        contentPadding: const EdgeInsets.only(
+                          left: 16,
+                          right: 4,
+                        ),
+                        onTap: () => playGuarded(
+                          context,
+                          () => handler.playSong(song, queue),
+                        ),
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: SizedBox.square(
                             dimension: 44,
                             child: song.albumId > 0
-                                ? AlbumArt(
-                                    albumId: song.albumId, radius: 8)
+                                ? AlbumArt(albumId: song.albumId, radius: 8)
                                 : Container(
                                     color: paperRaised,
-                                    child: const Icon(CupertinoIcons.music_note,
-                                        color: inkDim, size: 22),
+                                    child: const Icon(
+                                      CupertinoIcons.music_note,
+                                      color: inkDim,
+                                      size: 22,
+                                    ),
                                   ),
                           ),
                         ),
-                        title: Text(song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontWeight: current
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: current ? archPink : ink)),
-                        subtitle: Text(song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: inkDim, fontSize: 13)),
+                        title: Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: current
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: current ? archPink : ink,
+                          ),
+                        ),
+                        subtitle: Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: inkDim, fontSize: 13),
+                        ),
                         trailing: ReorderableDragStartListener(
                           index: i,
                           child: const Padding(
                             padding: EdgeInsets.all(8),
-                            child: Icon(CupertinoIcons.line_horizontal_3,
-                                color: inkDim),
+                            child: Icon(
+                              CupertinoIcons.line_horizontal_3,
+                              color: inkDim,
+                            ),
                           ),
                         ),
                       ),
@@ -1249,9 +1326,8 @@ class _QueuePanel extends ConsumerWidget {
     final songs = ref.read(songsProvider).value ?? [];
     if (songs.isEmpty) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Library is empty')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Library is empty')));
       }
       return;
     }
@@ -1261,7 +1337,10 @@ class _QueuePanel extends ConsumerWidget {
     await handler.setShuffleEnabled(true);
     if (!context.mounted) return;
     await playAndOpen(
-        ref, context, () => handler.playSong(shuffled.first, shuffled));
+      ref,
+      context,
+      () => handler.playSong(shuffled.first, shuffled),
+    );
   }
 }
 
@@ -1291,20 +1370,19 @@ class _PanelModeBtn extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: active
-              ? archPink.withValues(alpha: 0.14)
-              : paperRaised,
+          color: active ? archPink.withValues(alpha: 0.14) : paperRaised,
           shape: BoxShape.circle,
         ),
         child: Center(
           child: IconTheme(
             data: IconThemeData(
-                size: 20,
-                color: active
-                    ? archPink
-                    : dimmed
-                        ? inkDim.withValues(alpha: 0.4)
-                        : inkDim),
+              size: 20,
+              color: active
+                  ? archPink
+                  : dimmed
+                  ? inkDim.withValues(alpha: 0.4)
+                  : inkDim,
+            ),
             child: icon,
           ),
         ),
@@ -1338,13 +1416,14 @@ class _SleepSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sleep timer',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text('Sleep timer', style: Theme.of(context).textTheme.titleLarge),
             if (sleep != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(sleepLabel(sleep),
-                    style: const TextStyle(color: archPink)),
+                child: Text(
+                  sleepLabel(sleep),
+                  style: const TextStyle(color: archPink),
+                ),
               ),
             const SizedBox(height: 12),
             for (var i = 0; i < _options.length; i++)
@@ -1369,8 +1448,11 @@ class _SleepOption extends StatelessWidget {
   final Duration? sleep;
   final ArchAudioHandler handler;
 
-  const _SleepOption(
-      {required this.d, required this.sleep, required this.handler});
+  const _SleepOption({
+    required this.d,
+    required this.sleep,
+    required this.handler,
+  });
 
   static String _label(Duration? d) {
     if (d == null) return 'Off';
@@ -1383,15 +1465,17 @@ class _SleepOption extends StatelessWidget {
     // Locals: promotion doesn't narrow fields, so copy first.
     final armed = sleep;
     final option = d;
-    final selected = (armed == null && option == null) ||
+    final selected =
+        (armed == null && option == null) ||
         (armed != null &&
             option != null &&
             (armed - option).abs() < const Duration(minutes: 1));
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(_label(d),
-          style:
-              const TextStyle(color: ink, fontWeight: FontWeight.w600)),
+      title: Text(
+        _label(d),
+        style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
+      ),
       trailing: selected
           ? const Icon(CupertinoIcons.checkmark, color: archPink)
           : null,
@@ -1412,14 +1496,21 @@ class _SleepOption extends StatelessWidget {
 /// Player menu: Share quick, Go to Album/Artist, Sleep, Details.
 /// Same rows as the song menu, plus the live sleep subtitle.
 Future<void> _openPlayerMenu(
-    WidgetRef ref, BuildContext context, Song song) async {
+  WidgetRef ref,
+  BuildContext context,
+  Song song,
+) async {
   final album = ownedAlbumFor(ref, song);
   final sleep = ref.read(sleepProvider).value;
   final value = await showTrackMenu(
     context: context,
-      quick: const [
-        MenuAction(icon: CupertinoIcons.square_arrow_up, label: 'Share', value: 'share'),
-      ],
+    quick: const [
+      MenuAction(
+        icon: CupertinoIcons.square_arrow_up,
+        label: 'Share',
+        value: 'share',
+      ),
+    ],
     groups: [
       [
         if (album != null)
@@ -1456,17 +1547,17 @@ Future<void> _openPlayerMenu(
   switch (value) {
     case 'album':
       if (album != null) {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => AlbumPage(album: album),
-        ));
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => AlbumPage(album: album)));
       }
       break;
     case 'artist':
       ArtistPage.openIfAbsent(context, song.artist);
       break;
     case 'share':
-      SharePlus.instance
-          .share(ShareParams(text: '${song.title} - ${song.artist}'));
+      SharePlus.instance.share(
+        ShareParams(text: '${song.title} - ${song.artist}'),
+      );
       break;
     case 'sleep':
       showModalBottomSheet(

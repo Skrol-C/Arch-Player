@@ -13,7 +13,8 @@ abstract final class Motion {
 
   /// True when the system asked for reduced motion: fades and state
   /// changes only. Springs become cuts, entrances become fades.
-  static bool reduced(BuildContext context) => MediaQuery.disableAnimationsOf(context);
+  static bool reduced(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context);
 
   /// Stagger budget for sibling reveals: capped so lists never cascade forever.
   static Duration stagger(int index, {int capMs = 300}) =>
@@ -31,7 +32,8 @@ class FocalEntrance extends StatefulWidget {
   State<FocalEntrance> createState() => _FocalEntranceState();
 }
 
-class _FocalEntranceState extends State<FocalEntrance> with SingleTickerProviderStateMixin {
+class _FocalEntranceState extends State<FocalEntrance>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c;
   late final Animation<double> _fade;
   late final Animation<Offset> _rise;
@@ -40,9 +42,14 @@ class _FocalEntranceState extends State<FocalEntrance> with SingleTickerProvider
   void initState() {
     super.initState();
     _c = AnimationController(vsync: this, duration: Motion.focal);
-    _fade = CurvedAnimation(parent: _c, curve: const Interval(0.0, 0.7, curve: Curves.easeOut));
-    _rise = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _c, curve: Motion.arrival));
+    _fade = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
+    );
+    _rise = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _c, curve: Motion.arrival));
     Future.delayed(Motion.stagger(widget.index), () {
       if (mounted) _c.forward();
     });

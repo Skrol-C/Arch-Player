@@ -113,6 +113,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.YEAR,
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         runCatching {
@@ -128,6 +129,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                 val durCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dataCol = c.getColumnIndex(MediaStore.Audio.Media.DATA)
                 val addedCol = c.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val yearCol = c.getColumnIndex(MediaStore.Audio.Media.YEAR)
                 while (c.moveToNext()) {
                     val id = c.getLong(idCol)
                     val data = if (dataCol >= 0) c.getString(dataCol).orEmpty() else ""
@@ -145,6 +147,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                             "folder" to folder,
                             "path" to data,
                             "addedSecs" to (if (addedCol >= 0) c.getLong(addedCol) else 0L),
+                            "year" to (if (yearCol >= 0) c.getInt(yearCol) else 0),
                         ),
                     )
                 }

@@ -16,14 +16,18 @@ class MorphIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration:
-          Motion.reduced(context) ? Duration.zero : Motion.stateChange,
+      duration: Motion.reduced(context) ? Duration.zero : Motion.stateChange,
       transitionBuilder: (child, animation) {
-        final scale = animation.drive(Tween(begin: 0.7, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOutBack)));
+        final scale = animation.drive(
+          Tween(
+            begin: 0.7,
+            end: 1.0,
+          ).chain(CurveTween(curve: Curves.easeOutBack)),
+        );
         return ScaleTransition(
-            scale: scale,
-            child: FadeTransition(opacity: animation, child: child));
+          scale: scale,
+          child: FadeTransition(opacity: animation, child: child),
+        );
       },
       child: KeyedSubtree(key: ValueKey(iconKey), child: child),
     );

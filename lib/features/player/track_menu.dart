@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -67,8 +68,10 @@ Future<String?> showTrackMenu({
   // to, no keyboard. The route scope below (no keyboard requests)
   // covers the other direction.
   FocusManager.instance.primaryFocus?.unfocus();
-  ArchLog.i('nav',
-      'menu open anchor=${target == null ? 'centered' : '${target.width.toStringAsFixed(0)}x${target.height.toStringAsFixed(0)}@${target.left.toStringAsFixed(0)},${target.top.toStringAsFixed(0)}'} focus=${FocusManager.instance.primaryFocus}');
+  ArchLog.i(
+    'nav',
+    'menu open anchor=${target == null ? 'centered' : '${target.width.toStringAsFixed(0)}x${target.height.toStringAsFixed(0)}@${target.left.toStringAsFixed(0)},${target.top.toStringAsFixed(0)}'} focus=${FocusManager.instance.primaryFocus}',
+  );
   return navigator.push<String>(
     RawDialogRoute<String>(
       barrierColor: Colors.black.withValues(alpha: 0.12),
@@ -94,15 +97,18 @@ Future<String?> showTrackMenu({
             // where the eye is busiest. Nothing swaps, so no swap
             // frame can flash.
             final t = animation.value;
-            final raw =
-                const Interval(0, 0.5, curve: Curves.easeOutCubic)
-                    .transform(t);
+            final raw = const Interval(
+              0,
+              0.5,
+              curve: Curves.easeOutCubic,
+            ).transform(t);
             final motion = raw;
             final glide = Curves.easeOutCubic.transform(raw);
             final morphRaw = ((t - 0.12) / 0.88).clamp(0.0, 1.0);
-            final morph =
-                (morphRaw * morphRaw * (3 - 2 * morphRaw))
-                    .clamp(0.0, 1.0);
+            final morph = (morphRaw * morphRaw * (3 - 2 * morphRaw)).clamp(
+              0.0,
+              1.0,
+            );
             return FocusScope(
               // The menu takes no text: never let it (or a focus
               // reclaim across rapid reopen) summon the keyboard.
@@ -117,11 +123,12 @@ Future<String?> showTrackMenu({
                 ),
                 child: Transform.scale(
                   scale: 0.15 + 0.85 * glide,
-                    child: IgnorePointer(
-                      ignoring: motion < 1 ||
-                          animation.status == AnimationStatus.reverse,
-                      child: _MenuShell(morph: morph, child: child!),
-                    ),
+                  child: IgnorePointer(
+                    ignoring:
+                        motion < 1 ||
+                        animation.status == AnimationStatus.reverse,
+                    child: _MenuShell(morph: morph, child: child!),
+                  ),
                 ),
               ),
             );
@@ -156,8 +163,7 @@ class _MenuLayout extends SingleChildLayoutDelegate {
       0.0,
       constraints.maxHeight - padding.vertical - _margin * 2,
     );
-    return BoxConstraints(
-        minWidth: width, maxWidth: width, maxHeight: height);
+    return BoxConstraints(minWidth: width, maxWidth: width, maxHeight: height);
   }
 
   @override
@@ -165,29 +171,39 @@ class _MenuLayout extends SingleChildLayoutDelegate {
     final left = padding.left + _margin;
     final top = padding.top + _margin;
     final right = math.max(
-        left, size.width - padding.right - _margin - childSize.width);
+      left,
+      size.width - padding.right - _margin - childSize.width,
+    );
     final bottom = math.max(
-        top, size.height - padding.bottom - _margin - childSize.height);
+      top,
+      size.height - padding.bottom - _margin - childSize.height,
+    );
     Offset resting;
     if (anchor == null) {
-      resting = Offset((size.width - childSize.width) / 2,
-          size.height * 0.3 - childSize.height / 2);
+      resting = Offset(
+        (size.width - childSize.width) / 2,
+        size.height * 0.3 - childSize.height / 2,
+      );
     } else {
       final below = anchor!.bottom + 8;
       final above = anchor!.top - childSize.height - 8;
       final y = below <= bottom
           ? below
           : above >= top
-              ? above
-              : bottom;
+          ? above
+          : bottom;
       resting = Offset(
-          (anchor!.right - childSize.width).clamp(left, right),
-          y.clamp(top, bottom));
+        (anchor!.right - childSize.width).clamp(left, right),
+        y.clamp(top, bottom),
+      );
     }
     final origin = anchor?.center;
     if (origin == null) return resting;
     return Offset.lerp(
-        origin - childSize.center(Offset.zero), resting, progress)!;
+      origin - childSize.center(Offset.zero),
+      resting,
+      progress,
+    )!;
   }
 
   @override
@@ -250,26 +266,29 @@ class _MenuRows extends StatelessWidget {
             if (quick.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 4),
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     for (final a in quick)
                       CascadeIn(
-                          delayMs: (k++) * 30,
-                          child: _QuickChip(action: a)),
+                        delayMs: (k++) * 30,
+                        child: _QuickChip(action: a),
+                      ),
                   ],
                 ),
               ),
               const Divider(height: 12, indent: 16, endIndent: 16),
             ],
             for (var g = 0; g < groups.length; g++) ...[
-              if (g > 0)
-                const Divider(height: 8, indent: 16, endIndent: 16),
+              if (g > 0) const Divider(height: 8, indent: 16, endIndent: 16),
               for (final a in groups[g])
                 CascadeIn(
-                    delayMs: (k++) * 30,
-                    child: _MenuRow(action: a)),
+                  delayMs: (k++) * 30,
+                  child: _MenuRow(action: a),
+                ),
             ],
           ],
         ),
@@ -301,15 +320,21 @@ class _QuickChip extends StatelessWidget {
                   : paperRaised,
               shape: BoxShape.circle,
             ),
-            child: Icon(action.icon,
-                color: action.selected ? archPink : ink, size: 24),
+            child: Icon(
+              action.icon,
+              color: action.selected ? archPink : ink,
+              size: 24,
+            ),
           ),
           const SizedBox(height: 4),
-          Text(action.label,
-              style: TextStyle(
-                  color: action.selected ? archPink : ink,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600)),
+          Text(
+            action.label,
+            style: TextStyle(
+              color: action.selected ? archPink : ink,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -323,20 +348,23 @@ class _MenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
-      leading: Icon(action.icon,
-          color: action.selected ? archPink : inkDim),
-      title: Text(action.label,
-          style: TextStyle(
-              color: action.selected ? archPink : ink,
-              fontWeight: FontWeight.w600)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
+      leading: Icon(action.icon, color: action.selected ? archPink : inkDim),
+      title: Text(
+        action.label,
+        style: TextStyle(
+          color: action.selected ? archPink : ink,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       subtitle: action.subtitle == null
           ? null
-          : Text(action.subtitle!,
+          : Text(
+              action.subtitle!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13)),
+              style: const TextStyle(color: inkDim, fontSize: 13),
+            ),
       trailing: action.selected
           ? const Icon(CupertinoIcons.checkmark, color: archPink)
           : null,
@@ -348,13 +376,17 @@ class _MenuRow extends StatelessWidget {
   }
 }
 
-/// Owned-album lookup shared by every menu: exact artist+album key.
-/// Null = remote/preview - the row hides, never a fake page.
+/// Owned-album lookup shared by every menu: normalized title plus
+/// artist overlap (collaborations merged at grouping, so any shared
+/// name counts). Null = remote/preview - the row hides, never a
+/// fake page.
 Album? ownedAlbumFor(WidgetRef ref, Song song) {
-  final needle =
-      '${song.artist.toLowerCase()}\u0000${song.album.toLowerCase()}';
+  final title = normTitle(song.album);
   for (final a in ref.read(albumsProvider)) {
-    if (a.key.toLowerCase() == needle) return a;
+    if (normTitle(a.title) != title) continue;
+    if (a.songs.any((s) => artistsOverlap(s.artist, song.artist))) {
+      return a;
+    }
   }
   return null;
 }
@@ -370,7 +402,10 @@ String sleepLabel(Duration? d) {
 /// Shared song menu: Go to Album (owned only), Go to Artist, Share,
 /// Details. Handles routing internally; callers just open it.
 Future<void> showSongMenu(
-    WidgetRef ref, BuildContext context, Song song) async {
+  WidgetRef ref,
+  BuildContext context,
+  Song song,
+) async {
   final ownedAlbum = ownedAlbumFor(ref, song);
   final value = await showTrackMenu(
     context: context,
@@ -409,9 +444,9 @@ Future<void> showSongMenu(
   switch (value) {
     case 'album':
       if (ownedAlbum != null) {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => AlbumPage(album: ownedAlbum),
-        ));
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => AlbumPage(album: ownedAlbum)));
       }
       break;
     case 'artist':
@@ -419,7 +454,8 @@ Future<void> showSongMenu(
       break;
     case 'share':
       SharePlus.instance.share(
-          ShareParams(text: '${song.title} - ${song.artist}'));
+        ShareParams(text: '${song.title} - ${song.artist}'),
+      );
       break;
     case 'details':
       showModalBottomSheet(
@@ -433,7 +469,10 @@ Future<void> showSongMenu(
 /// Title/artist nav menu: Go to Artist always, Go to Album when owned.
 /// One tap, both destinations discoverable.
 Future<void> showTrackNavMenu(
-    WidgetRef ref, BuildContext context, Song song) async {
+  WidgetRef ref,
+  BuildContext context,
+  Song song,
+) async {
   final ownedAlbum = ownedAlbumFor(ref, song);
   final value = await showTrackMenu(
     context: context,
@@ -457,9 +496,8 @@ Future<void> showTrackNavMenu(
   );
   if (!context.mounted) return;
   if (value == 'album' && ownedAlbum != null) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => AlbumPage(album: ownedAlbum),
-    ));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => AlbumPage(album: ownedAlbum)));
   } else if (value == 'artist') {
     ArtistPage.openIfAbsent(context, song.artist);
   }
@@ -490,7 +528,8 @@ class TrackDetailsSheet extends StatelessWidget {
     String? added;
     if (song.addedSecs > 0) {
       final d = DateTime.fromMillisecondsSinceEpoch(song.addedSecs * 1000);
-      added = '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      added =
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-'
           '${d.day.toString().padLeft(2, '0')}';
     }
     final rows = <List<String>>[
@@ -510,11 +549,11 @@ class TrackDetailsSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Details',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(color: title)),
+            Text(
+              'Details',
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(color: title),
+            ),
             const SizedBox(height: 12),
             Flexible(
               child: SingleChildScrollView(
@@ -524,22 +563,25 @@ class TrackDetailsSheet extends StatelessWidget {
                       CascadeIn(
                         delayMs: i * 30,
                         child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 5),
+                          padding: const EdgeInsets.symmetric(vertical: 5),
                           child: Row(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               SizedBox(
                                 width: 88,
-                                child: Text(rows[i][0],
-                                    style: TextStyle(color: sub)),
+                                child: Text(
+                                  rows[i][0],
+                                  style: TextStyle(color: sub),
+                                ),
                               ),
                               Expanded(
-                                child: Text(rows[i][1],
-                                    style: TextStyle(
-                                        color: title,
-                                        fontWeight: FontWeight.w600)),
+                                child: Text(
+                                  rows[i][1],
+                                  style: TextStyle(
+                                    color: title,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ],
                           ),

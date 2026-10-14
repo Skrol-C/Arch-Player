@@ -27,6 +27,12 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // arm64-only: the Rust core (bindgen against NDK headers)
+        // targets one triple, so the app ships one ABI. Revisited
+        // before any public release; debug/dev stay fast meanwhile.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {

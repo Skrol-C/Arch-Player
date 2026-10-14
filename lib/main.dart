@@ -5,6 +5,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import 'core/log.dart';
 import 'core/theme.dart';
+import 'features/needle/needle_core.dart';
 import 'features/player/audio_handler.dart';
 import 'features/player/player_providers.dart';
 import 'features/setup/setup_gate.dart';
@@ -20,6 +21,9 @@ import 'features/shell/shell.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ArchLog.init();
+  // Needle core (Rust): best-effort at startup, never fatal. A dead
+  // bridge disables downloads, never playback - verified by ping.
+  await Needle.ensureReady();
   FlutterError.onError = (details) {
     ArchLog.e('flutter', details.exceptionAsString(), details.stack);
     FlutterError.presentError(details);
@@ -126,3 +130,8 @@ class _CrashCard extends StatelessWidget {
     );
   }
 }
+
+
+
+
+

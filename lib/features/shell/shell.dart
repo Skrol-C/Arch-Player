@@ -38,9 +38,15 @@ class Shell extends ConsumerWidget {
           fit: StackFit.expand,
           children: [
             switch (dest) {
-              Destination.library => const LibraryScreen(key: ValueKey('dest-library')),
-              Destination.needle => const NeedleTeaser(key: ValueKey('dest-needle')),
-              Destination.settings => const SettingsScreen(key: ValueKey('dest-settings')),
+              Destination.library => const LibraryScreen(
+                key: ValueKey('dest-library'),
+              ),
+              Destination.needle => const NeedleTeaser(
+                key: ValueKey('dest-needle'),
+              ),
+              Destination.settings => const SettingsScreen(
+                key: ValueKey('dest-settings'),
+              ),
             },
             const NowPlayingDock(),
             if (playerOpen) const PlayerScreen(),

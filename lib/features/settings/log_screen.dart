@@ -82,13 +82,19 @@ class _LogScreenState extends State<LogScreen> {
         future: _content,
         builder: (context, snap) {
           if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator(color: archPink));
+            return const Center(
+              child: CircularProgressIndicator(color: archPink),
+            );
           }
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: SelectableText(
               snap.data!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 11, height: 1.5),
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.5,
+              ),
             ),
           );
         },

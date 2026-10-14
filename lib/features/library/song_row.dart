@@ -24,13 +24,14 @@ class AlbumArt extends StatelessWidget {
   final bool fill;
   final bool detail;
 
-  const AlbumArt(
-      {super.key,
-      required this.albumId,
-      this.size = 52,
-      this.radius = 12,
-      this.fill = false,
-      this.detail = false});
+  const AlbumArt({
+    super.key,
+    required this.albumId,
+    this.size = 52,
+    this.radius = 12,
+    this.fill = false,
+    this.detail = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -42,12 +43,17 @@ class AlbumArt extends StatelessWidget {
           Container(color: paperRaised),
           FutureBuilder(
             future: ArtCache.of(
-                albumId, detail ? ArtBucket.large : ArtBucket.small),
+              albumId,
+              detail ? ArtBucket.large : ArtBucket.small,
+            ),
             builder: (context, snap) {
               final bytes = snap.data;
               if (bytes != null && bytes.isNotEmpty) {
-                return Image.memory(bytes,
-                    fit: BoxFit.cover, errorBuilder: (_, _, _) => const _DiscIcon());
+                return Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const _DiscIcon(),
+                );
               }
               return const _DiscIcon();
             },
@@ -77,8 +83,13 @@ class ReleaseCover extends StatelessWidget {
   final double size;
   final bool fill;
 
-  const ReleaseCover(
-      {super.key, required this.release, required this.owned, this.size = 118, this.fill = false});
+  const ReleaseCover({
+    super.key,
+    required this.release,
+    required this.owned,
+    this.size = 118,
+    this.fill = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +103,11 @@ class ReleaseCover extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: owned ? Border.all(color: archPink, width: 2) : null,
         boxShadow: const [
-          BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 4)),
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       child: ClipRRect(
@@ -101,10 +116,26 @@ class ReleaseCover extends StatelessWidget {
           colorFilter: owned
               ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
               : const ColorFilter.matrix(<double>[
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0, 0, 0, 0.55, 0,
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0.55,
+                  0,
                 ]),
           child: body,
         ),
@@ -129,7 +160,11 @@ class ReleaseCover extends StatelessWidget {
       child: Center(
         child: Text(
           release.title.isEmpty ? '?' : release.title[0].toUpperCase(),
-          style: const TextStyle(color: archPink, fontSize: 40, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: archPink,
+            fontSize: 40,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -167,7 +202,13 @@ class SongRow extends StatelessWidget {
   final bool isCurrent;
   final VoidCallback onTap;
 
-  const SongRow({super.key, required this.song, required this.art, required this.isCurrent, required this.onTap});
+  const SongRow({
+    super.key,
+    required this.song,
+    required this.art,
+    required this.isCurrent,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -175,15 +216,25 @@ class SongRow extends StatelessWidget {
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       leading: SizedBox(width: 52, height: 52, child: art),
-      title: Text(song.title,
-          maxLines: 1, style: TextStyle(color: isCurrent ? archPink : ink)),
-      subtitle: Text(song.artist, maxLines: 1, style: const TextStyle(color: inkDim)),
+      title: Text(
+        song.title,
+        maxLines: 1,
+        style: TextStyle(color: isCurrent ? archPink : ink),
+      ),
+      subtitle: Text(
+        song.artist,
+        maxLines: 1,
+        style: const TextStyle(color: inkDim),
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isCurrent) const NowBars(),
           const SizedBox(width: 8),
-          Text(fmtDuration(song.duration), style: const TextStyle(color: inkDim)),
+          Text(
+            fmtDuration(song.duration),
+            style: const TextStyle(color: inkDim),
+          ),
         ],
       ),
     );
@@ -204,8 +255,10 @@ class _NowBarsState extends State<NowBars> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
-      ..repeat(reverse: true);
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -226,7 +279,10 @@ class _NowBarsState extends State<NowBars> with SingleTickerProviderStateMixin {
               width: 3,
               height: 4 + 12 * (((_c.value + i * 0.33) % 1.0)),
               margin: const EdgeInsets.only(right: 2),
-              decoration: BoxDecoration(color: archPink, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                color: archPink,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
         ],
       ),

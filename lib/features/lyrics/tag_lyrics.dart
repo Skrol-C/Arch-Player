@@ -43,7 +43,10 @@ LyricDoc _readId3(String path) {
     final raf = file.openSync();
     try {
       final head = raf.readSync(10);
-      if (head.length < 10 || head[0] != 0x49 || head[1] != 0x44 || head[2] != 0x33) {
+      if (head.length < 10 ||
+          head[0] != 0x49 ||
+          head[1] != 0x44 ||
+          head[2] != 0x33) {
         return const LyricDoc(); // No ID3v2 tag.
       }
       final ver = head[3];
@@ -104,9 +107,9 @@ LyricDoc _parseTag(Uint8List tag, int ver, int flags) {
     final size = ver == 4
         ? _syncSafe(tag, pos + 4)
         : ((tag[pos + 4] << 24) |
-            (tag[pos + 5] << 16) |
-            (tag[pos + 6] << 8) |
-            tag[pos + 7]);
+              (tag[pos + 5] << 16) |
+              (tag[pos + 6] << 8) |
+              tag[pos + 7]);
     final frameFlags = (tag[pos + 8] << 8) | tag[pos + 9];
     final start = pos + 10;
     if (size <= 0 || start + size > tag.length) break;
@@ -154,14 +157,14 @@ String? _parseSylt(Uint8List data) {
         end++;
       }
     } else {
-      while (end + 1 < data.length &&
-          !(data[end] == 0 && data[end + 1] == 0)) {
+      while (end + 1 < data.length && !(data[end] == 0 && data[end + 1] == 0)) {
         end += 2;
       }
     }
     if (end + 4 >= data.length) break;
     final text = _decode(data.sublist(pos, end), enc)?.trim() ?? '';
-    final ms = (data[end] << 24) |
+    final ms =
+        (data[end] << 24) |
         (data[end + 1] << 16) |
         (data[end + 2] << 8) |
         data[end + 3];
@@ -205,8 +208,7 @@ int _skipTerminator(Uint8List data, int from, int enc) {
     }
     return from + 1;
   }
-  while (from + 1 < data.length &&
-      !(data[from] == 0 && data[from + 1] == 0)) {
+  while (from + 1 < data.length && !(data[from] == 0 && data[from + 1] == 0)) {
     from += 2;
   }
   return from + 2;
@@ -227,7 +229,8 @@ String? _decode(Uint8List data, int enc) {
   return null;
 }
 
-String _decodeUtf16(Uint8List data, bool bigEndian) {  var i = 0;
+String _decodeUtf16(Uint8List data, bool bigEndian) {
+  var i = 0;
   var be = bigEndian;
   if (data.length >= 2) {
     if (data[0] == 0xFE && data[1] == 0xFF) {
@@ -242,7 +245,9 @@ String _decodeUtf16(Uint8List data, bool bigEndian) {  var i = 0;
   // Collect units, then fold surrogate pairs.
   final codeUnits = <int>[];
   for (; i + 1 < data.length; i += 2) {
-    codeUnits.add(be ? (data[i] << 8) | data[i + 1] : data[i] | (data[i + 1] << 8));
+    codeUnits.add(
+      be ? (data[i] << 8) | data[i + 1] : data[i] | (data[i + 1] << 8),
+    );
   }
   for (var j = 0; j < codeUnits.length; j++) {
     final u = codeUnits[j];
@@ -337,12 +342,14 @@ LyricDoc _readOggComment(String path) {
       }
       if (packets.isEmpty) return const LyricDoc();
       final p0 = packets[0];
-      final isOpus = p0.length >= 8 &&
+      final isOpus =
+          p0.length >= 8 &&
           p0[0] == 0x4F &&
           p0[1] == 0x70 &&
           p0[2] == 0x75 &&
           p0[3] == 0x73;
-      final isVorbis = p0.length >= 7 &&
+      final isVorbis =
+          p0.length >= 7 &&
           p0[0] == 0x01 &&
           p0[1] == 0x76 &&
           p0[2] == 0x6F &&
@@ -354,15 +361,13 @@ LyricDoc _readOggComment(String path) {
         if (isOpus &&
             packet.length > 8 &&
             String.fromCharCodes(packet.sublist(0, 8)) == 'OpusTags') {
-          return _vorbisCommentDoc(
-              Uint8List.fromList(packet.sublist(8)));
+          return _vorbisCommentDoc(Uint8List.fromList(packet.sublist(8)));
         }
         if (isVorbis &&
             packet.length > 7 &&
             packet[0] == 0x03 &&
             String.fromCharCodes(packet.sublist(1, 7)) == 'vorbis') {
-          return _vorbisCommentDoc(
-              Uint8List.fromList(packet.sublist(7)));
+          return _vorbisCommentDoc(Uint8List.fromList(packet.sublist(7)));
         }
       }
       return const LyricDoc();
@@ -380,7 +385,8 @@ LyricDoc _vorbisCommentDoc(Uint8List body) {
   try {
     var pos = 0;
     int u32() {
-      final v = body[pos] |
+      final v =
+          body[pos] |
           (body[pos + 1] << 8) |
           (body[pos + 2] << 16) |
           (body[pos + 3] << 24);
@@ -400,8 +406,10 @@ LyricDoc _vorbisCommentDoc(Uint8List body) {
       if (pos + 4 > body.length) break;
       final len = u32();
       if (len < 0 || len > 512 * 1024 || pos + len > body.length) break;
-      final entry = utf8.decode(body.sublist(pos, pos + len),
-          allowMalformed: true);
+      final entry = utf8.decode(
+        body.sublist(pos, pos + len),
+        allowMalformed: true,
+      );
       pos += len;
       final eq = entry.indexOf('=');
       if (eq <= 0) continue;
@@ -459,10 +467,7 @@ LyricDoc _readM4aLyrics(String path) {
         raf.setPositionSync(pos);
         final head = raf.readSync(8);
         if (head.length < 8) break;
-        var size = (head[0] << 24) |
-            (head[1] << 16) |
-            (head[2] << 8) |
-            head[3];
+        var size = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
         final type = String.fromCharCodes(head.sublist(4, 8));
         var headerLen = 8;
         if (size == 1) {
@@ -502,12 +507,11 @@ LyricDoc _readM4aLyrics(String path) {
         raf.setPositionSync(cpos);
         final head = raf.readSync(8);
         if (head.length < 8) break;
-        final size = (head[0] << 24) |
-            (head[1] << 16) |
-            (head[2] << 8) |
-            head[3];
+        final size =
+            (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
         if (size <= 8 || cpos + size > cend) break;
-        final isLyr = head[4] == 0xA9 &&
+        final isLyr =
+            head[4] == 0xA9 &&
             head[5] == 0x6C &&
             head[6] == 0x79 &&
             head[7] == 0x72;
@@ -517,12 +521,10 @@ LyricDoc _readM4aLyrics(String path) {
           final payloadLen = size - 8 - 16;
           if (payloadLen <= 0 || payloadLen > 512 * 1024) break;
           final payload = raf.readSync(payloadLen);
-          final text =
-              utf8.decode(payload, allowMalformed: true).trim();
+          final text = utf8.decode(payload, allowMalformed: true).trim();
           if (text.isEmpty) return const LyricDoc();
           if (_looksTimed(text)) {
-            return LyricDoc(
-                syncedLrc: text, source: LyricSource.embedded);
+            return LyricDoc(syncedLrc: text, source: LyricSource.embedded);
           }
           return LyricDoc(plain: text, source: LyricSource.embedded);
         }
