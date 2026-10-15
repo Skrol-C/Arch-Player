@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,7 +43,8 @@ class CurrentArt extends ConsumerWidget {
             width: fill ? null : size,
             height: fill ? null : size,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _fallback(),
+            errorBuilder: (_, _, _) =>
+                _network(snap.data, _fallback()),
           );
           if (fill) return body;
           return ClipRRect(
@@ -50,8 +52,27 @@ class CurrentArt extends ConsumerWidget {
             child: body,
           );
         }
-        return _fallback();
+        return _network(snap.data, _fallback());
       },
+    );
+  }
+
+  /// Remote cover fallback for file-less items (expansion
+  /// previews, evicted caches). Network, then the given fallback.
+  Widget _network(MediaItem? item, Widget fallback) {
+    final url = item?.extras?['coverUrl'] as String?;
+    if (url == null || url.isEmpty) return fallback;
+    final img = CachedNetworkImage(
+      imageUrl: url,
+      width: fill ? null : size,
+      height: fill ? null : size,
+      fit: BoxFit.cover,
+      errorWidget: (_, _, _) => fallback,
+    );
+    if (fill) return img;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: img,
     );
   }
 

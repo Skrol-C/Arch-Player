@@ -1333,37 +1333,13 @@ class _RowState extends ConsumerState<_Row> {
             ),
           );
     // Every row answers its tap: artists open, albums expand,
-    // owned tracks play full, remote tracks preview. Previewable
-    // remotes wear a play mark so the outcome is visible pre-tap.
-    Widget shaped = hit.kind == 'artist'
+    // owned tracks play full, remote tracks preview.
+    final leading = hit.kind == 'artist'
         ? ClipOval(child: image)
         : ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: image,
           );
-    final leading = previewable
-        ? Stack(
-            children: [
-              shaped,
-              Positioned(
-                right: 2,
-                bottom: 2,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: paper,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: ink.withValues(alpha: 0.12)),
-                  ),
-                  child: const Icon(Icons.play_arrow_rounded,
-                      color: ink, size: 14),
-                ),
-              ),
-            ],
-          )
-        : shaped;
     return Column(
       children: [
         ListTile(
@@ -1388,6 +1364,11 @@ class _RowState extends ConsumerState<_Row> {
                 if (owned != null) ...[
                   const Icon(Icons.check_circle_rounded,
                       color: archPink, size: 20),
+                  const SizedBox(width: 8),
+                ],
+                if (previewable) ...[
+                  const Icon(Icons.play_circle_outline_rounded,
+                      color: inkDim, size: 20),
                   const SizedBox(width: 8),
                 ],
                 if (hit.explicit || _kidsExplicit) ...[
