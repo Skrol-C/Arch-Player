@@ -14,6 +14,10 @@ class ExtensionManifest {
   final List<ExtensionSetting> settings;
   final List<QualityOption> qualityOptions;
   final String? icon;
+  final List<String> urlHandlers;
+  final String? searchPlaceholder;
+  final String? searchIcon;
+  final bool searchPrimary;
 
   const ExtensionManifest({
     required this.name,
@@ -25,6 +29,10 @@ class ExtensionManifest {
     this.settings = const [],
     this.qualityOptions = const [],
     this.icon,
+    this.urlHandlers = const [],
+    this.searchPlaceholder,
+    this.searchIcon,
+    this.searchPrimary = false,
   });
 
   static const validTypes = {
@@ -75,6 +83,13 @@ class ExtensionManifest {
               QualityOption.parse(q)!,
         ],
         icon: m['icon'] as String?,
+        searchPlaceholder:
+            (m['searchBehavior'] is Map ? m['searchBehavior']['placeholder'] as String? : null),
+        searchIcon:
+            (m['searchBehavior'] is Map ? m['searchBehavior']['icon'] as String? : null),
+        searchPrimary: m['searchBehavior'] is Map &&
+            m['searchBehavior']['primary'] == true,
+        urlHandlers: _urlHandlers(m['urlHandler']),
       );
     } catch (_) {
       return null;
@@ -84,6 +99,30 @@ class ExtensionManifest {
   bool get isMetadata => types.contains('metadata_provider');
   bool get isDownload => types.contains('download_provider');
   bool get isLyrics => types.contains('lyrics_provider');
+
+  /// urlHandler contract (SpotiFLAC registry shape, MIT): a map
+  /// `{enabled, patterns[]}`. A legacy flat list is also accepted.
+  /// Disabled handlers claim nothing.
+  static List<String> _urlHandlers(dynamic raw) {
+    if (raw is Map) {
+      if (raw['enabled'] == false) return const [];
+      final pats = raw['patterns'];
+      if (pats is List) {
+        return [
+          for (final h in pats)
+            if (h is String && h.isNotEmpty) h,
+        ];
+      }
+      return const [];
+    }
+    if (raw is List) {
+      return [
+        for (final h in raw)
+          if (h is String && h.isNotEmpty) h,
+      ];
+    }
+    return const [];
+  }
 }
 
 class ExtensionPermissions {
@@ -170,6 +209,10 @@ class InstalledExtension {
   final List<String> roles;
   final bool enabled;
   final int priority;
+  final List<String> urlHandlers;
+  final String? searchPlaceholder;
+  final String? searchIcon;
+  final bool searchPrimary;
 
   const InstalledExtension({
     required this.id,
@@ -179,6 +222,10 @@ class InstalledExtension {
     required this.roles,
     this.enabled = true,
     this.priority = 0,
+    this.urlHandlers = const [],
+    this.searchPlaceholder,
+    this.searchIcon,
+    this.searchPrimary = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -189,6 +236,10 @@ class InstalledExtension {
         'roles': roles,
         'enabled': enabled,
         'priority': priority,
+        'urlHandlers': urlHandlers,
+        'searchPlaceholder': searchPlaceholder,
+        'searchIcon': searchIcon,
+        'searchPrimary': searchPrimary,
       };
 
   static InstalledExtension? fromJson(Map m) {
@@ -203,13 +254,25 @@ class InstalledExtension {
         ],
         enabled: (m['enabled'] as bool?) ?? true,
         priority: (m['priority'] as num?)?.toInt() ?? 0,
+        urlHandlers: [
+          for (final h in (m['urlHandlers'] as List? ?? [])) h.toString(),
+        ],
+        searchPlaceholder: m['searchPlaceholder'] as String?,
+        searchIcon: m['searchIcon'] as String?,
+        searchPrimary: m['searchPrimary'] == true,
       );
     } catch (_) {
       return null;
     }
   }
 
-  InstalledExtension copyWith({bool? enabled, int? priority}) =>
+  InstalledExtension copyWith(
+          {bool? enabled,
+          int? priority,
+          List<String>? urlHandlers,
+          String? searchPlaceholder,
+          String? searchIcon,
+          bool? searchPrimary}) =>
       InstalledExtension(
         id: id,
         displayName: displayName,
@@ -218,6 +281,10 @@ class InstalledExtension {
         roles: roles,
         enabled: enabled ?? this.enabled,
         priority: priority ?? this.priority,
+        urlHandlers: urlHandlers ?? this.urlHandlers,
+        searchPlaceholder: searchPlaceholder ?? this.searchPlaceholder,
+        searchIcon: searchIcon ?? this.searchIcon,
+        searchPrimary: searchPrimary ?? this.searchPrimary,
       );
 
   Map<String, dynamic> toJsonString() => toJson();

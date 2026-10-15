@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
 import 'extension.dart';
@@ -144,6 +143,10 @@ Future<PackageResult> installBytes(
     version: version ?? manifest.version,
     description: description ?? manifest.description,
     roles: roles,
+    urlHandlers: manifest.urlHandlers,
+    searchPlaceholder: manifest.searchPlaceholder,
+    searchIcon: manifest.searchIcon,
+    searchPrimary: manifest.searchPrimary,
   ));
 }
 

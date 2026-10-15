@@ -15,7 +15,7 @@ import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 
-enum Destination { library, needle, settings }
+enum Destination { library, search, needle, settings }
 
 final destinationProvider = StateProvider<Destination>(
   (ref) => Destination.library,
@@ -26,9 +26,10 @@ final destinationProvider = StateProvider<Destination>(
 /// or destination change. Player-open hides everything regardless.
 final pillCollapsedProvider = StateProvider<bool>((ref) => false);
 
-const _labels = ['Library', 'Needle', 'Settings'];
+const _labels = ['Library', 'Search', 'Needle', 'Settings'];
 const _icons = [
   Icons.library_music_rounded,
+  Icons.search_rounded,
   Icons.download_rounded,
   Icons.settings_rounded,
 ];
@@ -72,7 +73,7 @@ class DockScrollReporter extends ConsumerWidget {
 class NowPlayingDock extends ConsumerWidget {
   const NowPlayingDock({super.key});
 
-  static const double pillWidth = 280;
+  static const double pillWidth = 340;
   static const double miniWidth = 280;
   static const double compactWidth = 148;
 

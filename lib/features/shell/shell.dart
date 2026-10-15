@@ -5,6 +5,7 @@ import '../../core/log.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart';
 import '../needle/needle_search.dart';
+import '../search/search_page.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
@@ -40,6 +41,9 @@ class Shell extends ConsumerWidget {
             switch (dest) {
               Destination.library => const LibraryScreen(
                 key: ValueKey('dest-library'),
+              ),
+              Destination.search => const SearchPage(
+                key: ValueKey('dest-search'),
               ),
               Destination.needle => const NeedleSearchPage(
                 key: ValueKey('dest-needle'),

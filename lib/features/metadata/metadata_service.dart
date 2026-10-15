@@ -20,11 +20,15 @@ class MetadataService {
   static const _userAgent = 'ArchPlayer/0.1.0 (personal use)';
   static const _schema = 2;
 
-  // MusicBrainz allows ~1 req/s. Serialize through a chain.
+  // MusicBrainz allows ~1 req/s. Serialize through a chain. The
+  // per-unit timeout is the load-bearing part: one hung request
+  // must never wedge every later lookup behind it forever.
   Future<void> _mbGate = Future.value();
 
   Future<T> _viaMbGate<T>(Future<T> Function() work) {
-    final run = _mbGate.then((_) => work());
+    final run = _mbGate.then(
+      (_) => work().timeout(const Duration(seconds: 45)),
+    );
     _mbGate = run
         .then((_) {}, onError: (_) {})
         .then((_) => Future.delayed(const Duration(seconds: 1)));
@@ -262,6 +266,40 @@ class MetadataService {
   }) async {
     final cached = await _readLyricCache(songId);
     if (cached != null) return cached;
+    final doc = await _lrclibFetch(
+      artist: artist,
+      title: title,
+      album: album,
+      durationSecs: durationSecs,
+    );
+    if (doc == null) return const LyricDoc();
+    await _writeLyricCache(songId, doc);
+    return doc;
+  }
+
+  /// Remote (unowned) lyrics: same ladder, network-only, never
+  /// cached - there is no song id to key on.
+  Future<LyricDoc> lyricsForRemote({
+    required String artist,
+    required String title,
+    required String album,
+    required int durationSecs,
+  }) async {
+    return await _lrclibFetch(
+          artist: artist,
+          title: title,
+          album: album,
+          durationSecs: durationSecs,
+        ) ??
+        const LyricDoc();
+  }
+
+  Future<LyricDoc?> _lrclibFetch({
+    required String artist,
+    required String title,
+    required String album,
+    required int durationSecs,
+  }) async {
     final cleanAlbum =
         album.isNotEmpty && album.toLowerCase() != 'unknown album'
         ? album
@@ -303,7 +341,6 @@ class MetadataService {
           source: LyricSource.lrclib,
           instrumental: m['instrumental'] == true,
         );
-        await _writeLyricCache(songId, doc);
         ArchLog.i(
           'meta',
           'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasSynced
@@ -320,7 +357,7 @@ class MetadataService {
         );
       }
     }
-    return const LyricDoc();
+    return null;
   }
 
   static String _stripFeat(String title) {
@@ -790,6 +827,50 @@ class MetadataService {
     return await _readAlbumCredits(artist, album) ?? const [];
   }
 
+  /// Record label: MusicBrainz release search label-info, first
+  /// high-score hit. Null = unknown, never guessed. Cached by the
+  /// caller alongside the album file.
+  Future<String?> labelFor({
+    required String artist,
+    required String album,
+  }) async {
+    try {
+      final cached = await _readAlbumLabel(artist, album);
+      if (cached != null) return cached == '' ? null : cached;
+      final q =
+          'release:"${album.replaceAll('"', '')}" AND artist:"${artist.replaceAll('"', '')}"';
+      final search = Uri.parse(
+        '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+      );
+      final res = await _viaMbGate(
+        () => http.get(search, headers: {'User-Agent': _userAgent}),
+      );
+      String label = '';
+      if (res.statusCode == 200) {
+        final list =
+            (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
+        for (final r in list) {
+          final m = r as Map;
+          if (((m['score'] as num?)?.toInt() ?? 0) < 85) continue;
+          final info = (m['label-info'] as List?) ?? [];
+          if (info.isNotEmpty) {
+            final name =
+                ((info.first as Map)['label'] as Map?)?['name']
+                    as String?;
+            if (name != null && name.trim().isNotEmpty) {
+              label = name.trim();
+              break;
+            }
+          }
+        }
+      }
+      await _writeAlbumLabel(artist, album, label);
+      return label.isEmpty ? null : label;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Album genres: Last.fm folksonomy (keyed, junk-filtered), else
   /// MusicBrainz curated genres, else Deezer's broad genre. Max two,
   /// cached. Empty = the world says nothing usable.
@@ -800,8 +881,21 @@ class MetadataService {
     final cached = await _readAlbumGenres(artist, album);
     if (cached != null) return cached;
     var genres = await _lfmGenres(artist, album);
-    genres = genres.isNotEmpty ? genres : await _mbGenres(artist, album);
-    genres = genres.isNotEmpty ? genres : await _dzGenre(artist, album);
+    var lane = 'lastfm';
+    if (genres.isEmpty) {
+      genres = await _mbGenres(artist, album);
+      lane = 'musicbrainz';
+    }
+    if (genres.isEmpty) {
+      genres = await _dzGenre(artist, album);
+      lane = 'deezer';
+    }
+    ArchLog.i(
+      'meta',
+      genres.isEmpty
+          ? 'genre miss all lanes: $artist - $album'
+          : 'genre hit ($lane): $artist - $album = ${genres.join(', ')}',
+    );
     await _writeAlbumGenres(artist, album, genres);
     return genres;
   }
@@ -924,7 +1018,9 @@ class MetadataService {
     try {
       final id = await _dzAlbumId(artist, album);
       if (id == 0) return const [];
-      final res = await http.get(Uri.parse('$_dzBase/album/$id'));
+      final res = await http
+          .get(Uri.parse('$_dzBase/album/$id'))
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return const [];
       final body = jsonDecode(res.body) as Map;
       final genres = body['genres'] as Map?;
@@ -943,7 +1039,9 @@ class MetadataService {
     final search = Uri.parse(
       '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=5',
     );
-    final res = await http.get(search);
+    final res = await http
+        .get(search)
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) return 0;
     final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
     for (final a in list) {
@@ -1157,9 +1255,12 @@ class MetadataService {
       final dir = await _albumTrackDir();
       final file = File('${dir.path}/${_trackKeyOf(artist, album)}.json');
       final tmp = File('${dir.path}/${_trackKeyOf(artist, album)}.tmp');
-      // Preserve already-cached genres: tracks and genres resolve
-      // on independent ladders and must never wipe each other.
+      // Preserve already-cached genres + label: tracks, genres, and
+      // label resolve on independent ladders and must never wipe
+      // each other.
       List<String> genres = const [];
+      String label = '';
+      bool hasLabel = false;
       try {
         if (await file.exists()) {
           final prev = jsonDecode(await file.readAsString()) as Map;
@@ -1167,6 +1268,10 @@ class MetadataService {
             for (final g in (prev['genres'] as List? ?? []))
               if ((g as String).isNotEmpty) g,
           ];
+          if (prev.containsKey('label')) {
+            hasLabel = true;
+            label = (prev['label'] as String?) ?? '';
+          }
         }
       } catch (_) {}
       await tmp.writeAsString(
@@ -1180,6 +1285,7 @@ class MetadataService {
             for (final c in credits) {'n': c.name, 'r': c.role, 'm': c.mbid},
           ],
           'genres': genres,
+          if (hasLabel) 'label': label,
         }),
       );
       await tmp.rename(file.path);
@@ -1213,8 +1319,55 @@ class MetadataService {
     }
   }
 
-  Future<List<String>?> _readAlbumGenres(String artist, String album) async {
+  /// Label slot in the shared album file. '' = looked up, world
+  /// said nothing. Absent key = never looked up.
+  Future<String?> _readAlbumLabel(String artist, String album) async {
     try {
+      final file = File(
+        '${(await _albumTrackDir()).path}/${_trackKeyOf(artist, album)}.json',
+      );
+      if (!await file.exists()) return null;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      if ((m['v'] as num?)?.toInt() != _schema) return null;
+      if (!m.containsKey('label')) return null;
+      return (m['label'] as String?) ?? '';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeAlbumLabel(
+      String artist, String album, String label) async {
+    try {
+      final dir = await _albumTrackDir();
+      final file = File('${dir.path}/${_trackKeyOf(artist, album)}.json');
+      final tmp = File('${dir.path}/${_trackKeyOf(artist, album)}.tmp');
+      // Preserve everything resolved on other ladders.
+      var tracks = [];
+      var credits = [];
+      var genres = [];
+      try {
+        if (await file.exists()) {
+          final prev = jsonDecode(await file.readAsString()) as Map;
+          tracks = (prev['tracks'] as List?) ?? [];
+          credits = (prev['credits'] as List?) ?? [];
+          genres = (prev['genres'] as List?) ?? [];
+        }
+      } catch (_) {}
+      await tmp.writeAsString(
+        jsonEncode({
+          'v': _schema,
+          'tracks': tracks,
+          'credits': credits,
+          'genres': genres,
+          'label': label,
+        }),
+      );
+      await tmp.rename(file.path);
+    } catch (_) {}
+  }
+
+  Future<List<String>?> _readAlbumGenres(String artist, String album) async {    try {
       final file = File(
         '${(await _albumTrackDir()).path}/${_trackKeyOf(artist, album)}.json',
       );
@@ -1240,14 +1393,20 @@ class MetadataService {
       final dir = await _albumTrackDir();
       final file = File('${dir.path}/${_trackKeyOf(artist, album)}.json');
       final tmp = File('${dir.path}/${_trackKeyOf(artist, album)}.tmp');
-      // Preserve tracks + credits resolved on their own ladder.
+      // Preserve tracks + credits + label resolved on their own ladder.
       var tracks = [];
       var credits = [];
+      var label = '';
+      var hasLabel = false;
       try {
         if (await file.exists()) {
           final prev = jsonDecode(await file.readAsString()) as Map;
           tracks = (prev['tracks'] as List?) ?? [];
           credits = (prev['credits'] as List?) ?? [];
+          if (prev.containsKey('label')) {
+            hasLabel = true;
+            label = (prev['label'] as String?) ?? '';
+          }
         }
       } catch (_) {}
       await tmp.writeAsString(
@@ -1256,6 +1415,7 @@ class MetadataService {
           'tracks': tracks,
           'credits': credits,
           'genres': genres,
+          if (hasLabel) 'label': label,
         }),
       );
       await tmp.rename(file.path);

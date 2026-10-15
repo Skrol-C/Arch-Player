@@ -265,6 +265,404 @@ String _decodeUtf16(Uint8List data, bool bigEndian) {
   return out.toString();
 }
 
+/// Embedded genre, same pure-Dart discipline as lyrics: ID3 TCON
+/// (plus v2.2 TCO), Vorbis GENRE, M4A (c)gen string. Numeric ID3
+/// wrappers ("(4)") resolve through the v1 table. Null = absent.
+/// Bounded reads, never throws.
+String? readEmbeddedGenre(String path) {
+  if (path.isEmpty) return null;
+  try {
+    if (!File(path).existsSync()) return null;
+  } catch (_) {
+    return null;
+  }
+  try {
+    final head = File(path).openSync();
+    try {
+      final magic = head.readSync(4);
+      if (magic.length == 4 &&
+          magic[0] == 0x49 &&
+          magic[1] == 0x44 &&
+          magic[2] == 0x33) {
+        return _id3Genre(path);
+      }
+    } finally {
+      head.closeSync();
+    }
+  } catch (_) {}
+  final lower = path.toLowerCase();
+  try {
+    if (lower.endsWith('.flac') ||
+        lower.endsWith('.ogg') ||
+        lower.endsWith('.oga') ||
+        lower.endsWith('.opus')) {
+      return _vorbisGenre(path);
+    }
+    if (lower.endsWith('.m4a') ||
+        lower.endsWith('.mp4') ||
+        lower.endsWith('.m4b')) {
+      return _m4aGenre(path);
+    }
+    if (lower.endsWith('.mp3')) return _id3Genre(path);
+  } catch (_) {}
+  return null;
+}
+
+String? _cleanGenre(String? raw) {
+  if (raw == null) return null;
+  var t = raw.trim();
+  if (t.isEmpty) return null;
+  // Numeric "(4)Eurodisco" wrappers: prefer the text, else the table.
+  final num = RegExp(r'^\((\d+)\)\s*(.*)$').firstMatch(t);
+  if (num != null) {
+    final rest = (num.group(2) ?? '').trim();
+    if (rest.isNotEmpty) return rest;
+    final idx = int.tryParse(num.group(1) ?? '');
+    if (idx != null && idx >= 0 && idx < _id3v1.length) {
+      return _id3v1[idx];
+    }
+    return null;
+  }
+  if (RegExp(r'^\d+$').hasMatch(t)) {
+    final idx = int.tryParse(t);
+    if (idx != null && idx >= 0 && idx < _id3v1.length) {
+      return _id3v1[idx];
+    }
+    return null;
+  }
+  return t.length > 48 ? null : t;
+}
+
+String? _id3Genre(String path) {
+  try {
+    final file = File(path);
+    final raf = file.openSync();
+    try {
+      final head = raf.readSync(10);
+      if (head.length < 10 ||
+          head[0] != 0x49 ||
+          head[1] != 0x44 ||
+          head[2] != 0x33) {
+        return null;
+      }
+      final ver = head[3];
+      if (ver != 2 && ver != 3 && ver != 4) return null;
+      final flags = head[5];
+      final tagSize = _syncSafe(head, 6);
+      if (tagSize <= 0 || tagSize > 4 * 1024 * 1024) return null;
+      final tag = raf.readSync(tagSize);
+      if (tag.length < tagSize) return null;
+      if (ver == 2) return _scanGenre22(tag);
+      var pos = 0;
+      if ((flags & 0x40) != 0) {
+        if (tag.length < 4) return null;
+        pos = ver == 4
+            ? _syncSafe(tag, 0)
+            : ((tag[0] << 24) | (tag[1] << 16) | (tag[2] << 8) | tag[3]);
+      }
+      final unsyncWhole = ver == 3 && (flags & 0x80) != 0;
+      while (pos + 10 <= tag.length) {
+        if (tag[pos] == 0) break;
+        final id = String.fromCharCodes(tag.sublist(pos, pos + 4));
+        final size = ver == 4
+            ? _syncSafe(tag, pos + 4)
+            : ((tag[pos + 4] << 24) |
+                (tag[pos + 5] << 16) |
+                (tag[pos + 6] << 8) |
+                tag[pos + 7]);
+        final frameFlags = (tag[pos + 8] << 8) | tag[pos + 9];
+        final start = pos + 10;
+        if (size <= 0 || start + size > tag.length) break;
+        var data = tag.sublist(start, start + size);
+        pos = start + size;
+        if (unsyncWhole || (ver == 4 && (frameFlags & 0x02) != 0)) {
+          data = _deunsync(data);
+        }
+        if (id == 'TCON' && data.isNotEmpty) {
+          final enc = data[0];
+          final g = _cleanGenre(_decode(data.sublist(1), enc));
+          if (g != null) return g;
+        }
+      }
+      return null;
+    } finally {
+      raf.closeSync();
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _scanGenre22(Uint8List tag) {
+  var pos = 0;
+  while (pos + 6 <= tag.length) {
+    if (tag[pos] == 0) break;
+    final id = String.fromCharCodes(tag.sublist(pos, pos + 3));
+    final size = (tag[pos + 3] << 16) | (tag[pos + 4] << 8) | tag[pos + 5];
+    final start = pos + 6;
+    if (size <= 0 || start + size > tag.length) break;
+    final data = tag.sublist(start, start + size);
+    pos = start + size;
+    if (id == 'TCO' && data.isNotEmpty) {
+      final g = _cleanGenre(_decode(data.sublist(1), data[0]));
+      if (g != null) return g;
+    }
+  }
+  return null;
+}
+
+String? _vorbisGenre(String path) {
+  for (final entry in _vorbisComments(path)) {
+    final eq = entry.indexOf('=');
+    if (eq <= 0) continue;
+    if (entry.substring(0, eq).trim().toUpperCase() == 'GENRE') {
+      final g = _cleanGenre(entry.substring(eq + 1));
+      if (g != null) return g;
+    }
+  }
+  return null;
+}
+
+/// Shared Vorbis comment entry reader (KEY=value strings).
+List<String> _vorbisComments(String path) {
+  final out = <String>[];
+  try {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.flac')) {
+      final raf = File(path).openSync();
+      try {
+        final magic = raf.readSync(4);
+        if (magic.length < 4 ||
+            magic[0] != 0x66 ||
+            magic[1] != 0x4C ||
+            magic[2] != 0x61 ||
+            magic[3] != 0x43) {
+          return out;
+        }
+        for (var b = 0; b < 64; b++) {
+          final head = raf.readSync(4);
+          if (head.length < 4) break;
+          final last = (head[0] & 0x80) != 0;
+          final type = head[0] & 0x7F;
+          final len = (head[1] << 16) | (head[2] << 8) | head[3];
+          if (len < 0 || len > 1024 * 1024) break;
+          if (type == 4) {
+            final block = raf.readSync(len);
+            if (block.length < len) break;
+            return _commentEntries(block);
+          }
+          raf.setPositionSync(raf.positionSync() + len);
+          if (last) break;
+        }
+      } finally {
+        raf.closeSync();
+      }
+      return out;
+    }
+    final raf = File(path).openSync();
+    try {
+      final packets = <List<int>>[];
+      var current = <int>[];
+      for (var p = 0; p < 200; p++) {
+        final head = raf.readSync(27);
+        if (head.length < 27) break;
+        if (head[0] != 0x4F ||
+            head[1] != 0x67 ||
+            head[2] != 0x67 ||
+            head[3] != 0x53) {
+          break;
+        }
+        final nseg = head[26];
+        final table = raf.readSync(nseg);
+        if (table.length < nseg) break;
+        var payload = 0;
+        for (final s in table) {
+          payload += s;
+        }
+        final data = raf.readSync(payload);
+        if (data.length < payload) break;
+        var at = 0;
+        for (final s in table) {
+          current.addAll(data.sublist(at, at + s));
+          at += s;
+          if (s < 255) {
+            packets.add(current);
+            current = <int>[];
+          }
+        }
+        if (packets.length >= 3) break;
+      }
+      if (packets.length > 1) {
+        return _commentEntries(
+            Uint8List.fromList(packets[1].skip(7).toList()));
+      }
+    } finally {
+      raf.closeSync();
+    }
+  } catch (_) {}
+  return out;
+}
+
+List<String> _commentEntries(Uint8List body) {
+  final out = <String>[];
+  try {
+    var pos = 0;
+    int u32() {
+      final v =
+          body[pos] |
+          (body[pos + 1] << 8) |
+          (body[pos + 2] << 16) |
+          (body[pos + 3] << 24);
+      pos += 4;
+      return v;
+    }
+
+    if (body.length < 8) return out;
+    // OpusTags skips an 8-byte magic first.
+    if (body.length >= 12 &&
+        String.fromCharCodes(body.sublist(0, 8)) == 'OpusTags') {
+      pos = 8;
+    }
+    final vendorLen = u32();
+    if (vendorLen < 0 || vendorLen > body.length) return out;
+    pos += vendorLen;
+    if (pos + 4 > body.length) return out;
+    final count = u32();
+    if (count < 0 || count > 512) return out;
+    for (var i = 0; i < count; i++) {
+      if (pos + 4 > body.length) break;
+      final len = u32();
+      if (len < 0 || len > 512 * 1024 || pos + len > body.length) break;
+      out.add(
+        utf8.decode(body.sublist(pos, pos + len), allowMalformed: true),
+      );
+      pos += len;
+    }
+  } catch (_) {}
+  return out;
+}
+
+String? _m4aGenre(String path) {
+  try {
+    final raf = File(path).openSync();
+    try {
+      final fileLen = raf.lengthSync();
+      if (fileLen <= 0 || fileLen > 1024 * 1024 * 1024) return null;
+      // moov -> udta -> meta -> ilst, then (c)gen data payload.
+      final want = ['moov', 'udta', 'meta', 'ilst'];
+      final ends = <int>[fileLen];
+      var pos = 0;
+      var depth = 0;
+      var guard = 0;
+      List<int>? ilst;
+      var cend = 0;
+      while (pos + 8 <= ends.last && guard < 1024) {
+        guard++;
+        raf.setPositionSync(pos);
+        final head = raf.readSync(8);
+        if (head.length < 8) break;
+        var size = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+        final type = String.fromCharCodes(head.sublist(4, 8));
+        var headerLen = 8;
+        if (size == 1) break;
+        if (size <= 0) break;
+        final end = pos + size;
+        if (depth < want.length && type == want[depth]) {
+          ends.add(end);
+          depth++;
+          pos += headerLen + (type == 'meta' ? 4 : 0);
+          if (depth == want.length) {
+            ilst = [pos, end];
+            cend = end;
+            break;
+          }
+          continue;
+        }
+        pos = end;
+        while (ends.length > 1 && pos >= ends.last) {
+          ends.removeLast();
+          depth--;
+        }
+      }
+      if (ilst == null) return null;
+      var cpos = ilst[0];
+      guard = 0;
+      while (cpos + 8 <= cend && guard < 256) {
+        guard++;
+        raf.setPositionSync(cpos);
+        final head = raf.readSync(8);
+        if (head.length < 8) break;
+        final size =
+            (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+        if (size <= 8 || cpos + size > cend) break;
+        final isGen =
+            head[4] == 0xA9 &&
+            head[5] == 0x67 &&
+            head[6] == 0x65 &&
+            head[7] == 0x6E;
+        if (isGen) {
+          final dataHead = raf.readSync(16);
+          if (dataHead.length < 16) break;
+          final payloadLen = size - 8 - 16;
+          if (payloadLen <= 0 || payloadLen > 1024) break;
+          final payload = raf.readSync(payloadLen);
+          final text =
+              utf8.decode(payload, allowMalformed: true).trim().replaceAll(
+                    RegExp(r'[^\x20-\x7E\u00A0-\uFFFF]'),
+                    '',
+                  ).trim();
+          return _cleanGenre(text.isEmpty ? null : text);
+        }
+        cpos += size;
+      }
+      return null;
+    } finally {
+      raf.closeSync();
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+/// ID3v1 genre table (0-79 + common Winamp extensions to 147).
+const _id3v1 = [
+  'Blues', 'Classic Rock', 'Country', 'Dance', 'Disco', 'Funk', 'Grunge',
+  'Hip-Hop', 'Jazz', 'Metal', 'New Age', 'Oldies', 'Other', 'Pop', 'R&B',
+  'Rap', 'Reggae', 'Rock', 'Techno', 'Industrial', 'Alternative', 'Ska',
+  'Death Metal', 'Pranks', 'Soundtrack', 'Euro-Techno', 'Ambient',
+  'Trip-Hop', 'Vocal', 'Jazz+Funk', 'Fusion', 'Trance', 'Classical',
+  'Instrumental', 'Acid', 'House', 'Game', 'Sound Clip', 'Gospel', 'Noise',
+  'AlternRock', 'Bass', 'Soul', 'Punk', 'Space', 'Meditative',
+  'Instrumental Pop', 'Instrumental Rock', 'Ethnic', 'Gothic', 'Darkwave',
+  'Techno-Industrial', 'Electronic', 'Pop-Folk', 'Eurodance', 'Dream',
+  'Southern Rock', 'Comedy', 'Cult', 'Gangsta', 'Top 40', 'Christian Rap',
+  'Pop/Funk', 'Jungle', 'Native American', 'Cabaret', 'New Wave',
+  'Psychadelic', 'Rave', 'Showtunes', 'Trailer', 'Lo-Fi', 'Tribal',
+  'Acid Punk', 'Acid Jazz', 'Polka', 'Retro', 'Musical', 'Rock & Roll',
+  'Hard Rock', 'Folk', 'Folk-Rock', 'National Folk', 'Swing',
+  'Fast Fusion', 'Bebob', 'Latin', 'Revival', 'Celtic', 'Bluegrass',
+  'Avantgarde', 'Gothic Rock', 'Progressive Rock', 'Psychedelic Rock',
+  'Symphonic Rock', 'Slow Rock', 'Big Band', 'Chorus', 'Easy Listening',
+  'Acoustic', 'Humour', 'Speech', 'Chanson', 'Opera', 'Chamber Music',
+  'Sonata', 'Symphony', 'Booty Bass', 'Primus', 'Porn Groove', 'Satire',
+  'Slow Jam', 'Club', 'Tango', 'Samba', 'Folklore', 'Ballad',
+  'Power Ballad', 'Rhythmic Soul', 'Freestyle', 'Duet', 'Punk Rock',
+  'Drum Solo', 'A Cappella', 'Euro-House', 'Dance Hall', 'Goa',
+  'Drum & Bass', 'Club-House', 'Hardcore', 'Terror', 'Indie', 'BritPop',
+  'Afro-Punk', 'Polsk Punk', 'Beat', 'Christian Gangsta Rap',
+  'Heavy Metal', 'Black Metal', 'Crossover', 'Contemporary Christian',
+  'Christian Rock', 'Merengue', 'Salsa', 'Thrash Metal', 'Anime', 'JPop',
+  'Synthpop', 'Abstract', 'Art Rock', 'Baroque', 'Bhangra', 'Big Beat',
+  'Breakbeat', 'Chillout', 'Downtempo', 'Dub', 'EBM', 'Eclectic',
+  'Electro', 'Electroclash', 'Emo', 'Experimental', 'Garage', 'Global',
+  'IDM', 'Illbient', 'Industro-Goth', 'Jam Band', 'Krautrock',
+  'Leftfield', 'Lounge', 'Math Rock', 'New Romantic', 'Nu-Breakz',
+  'Post-Punk', 'Post-Rock', 'Psytrance', 'Shoegaze', 'Space Rock',
+  'Trop Rock', 'World Music', 'Neoclassical', 'Audiobook', 'Audio Theatre',
+  'Neue Deutsche Welle', 'Podcast', 'Indie Rock', 'G-Funk', 'Dubstep',
+  'Garage Rock', 'Psybient',
+];
+
 /// Vorbis comments (FLAC): fLaC marker, then metadata blocks; type 4
 /// is the comment list. Shared field rule with OGG/Opus below.
 LyricDoc _readFlacComment(String path) {

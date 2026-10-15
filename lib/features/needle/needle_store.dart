@@ -148,9 +148,14 @@ class InstalledExtensionsNotifier
     String q(String s) =>
         '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
     final roles = e.roles.map(q).join(',');
+    final handlers = e.urlHandlers.map(q).join(',');
     return '{"id":${q(e.id)},"displayName":${q(e.displayName)},'
         '"version":${q(e.version)},"description":${q(e.description)},'
-        '"roles":[$roles],"enabled":${e.enabled},"priority":${e.priority}}';
+        '"roles":[$roles],"enabled":${e.enabled},"priority":${e.priority},'
+        '"urlHandlers":[$handlers],'
+        '"searchPlaceholder":${e.searchPlaceholder == null ? 'null' : q(e.searchPlaceholder!)},'
+        '"searchIcon":${e.searchIcon == null ? 'null' : q(e.searchIcon!)},'
+        '"searchPrimary":${e.searchPrimary}}';
   }
 
   /// Upsert after install: new entries land at the end (lowest

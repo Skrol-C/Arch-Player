@@ -18,6 +18,7 @@ import '../library/artist_page.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart' show fmtDuration;
+import '../song/song_page.dart';
 import 'morph_icon.dart';
 
 /// One row in a context menu. Tap pops [value] back to the caller -
@@ -411,6 +412,12 @@ Future<void> showSongMenu(
     context: context,
     groups: [
       [
+        const MenuAction(
+          icon: CupertinoIcons.music_note,
+          label: 'Song page',
+          subtitle: null,
+          value: 'song',
+        ),
         if (ownedAlbum != null)
           MenuAction(
             icon: CupertinoIcons.music_albums,
@@ -442,6 +449,9 @@ Future<void> showSongMenu(
   );
   if (!context.mounted) return;
   switch (value) {
+    case 'song':
+      SongPage.open(context, SongRef.owned(song));
+      break;
     case 'album':
       if (ownedAlbum != null) {
         Navigator.of(

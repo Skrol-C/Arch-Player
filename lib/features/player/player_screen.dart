@@ -24,6 +24,8 @@ import 'morph_icon.dart';
 import 'play_guarded.dart';
 import 'player_providers.dart';
 import 'track_menu.dart';
+import 'current_art.dart';
+import '../song/song_page.dart';
 
 /// Full player, Apple anatomy in our skin: ambient artwork wash,
 /// morphing art stage (full cover <-> 72px header + panel), scrub
@@ -241,7 +243,7 @@ class _CompactHeader extends ConsumerWidget {
           ref.read(playerPanelProvider.notifier).state = PlayerPanel.none;
         }
       },
-      onTap: () => showTrackNavMenu(ref, context, song),
+      onTap: () => SongPage.open(context, playerTitleRef(ref, song)),
       child: Row(
         children: [
           AnimatedSwitcher(
@@ -250,19 +252,12 @@ class _CompactHeader extends ConsumerWidget {
               key: ValueKey(song.albumId),
               width: 72,
               height: 72,
-              child: song.albumId > 0
-                  ? AlbumArt(albumId: song.albumId, size: 72, radius: 14)
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: paperRaised,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        CupertinoIcons.music_note,
-                        color: inkDim,
-                        size: 32,
-                      ),
-                    ),
+              child: CurrentArt(
+                song: song,
+                size: 72,
+                radius: 14,
+                iconSize: 32,
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -626,21 +621,13 @@ class _DragHeroState extends ConsumerState<_DragHero>
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(24),
-                        child: song.albumId > 0
-                            ? AlbumArt(
-                                albumId: song.albumId,
-                                fill: true,
-                                radius: 0,
-                                detail: true,
-                              )
-                            : Container(
-                                color: paperRaised,
-                                child: const Icon(
-                                  CupertinoIcons.music_note,
-                                  color: inkDim,
-                                  size: 96,
-                                ),
-                              ),
+                        child: CurrentArt(
+                          song: song,
+                          size: 0,
+                          radius: 0,
+                          iconSize: 96,
+                          fill: true,
+                        ),
                       ),
                     ),
                   ),
@@ -691,7 +678,8 @@ class _DragHeroState extends ConsumerState<_DragHero>
                   },
                   child: GestureDetector(
                     key: ValueKey(song.id),
-                    onTap: () => showTrackNavMenu(ref, context, song),
+                    onTap: () =>
+                        SongPage.open(context, playerTitleRef(ref, song)),
                     child: Column(
                       children: [
                         Padding(
@@ -1274,16 +1262,12 @@ class _QueuePanel extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(8),
                           child: SizedBox.square(
                             dimension: 44,
-                            child: song.albumId > 0
-                                ? AlbumArt(albumId: song.albumId, radius: 8)
-                                : Container(
-                                    color: paperRaised,
-                                    child: const Icon(
-                                      CupertinoIcons.music_note,
-                                      color: inkDim,
-                                      size: 22,
-                                    ),
-                                  ),
+                            child: CurrentArt(
+                              song: song,
+                              size: 44,
+                              radius: 8,
+                              iconSize: 22,
+                            ),
                           ),
                         ),
                         title: Text(

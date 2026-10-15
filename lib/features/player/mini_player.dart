@@ -7,7 +7,7 @@ import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
-import '../library/song_row.dart';
+import 'current_art.dart';
 import 'play_guarded.dart';
 import 'player_providers.dart';
 import 'morph_icon.dart';
@@ -52,22 +52,12 @@ class MiniPlayer extends ConsumerWidget {
                           key: ValueKey(song.albumId),
                           width: 44,
                           height: 44,
-                          child: song.albumId > 0
-                              ? AlbumArt(
-                                  albumId: song.albumId,
-                                  size: 44,
-                                  radius: 12,
-                                )
-                              : Container(
-                                  decoration: BoxDecoration(
-                                    color: paperRaised,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    CupertinoIcons.music_note,
-                                    color: inkDim,
-                                  ),
-                                ),
+                          child: CurrentArt(
+                            song: song,
+                            size: 44,
+                            radius: 12,
+                            iconSize: 22,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),

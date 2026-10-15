@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/log.dart';
 import '../../core/models.dart';
+import '../library/library_providers.dart';
+import '../lyrics/tag_lyrics.dart';
 import 'metadata_service.dart';
 
 final metadataServiceProvider = Provider<MetadataService>(
@@ -75,7 +78,9 @@ final albumTracklistProvider = FutureProvider.family<List<AlbumTrack>, String>((
       .albumTracksFor(artist: artist, album: album);
 });
 
-/// Album genres, same key shape. Empty = the world says nothing.
+/// Album genres, same key shape. Embedded file tags win (your
+/// files beat fuzzy matching), then Last.fm / MusicBrainz / Deezer.
+/// Empty = the world says nothing.
 final albumGenresProvider = FutureProvider.family<List<String>, String>((
   ref,
   key,
@@ -83,6 +88,21 @@ final albumGenresProvider = FutureProvider.family<List<String>, String>((
   final parts = key.split('\x00');
   final artist = parts.isNotEmpty ? parts.first : '';
   final album = parts.length > 1 ? parts[1] : '';
+  final songs = ref.watch(songsProvider).value ?? [];
+  for (final s in songs) {
+    if (s.path.isEmpty) continue;
+    if (s.artist.toLowerCase() != artist ||
+        s.album.toLowerCase() != album) {
+      continue;
+    }
+    final embedded = readEmbeddedGenre(s.path);
+    ArchLog.i(
+      'meta',
+      'genre embedded ${embedded == null ? 'miss' : 'hit'}: $artist - $album',
+    );
+    if (embedded != null && embedded.isNotEmpty) return [embedded];
+    break;
+  }
   return ref
       .watch(metadataServiceProvider)
       .genresFor(artist: artist, album: album);
@@ -100,4 +120,43 @@ final albumCreditsProvider = FutureProvider.family<List<AlbumCredit>, String>((
   return ref
       .watch(metadataServiceProvider)
       .creditsFor(artist: artist, album: album);
+});
+
+/// Record label, same key shape. Null = the world says nothing.
+final albumLabelProvider = FutureProvider.family<String?, String>((
+  ref,
+  key,
+) {
+  final parts = key.split('\x00');
+  final artist = parts.isNotEmpty ? parts.first : '';
+  final album = parts.length > 1 ? parts[1] : '';
+  return ref
+      .watch(metadataServiceProvider)
+      .labelFor(artist: artist, album: album);
+});
+
+/// Remote (unowned) lyrics: same LRCLib ladder, network-only.
+/// Key: "title\x00artist\x00album\x00durationSecs".
+final remoteLyricsProvider = FutureProvider.family<LyricDoc, String>((
+  ref,
+  key,
+) async {
+  final parts = key.split('\x00');
+  final title = parts.isNotEmpty ? parts.first : '';
+  final artist = parts.length > 1 ? parts[1] : '';
+  final album = parts.length > 2 ? parts[2] : '';
+  final dur = parts.length > 3 ? int.tryParse(parts[3]) ?? 0 : 0;
+  if (title.isEmpty || artist.isEmpty) return const LyricDoc();
+  try {
+    return await ref
+        .watch(metadataServiceProvider)
+        .lyricsForRemote(
+          artist: artist,
+          title: title,
+          album: album,
+          durationSecs: dur,
+        );
+  } catch (_) {
+    return const LyricDoc();
+  }
 });

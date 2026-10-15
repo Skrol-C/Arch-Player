@@ -6,7 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// File logging from day one: Honor eats logcat, so the app keeps its own.
 /// Pulled any time with:
-///   adb shell run-as com.archstudios.arch_player cat files/arch.log
+///   adb shell run-as com.archstudios.arch_player cat app_flutter/arch.log
 /// (debug builds) or via the app's documents dir on demand.
 /// Rotates at 512KB, keeps the current + one spare. Never throws.
 abstract final class ArchLog {

@@ -262,8 +262,9 @@ class ArchAudioHandler extends BaseAudioHandler {
     } catch (_) {}
   }
 
-  /// Preview with cover art: downloads the Deezer cover to cache, then
-  /// plays with the file-backed art the native loader prefers.
+  /// Preview with cover art: item + audio go first so the first
+  /// tap answers instantly; the cover downloads behind and patches
+  /// the extras when it lands (same recipe as _attachArtFile).
   Future<void> playPreview({
     required Uri uri,
     required String title,
@@ -272,10 +273,6 @@ class ArchAudioHandler extends BaseAudioHandler {
     required String? coverUrl,
     required int previewId,
   }) async {
-    String? artFile;
-    if (coverUrl != null && coverUrl.isNotEmpty) {
-      artFile = await NotifArt.cacheCover(coverUrl);
-    }
     final now = DateTime.now();
     if (now.difference(_lastTap).inMilliseconds < 400) {
       ArchLog.i('player', 'preview debounced title=$title');
@@ -302,7 +299,7 @@ class ArchAudioHandler extends BaseAudioHandler {
         album: album,
         duration: const Duration(seconds: 30),
         artUri: null,
-        extras: {'songId': previewId, 'albumId': 0, 'artCacheFile': ?artFile},
+        extras: {'songId': previewId, 'albumId': 0},
       );
       _songs = [];
       _emitQueue([item]);
@@ -315,6 +312,18 @@ class ArchAudioHandler extends BaseAudioHandler {
         'player',
         'preview playing title=$title in=${watch.elapsedMilliseconds}ms',
       );
+      if (coverUrl != null && coverUrl.isNotEmpty) {
+        final artFile = await NotifArt.cacheCover(coverUrl);
+        if (artFile != null && mediaItem.value?.id == item.id) {
+          mediaItem.value = item.copyWith(
+            extras: {
+              ...?item.extras,
+              'artCacheFile': artFile,
+              'coverUrl': coverUrl,
+            },
+          );
+        }
+      }
     } finally {
       _busy = false;
     }
