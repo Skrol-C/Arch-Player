@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
+import 'needle_dirs.dart';
 
 /// Registry client: fetch + ETag cache + hash verify. Mirrors the
 /// community registry shape (id, display_name, version, description,
@@ -116,8 +116,8 @@ List<RegistryEntry> _parse(String body) {
 }
 
 Future<Directory> _dir() async {
-  final base = await getApplicationCacheDirectory();
-  final dir = Directory('${base.path}/needle_registry');
+  final base = await needleBaseDir();
+  final dir = Directory('${base.path}/registry');
   if (!await dir.exists()) await dir.create(recursive: true);
   return dir;
 }

@@ -59,6 +59,20 @@ class ChannelLibrary implements LibraryRepository {
       return [];
     }
   }
+
+  /// Nudge MediaStore over one landed file (Needle pulls). The scan
+  /// lands on its own time; callers re-query after a short delay.
+  Future<bool> scanFile(String path) async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'scanFile', {'path': path},
+          ) ??
+          false;
+    } catch (e) {
+      ArchLog.w('scan', 'scanFile failed: $e');
+      return false;
+    }
+  }
 }
 
 /// Album art over the same channel, bucketed by display size.

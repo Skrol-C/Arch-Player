@@ -12,6 +12,11 @@ import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
+import '../needle/needle_store.dart';
+import '../needle/pull.dart';
+import '../needle/sandbox.dart';
+import '../needle/verify_sheet.dart';
+import '../needle/session_grant.dart';
 import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
@@ -1117,6 +1122,17 @@ class _PopularState extends ConsumerState<_Popular> {
           );
         },
       ),
+      // Discovery converts here: unowned tracks pull from providers.
+      // Owned tracks never show this (restraint: no re-downloads).
+      if (owned == null)
+        ListTile(
+          leading: const Icon(Icons.cloud_download_outlined, color: ink),
+          title: Text('Download ${track.title}', maxLines: 1),
+          onTap: () {
+            Navigator.of(context).pop();
+            _pull(ref, context, track);
+          },
+        ),
     ];
     showModalBottomSheet(
       context: context,
@@ -1131,6 +1147,67 @@ class _PopularState extends ConsumerState<_Popular> {
         ),
       ),
     );
+  }
+
+  /// Pull an unowned track through the priority-first download
+  /// provider. Verify challenges open the sheet in context, then
+  /// the same pull retries.
+  Future<void> _pull(
+      WidgetRef ref, BuildContext context, TopTrack track) async {
+    final downloaders = [
+      for (final p in ref.read(installedExtensionsProvider))
+        if (p.enabled && p.roles.contains('download')) p,
+    ];
+    if (downloaders.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('No download providers enabled')),
+      );
+      return;
+    }
+    final provider = downloaders.first;
+    HapticFeedback.selectionClick();
+    try {
+      await pullTrack(
+        provider: provider,
+        title: track.title,
+        artist: widget.artistName,
+      );
+      if (!context.mounted) return;
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${track.title} landed in your library')),
+      );
+      await Future<void>.delayed(const Duration(seconds: 2));
+      ref.invalidate(songsProvider);
+    } on NeedleException catch (e) {
+      if (!context.mounted) return;
+      if (e.code == 'verify-required') {
+        final inlineUrl = e.message.startsWith('auth_url=')
+            ? e.message.substring('auth_url='.length)
+            : '';
+        final url = await SessionGrant.resolveAuthUrl(
+            provider.id, inlineUrl);
+        if (!context.mounted) return;
+        if (url == null || url.isEmpty) return;
+        final granted = await handleVerifyRequired(
+          context,
+          extId: provider.id,
+          displayName: provider.displayName,
+          authUrl: url,
+        );
+        if (granted && context.mounted) _pull(ref, context, track);
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(e.code == 'unavailable'
+                ? 'Not available from ${provider.displayName}'
+                : 'Download failed. Try again.')),
+      );
+      ArchLog.w('needle', 'artist pull failed: ${e.code}');
+    }
   }
 }
 

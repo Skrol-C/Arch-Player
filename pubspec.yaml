@@ -53,6 +53,8 @@ dependencies:
   rust_lib_arch_player:
     path: rust_builder
   archive: ^4.5.2
+  webview_flutter: ^4.14.1
+  ffmpeg_kit_flutter_new_audio: 2.5.7
 
 dev_dependencies:
   flutter_test:

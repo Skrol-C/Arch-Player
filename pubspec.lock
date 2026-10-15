@@ -201,6 +201,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.2"
+  ffmpeg_kit_flutter_new_audio:
+    dependency: "direct main"
+    description:
+      name: ffmpeg_kit_flutter_new_audio
+      sha256: "05d49d170cdc1d077a59fbb0c77fef321d6b9cdcc42653f2b1c4b70640d74c38"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.5.7"
+  ffmpeg_kit_flutter_platform_interface:
+    dependency: transitive
+    description:
+      name: ffmpeg_kit_flutter_platform_interface
+      sha256: addf046ae44e190ad0101b2fde2ad909a3cd08a2a109f6106d2f7048b7abedee
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.1"
   file:
     dependency: transitive
     description:
@@ -969,6 +985,38 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
+  webview_flutter:
+    dependency: "direct main"
+    description:
+      name: webview_flutter
+      sha256: d53e1ccf5516f25017e3c9d44c39034db352d20fa34fe200674270242c2c5111
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.14.1"
+  webview_flutter_android:
+    dependency: transitive
+    description:
+      name: webview_flutter_android
+      sha256: "4de8b3d1ff4ebe1bdb42e68a5e4f809194a3cb0117a8f495f590004f00da3964"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.14.1"
+  webview_flutter_platform_interface:
+    dependency: transitive
+    description:
+      name: webview_flutter_platform_interface
+      sha256: "1221c1b12f5278791042f2ec2841743784cf25c5a644e23d6680e5d718824f04"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.15.1"
+  webview_flutter_wkwebview:
+    dependency: transitive
+    description:
+      name: webview_flutter_wkwebview
+      sha256: a9cc3f507ee40127ed0812ca54d00701a27833f51ea0b5820f4b3e7f42518bf3
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.27.0"
   win32:
     dependency: transitive
     description:

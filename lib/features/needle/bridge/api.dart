@@ -16,10 +16,32 @@ Future<String> needlePing({required String nonce}) =>
 Future<String> needleVersion() =>
     NeedleCore.instance.api.crateApiNeedleVersion();
 
-/// Extension call: sandboxed JS with host capabilities (http
-/// allowlist, namespaced storage, scoped files, call log).
-/// `allow_hosts_json` is a JSON string array - unparseable fails
-/// closed (deny all). Returns the envelope verbatim.
+/// Download a URL into a file with streamed progress (see
+/// DownloadProgress) and cooperative cancel. Allowlist-gated,
+/// tmp-then-rename landing, 500MB cap. Conversion and tagging
+/// arrive in their own slice - this lands raw bytes, honestly
+/// reported. Returns the final envelope; the terminal outcome also
+/// streams (error/path fields), so slow consumers still see the end.
+Stream<DownloadProgress> needleDownload({
+  required BigInt jobId,
+  required String url,
+  required String destPath,
+  required String allowHostsJson,
+}) => NeedleCore.instance.api.crateApiNeedleDownload(
+  jobId: jobId,
+  url: url,
+  destPath: destPath,
+  allowHostsJson: allowHostsJson,
+);
+
+/// Cooperative cancel for [needle_download]: the next chunk
+/// boundary aborts and cleans the partial file. Idempotent.
+Future<bool> needleDownloadCancel({required BigInt jobId}) =>
+    NeedleCore.instance.api.crateApiNeedleDownloadCancel(jobId: jobId);
+
+/// One-shot sandboxed eval with host capabilities (the pure path
+/// used by runSandbox and the startup smoke). Extension loading
+/// above is the stateful sibling; this stays for ad-hoc scripts.
 Future<String> needleExtensionCall({
   required String source,
   required String inputJson,
@@ -38,8 +60,85 @@ Future<String> needleExtensionCall({
   namespace: namespace,
 );
 
+/// Load an installed extension directory: validate manifest +
+Future<String> needleExtLoad({
+  required String extDir,
+  required String namespace,
+  required String storageDir,
+  required String filesDir,
+}) => NeedleCore.instance.api.crateApiNeedleExtLoad(
+  extDir: extDir,
+  namespace: namespace,
+  storageDir: storageDir,
+  filesDir: filesDir,
+);
+
+/// List a loaded extension's registered entry points without
+/// calling anything. Proves the script parses and registers.
+Future<String> needleExtFunctions({
+  required BigInt handle,
+  required int timeoutMs,
+}) => NeedleCore.instance.api.crateApiNeedleExtFunctions(
+  handle: handle,
+  timeoutMs: timeoutMs,
+);
+
+/// Call a registered entry with JSON args. Fresh runtime per call;
+/// args cross as real JS values, results leave via JSON.stringify.
+Future<String> needleExtCall({
+  required BigInt handle,
+  required String entry,
+  required String argsJson,
+  required int timeoutMs,
+}) => NeedleCore.instance.api.crateApiNeedleExtCall(
+  handle: handle,
+  entry: entry,
+  argsJson: argsJson,
+  timeoutMs: timeoutMs,
+);
+
 /// Self-test: proves the sandbox round-trips, reports JS errors as
 /// data, and enforces timeouts. Called once at startup in debug;
 /// the envelope is logged, never trusted blindly.
 Future<String> needleSelftest() =>
     NeedleCore.instance.api.crateApiNeedleSelftest();
+
+/// Progress event streamed per chunk. `total` is None when the
+/// server hides its length - the UI renders indeterminate then.
+/// Terminal events carry the outcome (`done` always true at the
+/// end; `error` set on failure, `path` on success). Defined here
+/// (not in download.rs) so codegen emits its codec.
+class DownloadProgress {
+  final BigInt downloaded;
+  final BigInt? total;
+  final bool done;
+  final String? error;
+  final String? path;
+
+  const DownloadProgress({
+    required this.downloaded,
+    this.total,
+    required this.done,
+    this.error,
+    this.path,
+  });
+
+  @override
+  int get hashCode =>
+      downloaded.hashCode ^
+      total.hashCode ^
+      done.hashCode ^
+      error.hashCode ^
+      path.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DownloadProgress &&
+          runtimeType == other.runtimeType &&
+          downloaded == other.downloaded &&
+          total == other.total &&
+          done == other.done &&
+          error == other.error &&
+          path == other.path;
+}

@@ -68,7 +68,7 @@ class NeedleCore
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1323819873;
+  int get rustContentHash => -537455638;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -80,6 +80,34 @@ class NeedleCore
 }
 
 abstract class NeedleCoreApi extends BaseApi {
+  Stream<DownloadProgress> crateApiNeedleDownload({
+    required BigInt jobId,
+    required String url,
+    required String destPath,
+    required String allowHostsJson,
+  });
+
+  Future<bool> crateApiNeedleDownloadCancel({required BigInt jobId});
+
+  Future<String> crateApiNeedleExtCall({
+    required BigInt handle,
+    required String entry,
+    required String argsJson,
+    required int timeoutMs,
+  });
+
+  Future<String> crateApiNeedleExtFunctions({
+    required BigInt handle,
+    required int timeoutMs,
+  });
+
+  Future<String> crateApiNeedleExtLoad({
+    required String extDir,
+    required String namespace,
+    required String storageDir,
+    required String filesDir,
+  });
+
   Future<String> crateApiNeedleExtensionCall({
     required String source,
     required String inputJson,
@@ -107,6 +135,190 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   });
 
   @override
+  Stream<DownloadProgress> crateApiNeedleDownload({
+    required BigInt jobId,
+    required String url,
+    required String destPath,
+    required String allowHostsJson,
+  }) {
+    final sink = RustStreamSink<DownloadProgress>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_u_64(jobId, serializer);
+            sse_encode_String(url, serializer);
+            sse_encode_String(destPath, serializer);
+            sse_encode_String(allowHostsJson, serializer);
+            sse_encode_StreamSink_download_progress_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 1,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_String,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiNeedleDownloadConstMeta,
+          argValues: [jobId, url, destPath, allowHostsJson, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiNeedleDownloadConstMeta => const TaskConstMeta(
+    debugName: "needle_download",
+    argNames: ["jobId", "url", "destPath", "allowHostsJson", "sink"],
+  );
+
+  @override
+  Future<bool> crateApiNeedleDownloadCancel({required BigInt jobId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(jobId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleDownloadCancelConstMeta,
+        argValues: [jobId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleDownloadCancelConstMeta =>
+      const TaskConstMeta(
+        debugName: "needle_download_cancel",
+        argNames: ["jobId"],
+      );
+
+  @override
+  Future<String> crateApiNeedleExtCall({
+    required BigInt handle,
+    required String entry,
+    required String argsJson,
+    required int timeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(handle, serializer);
+          sse_encode_String(entry, serializer);
+          sse_encode_String(argsJson, serializer);
+          sse_encode_u_32(timeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleExtCallConstMeta,
+        argValues: [handle, entry, argsJson, timeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleExtCallConstMeta => const TaskConstMeta(
+    debugName: "needle_ext_call",
+    argNames: ["handle", "entry", "argsJson", "timeoutMs"],
+  );
+
+  @override
+  Future<String> crateApiNeedleExtFunctions({
+    required BigInt handle,
+    required int timeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(handle, serializer);
+          sse_encode_u_32(timeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleExtFunctionsConstMeta,
+        argValues: [handle, timeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleExtFunctionsConstMeta => const TaskConstMeta(
+    debugName: "needle_ext_functions",
+    argNames: ["handle", "timeoutMs"],
+  );
+
+  @override
+  Future<String> crateApiNeedleExtLoad({
+    required String extDir,
+    required String namespace,
+    required String storageDir,
+    required String filesDir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(extDir, serializer);
+          sse_encode_String(namespace, serializer);
+          sse_encode_String(storageDir, serializer);
+          sse_encode_String(filesDir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleExtLoadConstMeta,
+        argValues: [extDir, namespace, storageDir, filesDir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleExtLoadConstMeta => const TaskConstMeta(
+    debugName: "needle_ext_load",
+    argNames: ["extDir", "namespace", "storageDir", "filesDir"],
+  );
+
+  @override
   Future<String> crateApiNeedleExtensionCall({
     required String source,
     required String inputJson,
@@ -130,7 +342,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 6,
             port: port_,
           );
         },
@@ -177,7 +389,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 7,
             port: port_,
           );
         },
@@ -204,7 +416,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 8,
             port: port_,
           );
         },
@@ -231,7 +443,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 9,
             port: port_,
           );
         },
@@ -250,9 +462,50 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
       const TaskConstMeta(debugName: "needle_version", argNames: []);
 
   @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return AnyhowException(raw as String);
+  }
+
+  @protected
+  RustStreamSink<DownloadProgress> dco_decode_StreamSink_download_progress_Sse(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_64(raw);
+  }
+
+  @protected
+  DownloadProgress dco_decode_download_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return DownloadProgress(
+      downloaded: dco_decode_u_64(arr[0]),
+      total: dco_decode_opt_box_autoadd_u_64(arr[1]),
+      done: dco_decode_bool(arr[2]),
+      error: dco_decode_opt_String(arr[3]),
+      path: dco_decode_opt_String(arr[4]),
+    );
   }
 
   @protected
@@ -262,9 +515,27 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   }
 
   @protected
+  String? dco_decode_opt_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
   }
 
   @protected
@@ -280,10 +551,54 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   }
 
   @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_String(deserializer);
+    return AnyhowException(inner);
+  }
+
+  @protected
+  RustStreamSink<DownloadProgress> sse_decode_StreamSink_download_progress_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_64(deserializer));
+  }
+
+  @protected
+  DownloadProgress sse_decode_download_progress(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_downloaded = sse_decode_u_64(deserializer);
+    var var_total = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_done = sse_decode_bool(deserializer);
+    var var_error = sse_decode_opt_String(deserializer);
+    var var_path = sse_decode_opt_String(deserializer);
+    return DownloadProgress(
+      downloaded: var_downloaded,
+      total: var_total,
+      done: var_done,
+      error: var_error,
+      path: var_path,
+    );
   }
 
   @protected
@@ -294,9 +609,37 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   }
 
   @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -317,15 +660,60 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
+  void sse_encode_AnyhowException(
+    AnyhowException self,
+    SseSerializer serializer,
+  ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
+    sse_encode_String(self.message, serializer);
+  }
+
+  @protected
+  void sse_encode_StreamSink_download_progress_Sse(
+    RustStreamSink<DownloadProgress> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_download_progress,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
   }
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_download_progress(
+    DownloadProgress self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.downloaded, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.total, serializer);
+    sse_encode_bool(self.done, serializer);
+    sse_encode_opt_String(self.error, serializer);
+    sse_encode_opt_String(self.path, serializer);
   }
 
   @protected
@@ -339,9 +727,35 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected
@@ -359,11 +773,5 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }

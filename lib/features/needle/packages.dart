@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
 import 'extension.dart';
+import 'needle_dirs.dart';
 import 'registry.dart';
 
 /// Package install: fetch, hash-verify, safety-scan, extract,
@@ -186,9 +187,29 @@ Future<String?> readInstalledScript(String id) async {
   }
 }
 
+/// Installed directory for an extension id, or null when no
+/// package (or no manifest) sits on disk. The driver loads from
+/// here; Rust validates again on load.
+Future<String?> extDirFor(String id) async {  if (id.isEmpty || id.contains(RegExp(r'[^a-z0-9._-]'))) return null;
+  try {
+    final base = await _extDir();
+    final dir = Directory('${base.path}/$id');
+    final manifest = File('${dir.path}/manifest.json');
+    final script = File('${dir.path}/index.js');
+    if (!await manifest.exists() || !await script.exists()) return null;
+    return dir.path;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Packages root (one subdir per installed id). The debug smoke
+/// enumerates it; the driver resolves individual ids.
+Future<Directory> extPackagesDir() async => _extDir();
+
 Future<Directory> _extDir() async {
-  final base = await getApplicationCacheDirectory();
-  final dir = Directory('${base.path}/needle_extensions');
+  final base = await needleBaseDir();
+  final dir = Directory('${base.path}/extensions');
   if (!await dir.exists()) await dir.create(recursive: true);
   return dir;
 }

@@ -4,9 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/log.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart';
+import '../needle/needle_search.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
-import '../settings/needle_teaser.dart';
 import '../settings/settings_screen.dart';
 import 'dock.dart';
 
@@ -41,7 +41,7 @@ class Shell extends ConsumerWidget {
               Destination.library => const LibraryScreen(
                 key: ValueKey('dest-library'),
               ),
-              Destination.needle => const NeedleTeaser(
+              Destination.needle => const NeedleSearchPage(
                 key: ValueKey('dest-needle'),
               ),
               Destination.settings => const SettingsScreen(
