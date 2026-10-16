@@ -81,35 +81,53 @@ class FormatChip extends StatelessWidget {
     final base = dark ? moon : ink;
     final lossless = formatLossless(format);
     final asset = _assetFor(format);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (asset != null)
-          Image.asset(
-            asset,
-            width: 22,
-            height: 22,
-            errorBuilder: (_, _, _) => SizedBox(
-              width: 18,
-              height: 18,
-              child: CustomPaint(
-                painter: _FormatGlyph(
-                  format: format,
-                  color: base,
-                  lossless: lossless,
-                ),
-              ),
-            ),
-          )
-        else
-          CustomPaint(
-            size: const Size(18, 18),
+    // Sourced codec marks are dark-on-transparent: on a dark pill
+    // they sit on a white tile (provider-mark convention), else
+    // they vanish into the background.
+    Widget mark;
+    if (asset != null) {
+      final logo = Image.asset(
+        asset,
+        width: 22,
+        height: 22,
+        errorBuilder: (_, _, _) => SizedBox(
+          width: 18,
+          height: 18,
+          child: CustomPaint(
             painter: _FormatGlyph(
               format: format,
               color: base,
               lossless: lossless,
             ),
           ),
+        ),
+      );
+      mark = dark
+          ? Container(
+              width: 26,
+              height: 26,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: SizedBox(width: 20, height: 20, child: logo),
+            )
+          : logo;
+    } else {
+      mark = CustomPaint(
+        size: const Size(18, 18),
+        painter: _FormatGlyph(
+          format: format,
+          color: base,
+          lossless: lossless,
+        ),
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        mark,
         const SizedBox(width: 6),
         Text(
           formatLabel(format),

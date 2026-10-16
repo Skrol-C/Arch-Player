@@ -12,14 +12,23 @@ import 'player_providers.dart';
 
 /// Current-track art with the preview path first: streaming previews
 /// carry albumId 0 but their cover rides the media-item artCacheFile
-/// extra (cached by playPreview). File image when present, else the
-/// usual AlbumArt-or-placeholder. Never blank while audio flows.
-class CurrentArt extends ConsumerWidget {
+/// extra (cached by playPreview). Chain: file -> remote coverUrl ->
+/// AlbumArt -> placeholder. Never blank while audio flows.
+///
+/// Two anti-bugs, both learned on device:
+/// - `useLiveFile: false` for queue/row art: rows must paint their
+///   OWN art, never the live item's file (otherwise every row
+///   inherits the playing track's cover).
+/// - Stale retention: while the new item has no file yet, keep the
+///   previous image instead of flashing the placeholder. Keyed by
+///   media-item id so same-id items never hold stale art.
+class CurrentArt extends ConsumerStatefulWidget {
   final Song song;
   final double size;
   final double radius;
   final double iconSize;
   final bool fill;
+  final bool useLiveFile;
   const CurrentArt({
     super.key,
     required this.song,
@@ -27,78 +36,116 @@ class CurrentArt extends ConsumerWidget {
     required this.radius,
     this.iconSize = 28,
     this.fill = false,
+    this.useLiveFile = true,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CurrentArt> createState() => _CurrentArtState();
+}
+
+class _CurrentArtState extends ConsumerState<CurrentArt> {
+  String? _lastItemId;
+  Widget? _retained;
+
+  Song get _song => widget.song;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.useLiveFile) return _fallback();
     final handler = ref.watch(audioHandlerProvider);
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
       initialData: handler.mediaItem.valueOrNull,
       builder: (context, snap) {
-        final file = snap.data?.extras?['artCacheFile'] as String?;
+        final item = snap.data;
+        final id = item?.id;
+        final file = item?.extras?['artCacheFile'] as String?;
         if (file != null && file.isNotEmpty) {
           final body = Image.file(
             File(file),
-            width: fill ? null : size,
-            height: fill ? null : size,
+            key: ValueKey(file),
+            width: widget.fill ? null : widget.size,
+            height: widget.fill ? null : widget.size,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
             errorBuilder: (_, _, _) =>
-                _network(snap.data, _fallback()),
+                _network(item, _fallback()) ?? _fallback(),
           );
-          if (fill) return body;
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(radius),
-            child: body,
-          );
+          final framed = widget.fill
+              ? body
+              : ClipRRect(
+                  borderRadius:
+                      BorderRadius.circular(widget.radius),
+                  child: body,
+                );
+          _lastItemId = id;
+          _retained = framed;
+          return framed;
         }
-        return _network(snap.data, _fallback());
+        // New item, no file yet: hold the previous image while
+        // any remote art resolves underneath it. The hold is NEVER
+        // overwritten by the fallback: a genuinely artless new item
+        // keeps the old image until its own file or URL lands, and
+        // same-id items fall through honestly.
+        final hold = (id != null && id != _lastItemId) ? _retained : null;
+        _lastItemId = id;
+        final net = _network(item, hold ?? _fallback());
+        if (net != null) {
+          if (hold == null) _retained = net;
+          return net;
+        }
+        if (hold != null) return hold;
+        final fb = _fallback();
+        _retained = fb;
+        return fb;
       },
     );
   }
 
   /// Remote cover fallback for file-less items (expansion
-  /// previews, evicted caches). Network, then the given fallback.
-  Widget _network(MediaItem? item, Widget fallback) {
+  /// previews, evicted caches). The hold image shows while the
+  /// network art resolves, so no frame flashes.
+  Widget? _network(MediaItem? item, Widget hold) {
     final url = item?.extras?['coverUrl'] as String?;
-    if (url == null || url.isEmpty) return fallback;
+    if (url == null || url.isEmpty) return null;
     final img = CachedNetworkImage(
       imageUrl: url,
-      width: fill ? null : size,
-      height: fill ? null : size,
+      width: widget.fill ? null : widget.size,
+      height: widget.fill ? null : widget.size,
       fit: BoxFit.cover,
-      errorWidget: (_, _, _) => fallback,
+      placeholder: (_, _) => hold,
+      errorWidget: (_, _, _) => hold,
     );
-    if (fill) return img;
+    if (widget.fill) return img;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
+      borderRadius: BorderRadius.circular(widget.radius),
       child: img,
     );
   }
 
   Widget _fallback() {
-    if (song.albumId > 0) {
+    if (_song.albumId > 0) {
       return AlbumArt(
-        albumId: song.albumId,
-        size: size,
-        radius: radius,
-        fill: fill,
+        albumId: _song.albumId,
+        size: widget.size,
+        radius: widget.radius,
+        fill: widget.fill,
       );
     }
     final icon = Icon(
       CupertinoIcons.music_note,
       color: inkDim,
-      size: iconSize,
+      size: widget.iconSize,
     );
-    if (fill) {
+    if (widget.fill) {
       return Container(color: paperRaised, child: Center(child: icon));
     }
     return Container(
-      width: size,
-      height: size,
+      width: widget.size,
+      height: widget.size,
       decoration: BoxDecoration(
         color: paperRaised,
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: BorderRadius.circular(widget.radius),
       ),
       child: icon,
     );

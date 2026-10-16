@@ -92,27 +92,37 @@ class ArtCache {
   static const _cap = 60;
   static final Map<String, Uint8List?> _cache = {};
   static final List<String> _order = [];
+  static final Map<String, Future<Uint8List?>> _pending = {};
 
   static Future<Uint8List?> of(
     int albumId, [
     ArtBucket bucket = ArtBucket.small,
-  ]) async {
-    if (albumId <= 0) return null;
+  ]) {
+    if (albumId <= 0) return Future.value();
     final key = '${bucket.px}:$albumId';
     if (_cache.containsKey(key)) {
       _order.remove(key);
       _order.add(key);
-      return _cache[key];
+      return Future.value(_cache[key]);
     }
+    final existing = _pending[key];
+    if (existing != null) return existing;
+    final fut = _fetch(key, albumId, bucket.px);
+    _pending[key] = fut;
+    fut.whenComplete(() => _pending.remove(key));
+    return fut;
+  }
+
+  static Future<Uint8List?> _fetch(String key, int albumId, int px) async {
     try {
       final bytes = await _channel.invokeMethod<Uint8List>('loadArt', {
         'albumId': albumId,
-        'targetPx': bucket.px,
+        'targetPx': px,
       });
       _put(key, bytes);
       return bytes;
     } catch (e) {
-      ArchLog.w('scan', 'loadArt($albumId, ${bucket.px}) failed: $e');
+      ArchLog.w('scan', 'loadArt($albumId, $px) failed: $e');
       _put(key, null);
       return null;
     }

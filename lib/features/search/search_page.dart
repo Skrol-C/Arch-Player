@@ -1485,7 +1485,7 @@ class _RowState extends ConsumerState<_Row> {
             MenuAction(
               icon: CupertinoIcons.music_albums,
               label: 'Open album',
-              subtitle: hit.artists.isNotEmpty ? hit.artists : null,
+              subtitle: hit.name,
               value: 'album',
             ),
           MenuAction(

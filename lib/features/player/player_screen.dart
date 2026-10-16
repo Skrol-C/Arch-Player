@@ -1267,6 +1267,10 @@ class _QueuePanel extends ConsumerWidget {
                               size: 44,
                               radius: 8,
                               iconSize: 22,
+                              // Rows paint their own art, never the
+                              // live item's file (queue-wide inherit
+                              // bug otherwise).
+                              useLiveFile: false,
                             ),
                           ),
                         ),

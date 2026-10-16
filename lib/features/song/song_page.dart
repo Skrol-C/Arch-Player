@@ -517,8 +517,7 @@ class _FormatPill extends StatelessWidget {
     Widget inner;
     if (owned != null && owned.path.isNotEmpty) {
       inner = FormatChip(path: owned.path, dark: true);
-    } else {
-      inner = Row(
+    } else {      inner = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.audio_file_outlined,

@@ -58,11 +58,13 @@ class ArchAudioHandler extends BaseAudioHandler {
     // The notification only rebuilds on control flips and metadata sets —
     // never on index change alone. So every index change re-sets the
     // media item explicitly: taps, auto-advance, next/prev, lock intents.
+    // Routed through _setItem so the known art file rides along and
+    // the extra never flaps off and back (that flap is the flicker).
     _player.currentIndexStream.listen((index) {
       if (index == null) return;
       final items = queue.value;
       if (index < 0 || index >= items.length) return;
-      mediaItem.value = items[index];
+      _setItem(items[index]);
       ArchLog.i('player', 'index -> ${items[index].title}');
       // Auto-advance lands artless (see above): attach behind, guarded.
       if (index < _songs.length) {
@@ -75,6 +77,35 @@ class ArchAudioHandler extends BaseAudioHandler {
     unawaited(_configureSession());
   }
 
+  /// Last-known art file per media id: every mediaItem assignment
+  /// routes through [_setItem] so a known file rides along and the
+  /// extra never flaps off and back (that flap is the art flicker).
+  final Map<String, String> _artFiles = {};
+  static const _artCap = 64;
+
+  void _rememberArt(String id, String path) {
+    if (id.isEmpty || path.isEmpty) return;
+    _artFiles[id] = path;
+    while (_artFiles.length > _artCap) {
+      _artFiles.remove(_artFiles.keys.first);
+    }
+  }
+
+  void _setItem(MediaItem item) {
+    var extras = item.extras;
+    final has = (extras?['artCacheFile'] as String?) ?? '';
+    if (has.isNotEmpty) {
+      _rememberArt(item.id, has);
+    } else {
+      final known = _artFiles[item.id];
+      if (known != null && known.isNotEmpty) {
+        item = item.copyWith(
+          extras: {...?extras, 'artCacheFile': known},
+        );
+      }
+    }
+    mediaItem.value = item;
+  }
   /// Explicit audio session (their wheel, our policy): media usage,
   /// full gain (calls and nav still interrupt — never music-over-calls),
   /// and pause-with-state on every interruption start instead of silent
@@ -227,7 +258,7 @@ class ArchAudioHandler extends BaseAudioHandler {
       }
       // currentIndexStream fires too, but set it now so the first
       // notification frame is already correct — never one stale behind.
-      mediaItem.value = song.toMediaItem();
+      _setItem(song.toMediaItem());
       await _player.play().timeout(const Duration(seconds: 10));
       ArchLog.i(
         'player',
@@ -255,9 +286,9 @@ class ArchAudioHandler extends BaseAudioHandler {
       if (file == null || mediaItem.value?.id != id) return;
       final current = mediaItem.value;
       if (current == null) return;
-      mediaItem.value = current.copyWith(
+      _setItem(current.copyWith(
         extras: {...?current.extras, 'artCacheFile': file},
-      );
+      ));
       ArchLog.i('player', 'notif art attached id=${song.id}');
     } catch (_) {}
   }
@@ -299,14 +330,21 @@ class ArchAudioHandler extends BaseAudioHandler {
         album: album,
         duration: const Duration(seconds: 30),
         artUri: null,
-        extras: {'songId': previewId, 'albumId': 0},
+        // coverUrl rides from frame one so art has a network leg
+        // while the file caches behind; the file patches in next.
+        extras: {
+          'songId': previewId,
+          'albumId': 0,
+          if (coverUrl != null && coverUrl.isNotEmpty)
+            'coverUrl': coverUrl,
+        },
       );
       _songs = [];
       _emitQueue([item]);
       await _player
           .setAudioSource(AudioSource.uri(uri), preload: false)
           .timeout(const Duration(seconds: 20));
-      mediaItem.value = item;
+      _setItem(item);
       await _player.play().timeout(const Duration(seconds: 10));
       ArchLog.i(
         'player',
@@ -315,13 +353,13 @@ class ArchAudioHandler extends BaseAudioHandler {
       if (coverUrl != null && coverUrl.isNotEmpty) {
         final artFile = await NotifArt.cacheCover(coverUrl);
         if (artFile != null && mediaItem.value?.id == item.id) {
-          mediaItem.value = item.copyWith(
+          _setItem(item.copyWith(
             extras: {
               ...?item.extras,
               'artCacheFile': artFile,
               'coverUrl': coverUrl,
             },
-          );
+          ));
         }
       }
     } finally {
