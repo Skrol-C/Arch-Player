@@ -1481,7 +1481,8 @@ class _SleepOption extends StatelessWidget {
   }
 }
 
-/// Player menu: Share quick, Go to Album/Artist, Sleep, Details.
+/// Player menu: Share quick, Go to Album/Artist, Doctor +
+/// Lyric Finder placeholders, Sleep, Details.
 /// Same rows as the song menu, plus the live sleep subtitle.
 Future<void> _openPlayerMenu(
   WidgetRef ref,
@@ -1515,6 +1516,18 @@ Future<void> _openPlayerMenu(
           value: 'artist',
         ),
         const MenuAction(
+          icon: CupertinoIcons.bandage,
+          label: 'Song Doctor',
+          subtitle: 'Coming soon',
+          value: 'doctor',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.text_bubble,
+          label: 'Lyric Finder',
+          subtitle: 'Coming soon',
+          value: 'lyrics',
+        ),
+        const MenuAction(
           icon: CupertinoIcons.info_circle,
           label: 'Details',
           value: 'details',
@@ -1541,6 +1554,14 @@ Future<void> _openPlayerMenu(
       break;
     case 'artist':
       ArtistPage.openIfAbsent(context, song.artist);
+      break;
+    case 'doctor':
+      case 'lyrics':
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('On the way — not yet available.')),
+        );
+      }
       break;
     case 'share':
       SharePlus.instance.share(
