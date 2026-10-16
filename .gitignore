@@ -55,6 +55,12 @@ PRODUCT.md
 README.md
 docs/
 
+# Display fonts: local-only assets (~6.8MB of binaries). The repo keeps
+# the voice list (lib/core/theme.dart) and the pubspec wiring; the faces
+# and their licences live on disk only. A fresh clone cannot build until
+# the fonts are restored.
+fonts/
+
 # Local secrets (never committed)
 lib/core/secrets.local.dart
 

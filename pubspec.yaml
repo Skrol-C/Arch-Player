@@ -176,3 +176,204 @@ flutter:
       fonts:
         - asset: fonts/ArchChunk-Regular.ttf
           weight: 400
+    - family: ArchCaveat
+      fonts:
+        - asset: fonts/ArchCaveat-Bold.ttf
+          weight: 700
+    - family: ArchPirata
+      fonts:
+        - asset: fonts/ArchPirata-Regular.ttf
+          weight: 400
+    - family: ArchMono
+      fonts:
+        - asset: fonts/ArchMono-Bold.ttf
+          weight: 700
+    - family: ArchCinzel
+      fonts:
+        - asset: fonts/ArchCinzel-Bold.ttf
+          weight: 700
+    - family: ArchMarker
+      fonts:
+        - asset: fonts/ArchMarker-Regular.ttf
+          weight: 400
+    - family: ArchBowlby
+      fonts:
+        - asset: fonts/ArchBowlby-Regular.ttf
+          weight: 400
+    - family: ArchRighteous
+      fonts:
+        - asset: fonts/ArchRighteous-Regular.ttf
+          weight: 400
+    - family: ArchYeseva
+      fonts:
+        - asset: fonts/ArchYeseva-Regular.ttf
+          weight: 400
+    - family: ArchSyncopate
+      fonts:
+        - asset: fonts/ArchSyncopate-Bold.ttf
+          weight: 700
+    - family: ArchBaskerville
+      fonts:
+        - asset: fonts/ArchBaskerville-Bold.ttf
+          weight: 700
+    - family: ArchGaramond
+      fonts:
+        - asset: fonts/ArchGaramond-Bold.ttf
+          weight: 700
+    - family: ArchCormorant
+      fonts:
+        - asset: fonts/ArchCormorant-Bold.ttf
+          weight: 700
+    - family: ArchLora
+      fonts:
+        - asset: fonts/ArchLora-Bold.ttf
+          weight: 700
+    - family: ArchMerriweather
+      fonts:
+        - asset: fonts/ArchMerriweather-Bold.ttf
+          weight: 700
+    - family: ArchDMSerif
+      fonts:
+        - asset: fonts/ArchDMSerif-Regular.ttf
+          weight: 400
+    - family: ArchBodoni
+      fonts:
+        - asset: fonts/ArchBodoni-Bold.ttf
+          weight: 700
+    - family: ArchZilla
+      fonts:
+        - asset: fonts/ArchZilla-Bold.ttf
+          weight: 700
+    - family: ArchBitter
+      fonts:
+        - asset: fonts/ArchBitter-Bold.ttf
+          weight: 700
+    - family: ArchNarrow
+      fonts:
+        - asset: fonts/ArchNarrow-Bold.ttf
+          weight: 700
+    - family: ArchBarlow
+      fonts:
+        - asset: fonts/ArchBarlow-Bold.ttf
+          weight: 700
+    - family: ArchRubik
+      fonts:
+        - asset: fonts/ArchRubik-Bold.ttf
+          weight: 700
+    - family: ArchWork
+      fonts:
+        - asset: fonts/ArchWork-Bold.ttf
+          weight: 700
+    - family: ArchSpaceGrotesk
+      fonts:
+        - asset: fonts/ArchSpaceGrotesk-Bold.ttf
+          weight: 700
+    - family: ArchManrope
+      fonts:
+        - asset: fonts/ArchManrope-Bold.ttf
+          weight: 700
+    - family: ArchOutfit
+      fonts:
+        - asset: fonts/ArchOutfit-Bold.ttf
+          weight: 700
+    - family: ArchLexend
+      fonts:
+        - asset: fonts/ArchLexend-Bold.ttf
+          weight: 700
+    - family: ArchSyne
+      fonts:
+        - asset: fonts/ArchSyne-ExtraBold.ttf
+          weight: 800
+    - family: ArchUnbounded
+      fonts:
+        - asset: fonts/ArchUnbounded-Bold.ttf
+          weight: 700
+    - family: ArchFjalla
+      fonts:
+        - asset: fonts/ArchFjalla-Regular.ttf
+          weight: 400
+    - family: ArchTeko
+      fonts:
+        - asset: fonts/ArchTeko-Bold.ttf
+          weight: 700
+    - family: ArchSaira
+      fonts:
+        - asset: fonts/ArchSaira-Bold.ttf
+          weight: 700
+    - family: ArchShoulders
+      fonts:
+        - asset: fonts/ArchShoulders-Bold.ttf
+          weight: 700
+    - family: ArchBangers
+      fonts:
+        - asset: fonts/ArchBangers-Regular.ttf
+          weight: 400
+    - family: ArchLuckiest
+      fonts:
+        - asset: fonts/ArchLuckiest-Regular.ttf
+          weight: 400
+    - family: ArchPassion
+      fonts:
+        - asset: fonts/ArchPassion-Bold.ttf
+          weight: 700
+    - family: ArchShrikhand
+      fonts:
+        - asset: fonts/ArchShrikhand-Regular.ttf
+          weight: 400
+    - family: ArchRye
+      fonts:
+        - asset: fonts/ArchRye-Regular.ttf
+          weight: 400
+    - family: ArchUltra
+      fonts:
+        - asset: fonts/ArchUltra-Regular.ttf
+          weight: 400
+    - family: ArchGraduate
+      fonts:
+        - asset: fonts/ArchGraduate-Regular.ttf
+          weight: 400
+    - family: ArchMegrim
+      fonts:
+        - asset: fonts/ArchMegrim-Regular.ttf
+          weight: 400
+    - family: ArchPacifico
+      fonts:
+        - asset: fonts/ArchPacifico-Regular.ttf
+          weight: 400
+    - family: ArchLobster
+      fonts:
+        - asset: fonts/ArchLobster-Regular.ttf
+          weight: 400
+    - family: ArchYellowtail
+      fonts:
+        - asset: fonts/ArchYellowtail-Regular.ttf
+          weight: 400
+    - family: ArchVibes
+      fonts:
+        - asset: fonts/ArchVibes-Regular.ttf
+          weight: 400
+    - family: ArchDancing
+      fonts:
+        - asset: fonts/ArchDancing-Bold.ttf
+          weight: 700
+    - family: ArchKaushan
+      fonts:
+        - asset: fonts/ArchKaushan-Regular.ttf
+          weight: 400
+    - family: ArchAllura
+      fonts:
+        - asset: fonts/ArchAllura-Regular.ttf
+          weight: 400
+    - family: ArchCourgette
+      fonts:
+        - asset: fonts/ArchCourgette-Regular.ttf
+          weight: 400
+    - family: ArchOrbitron
+      fonts:
+        - asset: fonts/ArchOrbitron-Bold.ttf
+          weight: 700
+    - family: ArchAudiowide
+      fonts:
+        - asset: fonts/ArchAudiowide-Regular.ttf
+          weight: 400
+
