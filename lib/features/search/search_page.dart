@@ -21,12 +21,11 @@ import '../needle/extension.dart';
 import '../needle/extensions.dart';
 import '../needle/needle_store.dart';
 import '../needle/preview_play.dart';
-import '../needle/pull.dart';
+import '../needle/download_sheet.dart';
+import '../needle/fly_to_needle.dart';
 import '../player/player_providers.dart';
 import '../player/play_guarded.dart';
 import '../needle/sandbox.dart';
-import '../needle/session_grant.dart';
-import '../needle/verify_sheet.dart';
 import '../player/track_menu.dart';
 import '../song/song_page.dart';
 import 'provider_marks.dart';
@@ -1006,6 +1005,12 @@ class _DirectCard extends StatelessWidget {
                         width: 72,
                         height: 72,
                         fit: BoxFit.cover,
+                        // Bounded decode: 72px display never needs the
+                        // full file (menu-travel jank came from this).
+                        memCacheWidth: 144,
+                        memCacheHeight: 144,
+                        maxWidthDiskCache: 256,
+                        maxHeightDiskCache: 256,
                         errorWidget: (_, _, _) => Container(
                           width: 72,
                           height: 72,
@@ -1119,86 +1124,36 @@ class _RowState extends ConsumerState<_Row> {
   bool _pulling = false;
   bool _done = false;
   bool _expanded = false;
-  bool _kidsExplicit = false;
   bool _resolving = false;
 
-  InstalledExtension? _providerFor(String providerId) {
-    for (final p in widget.downloaders) {
-      if (p.id == providerId) return p;
-    }
-    return widget.downloaders.isEmpty ? null : widget.downloaders.first;
-  }
-
   Future<void> _pull() async {
+    // Search pulls go through the download sheet (provider +
+    // quality choice); the queue, router, and hub retry live
+    // downstream. Verify grants complete from the hub row.
     if (_pulling || _done) return;
-    final provider = _providerFor(widget.hit.providerId);
-    if (provider == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No download provider enabled')),
-        );
-      }
-      return;
-    }
     setState(() => _pulling = true);
     HapticFeedback.selectionClick();
-    try {
-      await pullTrack(
-        provider: provider,
-        title: widget.hit.name,
-        artist: widget.hit.artists,
-        isrc: widget.hit.isrc,
-      );
-      if (!mounted) return;
-      setState(() {
-        _pulling = false;
-        _done = true;
-      });
+    final from = rowRect(context);
+    final enqueued = await showDownloadSheet(
+      context,
+      ref,
+      title: widget.hit.name,
+      artist: widget.hit.artists,
+      album: widget.hit.album,
+      art: widget.hit.art,
+      isrc: widget.hit.isrc,
+      providerId: widget.hit.providerId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pulling = false;
+      if (enqueued) _done = true;
+    });
+    if (enqueued) {
       HapticFeedback.mediumImpact();
-      await Future<void>.delayed(const Duration(seconds: 2));
-      ref.invalidate(songsProvider);
-    } on NeedleException catch (e) {
-      if (!mounted) return;
-      if (e.code == 'verify-required') {
-        final inlineUrl = e.message.startsWith('auth_url=')
-            ? e.message.substring('auth_url='.length)
-            : '';
-        final url = await SessionGrant.resolveAuthUrl(
-            provider.id, inlineUrl);
-        if (!mounted) return;
-        if (url == null || url.isEmpty) {
-          setState(() => _pulling = false);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Verification needed (no URL)')),
-            );
-          }
-          return;
-        }
-        setState(() => _pulling = false);
-        final granted = await handleVerifyRequired(
-          context,
-          extId: provider.id,
-          displayName: provider.displayName,
-          authUrl: url,
-        );
-        if (granted && mounted) _pull();
-        return;
+      if (from != null) {
+        await flyToNeedle(context, art: widget.hit.art, from: from);
       }
-      if (mounted) {
-        setState(() => _pulling = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(switch (e.code) {
-              'unavailable' =>
-                'Not available from ${provider.displayName}',
-              _ => 'Pull failed. Try again.',
-            }),
-          ),
-        );
-      }
-      ArchLog.w('search', 'pull failed: ${e.code} ${e.message}');
     }
   }
 
@@ -1282,16 +1237,16 @@ class _RowState extends ConsumerState<_Row> {
   @override
   Widget build(BuildContext context) {
     final hit = widget.hit;
-    // Owned + previewable badges: computed live so a landed pull
-    // flips the row without a new search.
+    // Owned + previewable badges: index lookup (title bucket),
+    // live off the library so a landed pull flips the row.
     Song? owned;
     if (hit.kind == 'track') {
-      final songs = ref.watch(songsProvider).value ?? [];
-      final want = normTitle(hit.name);
+      final bucket =
+          ref.watch(searchOwnedIndexProvider)[normTitle(hit.name)] ??
+              const <Song>[];
       final who = hit.artists.isNotEmpty ? hit.artists : hit.name;
-      for (final s in songs) {
-        if (normTitle(s.title) == want &&
-            artistsOverlap(s.artist, who)) {
+      for (final s in bucket) {
+        if (artistsOverlap(s.artist, who)) {
           owned = s;
           break;
         }
@@ -1324,6 +1279,10 @@ class _RowState extends ConsumerState<_Row> {
             width: 64,
             height: 64,
             fit: BoxFit.cover,
+            memCacheWidth: 128,
+            memCacheHeight: 128,
+            maxWidthDiskCache: 256,
+            maxHeightDiskCache: 256,
             errorWidget: (_, _, _) => Container(
               width: 64,
               height: 64,
@@ -1342,7 +1301,12 @@ class _RowState extends ConsumerState<_Row> {
           );
     return Column(
       children: [
-        ListTile(
+        // Own transparent Material: the card Container paints behind
+        // this tile, and without one every tap throws the
+        // invisible-splash exception per row per frame (menu jank).
+        Material(
+          type: MaterialType.transparency,
+          child: ListTile(
             contentPadding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
             leading: leading,
             title: Text(
@@ -1371,7 +1335,7 @@ class _RowState extends ConsumerState<_Row> {
                       color: inkDim, size: 20),
                   const SizedBox(width: 8),
                 ],
-                if (hit.explicit || _kidsExplicit) ...[
+                if (hit.explicit) ...[
                   const _EBadge(),
                   const SizedBox(width: 8),
                 ],
@@ -1380,18 +1344,13 @@ class _RowState extends ConsumerState<_Row> {
             ),
             onTap: _onTap,
           ),
-          if (_expanded &&
-              (hit.kind == 'album' || hit.kind == 'playlist'))
-            _CollectionTracks(
-              hit: hit,
-              downloaders: widget.downloaders,
-              onExplicit: (v) {
-                if (mounted && v != _kidsExplicit) {
-                  setState(() => _kidsExplicit = v);
-                }
-              },
-            ),
-        ],
+        ),
+        if (_expanded && (hit.kind == 'album' || hit.kind == 'playlist'))
+          _CollectionTracks(
+            hit: hit,
+            downloaders: widget.downloaders,
+          ),
+      ],
     );
   }
 
@@ -1531,9 +1490,8 @@ class _RowState extends ConsumerState<_Row> {
 class _CollectionTracks extends ConsumerStatefulWidget {
   final _Hit hit;
   final List<InstalledExtension> downloaders;
-  final ValueChanged<bool> onExplicit;
   const _CollectionTracks(
-      {required this.hit, required this.downloaders, required this.onExplicit});
+      {required this.hit, required this.downloaders});
 
   @override
   ConsumerState<_CollectionTracks> createState() =>
@@ -1632,9 +1590,6 @@ class _CollectionTracksState extends ConsumerState<_CollectionTracks> {
     }
     ArchLog.i(
         'search', '$entry ${widget.hit.id}: ${out2.length} tracks');
-    // Album-level honesty: the card earns its E when any listed
-    // track carries one (Spotify omits album flags upstream).
-    widget.onExplicit(out2.any((t) => t.explicit));
     return out2;
   }
 
@@ -1767,34 +1722,26 @@ class _SubPullState extends ConsumerState<_SubPull> {
 
   Future<void> _pull() async {
     if (_busy || _done) return;
-    InstalledExtension? provider;
-    for (final p in widget.downloaders) {
-      if (p.id == widget.hit.providerId) provider = p;
-    }
-    provider ??= widget.downloaders.isEmpty
-        ? null
-        : widget.downloaders.first;
-    if (provider == null) return;
-    final prov = provider;
     setState(() => _busy = true);
-    try {
-      await pullTrack(
-        provider: prov,
-        title: widget.hit.name,
-        artist: widget.hit.artists,
-        isrc: widget.hit.isrc,
-      );
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _done = true;
-      });
-    } on NeedleException catch (e) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.code == 'unavailable' ? 'Not available' : 'Pull failed')),
-      );
+    HapticFeedback.selectionClick();
+    final from = rowRect(context);
+    final enqueued = await showDownloadSheet(
+      context,
+      ref,
+      title: widget.hit.name,
+      artist: widget.hit.artists,
+      album: widget.hit.album,
+      art: widget.hit.art,
+      isrc: widget.hit.isrc,
+      providerId: widget.hit.providerId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (enqueued) _done = true;
+    });
+    if (enqueued && from != null) {
+      await flyToNeedle(context, art: widget.hit.art, from: from);
     }
   }
 

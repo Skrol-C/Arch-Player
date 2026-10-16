@@ -15,7 +15,7 @@ class DownloadPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final quality = ref.watch(downloadQualityProvider);
+    final root = ref.watch(needleRootProvider);
     final dir = ref.watch(downloadDirProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Downloads')),
@@ -23,32 +23,68 @@ class DownloadPage extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
           const Text(
-            'Quality applies when a provider offers choices; otherwise the best available wins.',
+            'Quality is picked on every download; pulls file under the Needle folder below.',
             style: TextStyle(color: inkDim, height: 1.5),
           ),
           const SizedBox(height: 12),
-          RadioGroup<String>(
-            groupValue: quality,
-            onChanged: (v) async {
-              if (v == null) return;
-              HapticFeedback.selectionClick();
-              await ref.read(downloadQualityProvider.notifier).set(v);
-              ArchLog.i('needle', 'quality: $v');
-            },
-            child: Column(
-              children: [
-                for (final e in NeedlePrefs.qualities.entries)
-                  RadioListTile<String>(
-                    title: Text(
-                      e.value,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    value: e.key,
-                    activeColor: archPink,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-              ],
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: paperRaised,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.folder_rounded, color: archPink),
             ),
+            title: const Text(
+              'Needle folder',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              'Music/$root · Songs · Albums · Playlist',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: inkDim, fontSize: 13),
+            ),
+            trailing:
+                const Icon(Icons.chevron_right_rounded, color: inkDim),
+            onTap: () async {
+              HapticFeedback.selectionClick();
+              final controller = TextEditingController(text: root);
+              final next = await showDialog<String>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Needle folder'),
+                  content: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Needle',
+                      prefixText: 'Music / ',
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () =>
+                          Navigator.of(ctx).pop(controller.text),
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              );
+              if (next != null && context.mounted) {
+                await ref
+                    .read(needleRootProvider.notifier)
+                    .set(next);
+                ArchLog.i('needle', 'root set');
+              }
+            },
           ),
           const SizedBox(height: 8),
           ListTile(

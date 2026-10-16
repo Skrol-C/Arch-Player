@@ -19,9 +19,9 @@ import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../metadata/lyrics_providers.dart';
 import '../metadata/metadata_providers.dart';
-import '../needle/extension.dart';
+import '../needle/download_sheet.dart';
+import '../needle/fly_to_needle.dart';
 import '../needle/needle_store.dart';
-import '../needle/pull_ui.dart';
 import '../player/format_marks.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
@@ -97,15 +97,28 @@ class SongRef {
       : 'r:${normTitle(title)}|${artist.toLowerCase()}';
 }
 
-/// Owned-library match for a title/artist pair. Null = remote-only,
-/// the caller adapts instead of opening air.
-Song? ownedSongFor(WidgetRef ref, String title, String artist) {
-  final songs = ref.read(songsProvider).value ?? [];
-  final want = normTitle(title);
+/// Normalized-title index over the library: rows look up their
+/// own title bucket (1-3 songs) instead of regex-normalizing
+/// all 500+ songs per row per build. Rebuilt only when the
+/// library itself changes. (Per-row full scans were UI-thread
+/// jank on every list rebuild - menu travel included.)
+final searchOwnedIndexProvider = Provider<Map<String, List<Song>>>((ref) {
+  final songs = ref.watch(songsProvider).value ?? [];
+  final index = <String, List<Song>>{};
   for (final s in songs) {
-    if (normTitle(s.title) == want && artistsOverlap(s.artist, artist)) {
-      return s;
-    }
+    final key = normTitle(s.title);
+    if (key.isEmpty) continue;
+    (index[key] ??= []).add(s);
+  }
+  return index;
+});
+
+/// Owned-library match using the index. Null = remote-only.
+Song? ownedSongFor(WidgetRef ref, String title, String artist) {
+  final bucket =
+      ref.read(searchOwnedIndexProvider)[normTitle(title)] ?? const [];
+  for (final s in bucket) {
+    if (artistsOverlap(s.artist, artist)) return s;
   }
   return null;
 }
@@ -332,6 +345,10 @@ class _Hero extends ConsumerWidget {
       art = ClipRRect(
         borderRadius: BorderRadius.circular(32),
         child: CachedNetworkImage(
+            memCacheWidth: 640,
+            memCacheHeight: 640,
+            maxWidthDiskCache: 512,
+            maxHeightDiskCache: 512,
           imageUrl: r.artUrl,
           width: 320,
           height: 320,
@@ -425,6 +442,10 @@ class _Hero extends ConsumerWidget {
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: CachedNetworkImage(
+            memCacheWidth: 88,
+            memCacheHeight: 88,
+            maxWidthDiskCache: 512,
+            maxHeightDiskCache: 512,
                                   imageUrl: r.artUrl,
                                   width: 44,
                                   height: 44,
@@ -575,6 +596,10 @@ class _MakerPic extends ConsumerWidget {
         if (url == null || url.isEmpty) return fallback();
         return ClipOval(
           child: CachedNetworkImage(
+            memCacheWidth: 96,
+            memCacheHeight: 96,
+            maxWidthDiskCache: 512,
+            maxHeightDiskCache: 512,
             imageUrl: url,
             width: 48,
             height: 48,
@@ -723,38 +748,27 @@ class _ControlsState extends ConsumerState<_Controls> {
   Future<void> _pull() async {
     if (_busy || _done) return;
     final r = widget.songRef;
-    final all = ref.read(installedExtensionsProvider);
-    InstalledExtension? provider;
-    for (final p in all) {
-      if (p.enabled &&
-          p.roles.contains('download') &&
-          (r.providerId.isEmpty || p.id == r.providerId)) {
-        provider = p;
-        break;
-      }
-    }
-    provider ??= () {
-      for (final p in all) {
-        if (p.enabled && p.roles.contains('download')) return p;
-      }
-      return null;
-    }();
-    if (!mounted) return;
     setState(() => _busy = true);
-    final ok = await pullWithVerify(
+    HapticFeedback.selectionClick();
+    final from = rowRect(context);
+    final enqueued = await showDownloadSheet(
       context,
       ref,
-      provider: provider,
-      providerName: provider?.displayName ?? 'provider',
       title: r.title,
       artist: r.artist,
+      album: r.album,
+      art: r.artUrl,
       isrc: r.isrc,
+      providerId: r.providerId,
     );
     if (!mounted) return;
     setState(() {
       _busy = false;
-      _done = ok;
+      if (enqueued) _done = true;
     });
+    if (enqueued && from != null) {
+      await flyToNeedle(context, art: r.artUrl, from: from);
+    }
   }
 
   @override
@@ -915,7 +929,10 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
     final open = _expanded == c.name;
     return Column(
       children: [
-        ListTile(
+        // Own transparent Material (invisible-splash exceptions).
+        Material(
+          type: MaterialType.transparency,
+          child: ListTile(
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           leading: _MakerPic(name: c.name),
@@ -949,9 +966,12 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                   setState(() => _expanded = open ? null : c.name);
                 },
         ),
+        ),
         if (open)
           for (final s in matches.take(8))
-            ListTile(
+            Material(
+              type: MaterialType.transparency,
+              child: ListTile(
               dense: true,
               contentPadding:
                   const EdgeInsets.fromLTRB(80, 0, 8, 0),
@@ -973,6 +993,7 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                   color: archPink),
               onTap: () => widget.onPlay(s, [s]),
             ),
+          ),
         if (open) const SizedBox(height: 8),
       ],
     );

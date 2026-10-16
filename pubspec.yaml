@@ -93,6 +93,8 @@ flutter:
     - assets/logos/aac/aac.png
     - assets/logos/opus/opus.png
     - assets/logos/ogg/vorbis.png
+    - assets/logos/dolby/dolby-atmos.png
+    - assets/logos/dolby/dolby-digital-plus.png
     # Search provider marks (user-sourced SVGs, see docs/ASSET-NOTICES.md).
     - assets/providers/spotify.svg
     - assets/providers/apple_music.svg

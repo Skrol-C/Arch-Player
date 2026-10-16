@@ -10,6 +10,7 @@ import 'extensions.dart';
 import 'ffmpeg_decrypt.dart';
 import 'needle_core.dart';
 import 'needle_store.dart';
+import 'queue_store.dart';
 import 'sandbox.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -63,7 +64,10 @@ Future<void> migrateLegacyPulls() async {
         final name = e.path.split('/').last;
         if (name.isEmpty) continue;
         try {
-          await _publishStaged(e.path, _stripExt(name), _extOf(name));
+          // Grandfathered strays re-land in the old folder; the new
+          // structure applies to fresh pulls only.
+          await _publishStaged(
+              e.path, _stripExt(name), _extOf(name), 'Music/Arch Player/');
           moved++;
         } catch (_) {}
       }
@@ -148,6 +152,7 @@ Future<String?> _sniffExtension(String path) async {
 /// Pull one track through a download provider. [isrc] may be empty
 /// (name fallback inside the extension). [quality] is the prefs
 /// tier ('lossless'/'high'/'normal'), mapped to provider ids.
+/// [onPhase] reports honest phase progress for queue rows.
 Future<PulledTrack> pullTrack({
   required InstalledExtension provider,
   required String title,
@@ -156,6 +161,7 @@ Future<PulledTrack> pullTrack({
   String? quality,
   String? album,
   int? durationMs,
+  void Function(QueuePhase phase, double progress)? onPhase,
 }) async {
   if (!Needle.ready) {
     throw const NeedleException('bridge-down', 'Needle core unavailable');
@@ -175,6 +181,7 @@ Future<PulledTrack> pullTrack({
     }
   }
   // 1. Availability (also resolves the provider track id).
+  onPhase?.call(QueuePhase.resolving, 0.1);
   final avail = await _callGuarded(
     h.handle,
     'checkAvailability',
@@ -209,6 +216,7 @@ Future<PulledTrack> pullTrack({
       '${dirs.filesDir}/pull/${DateTime.now().millisecondsSinceEpoch}.$format';
   ArchLog.i('needle',
       'pull via ${provider.id}: track=$trackId quality=$wantQuality');
+  onPhase?.call(QueuePhase.downloading, 0.4);
   final dl = await _callGuarded(h.handle, 'download',
       [trackId, wantQuality, staging, null], provider.id);
   final dlV = _value(dl);
@@ -227,16 +235,20 @@ Future<PulledTrack> pullTrack({
       ((dlV['file_path'] ?? dlV['path'] ?? staging).toString());
   // 3b. Encrypted containers decrypt in place (Amazon et al return
   // a mov_key descriptor). Unencrypted files pass through.
+  onPhase?.call(QueuePhase.decrypting, 0.75);
   final readyPath = await _maybeDecrypt(stagedPath, dlV);
   // 4. Land in shared Music via MediaStore insert (own insert:
   // no permission needed, indexed immediately). App-specific
   // dirs are invisible to MediaStore, so staging there is only
   // ever a waypoint, never the destination.
+  onPhase?.call(QueuePhase.publishing, 0.9);
   await migrateLegacyPulls();
+  final relPath = await _needleRelPath(album: album, artist: artist);
   final landed = await _publishStaged(
     readyPath,
     '${_sanitize(artist)} - ${_sanitize(title)}',
     format,
+    relPath,
   );
   ArchLog.i('needle', 'pulled ${provider.id}: $landed');
   return PulledTrack(path: landed, extId: provider.id, format: format);
@@ -284,6 +296,23 @@ Future<String> _maybeDecrypt(String stagedPath, dynamic dlV) async {
   return out;
 }
 
+/// Needle library destination for a pull, relative to shared
+/// storage (`Music/Needle/...`). Albums file under
+/// `Albums/{Album - Artist}/`, everything else under
+/// `Songs/{Artist}/`. Playlist routing arrives with batch pulls.
+Future<String> _needleRelPath(
+    {String? album, required String artist}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final root = ((prefs.getString('arch.needleRoot') ?? '').trim().isEmpty)
+      ? 'Needle'
+      : prefs.getString('arch.needleRoot')!.trim();
+  String seg(String s) => NeedleRootNotifier.sanitizeSegment(s);
+  if (album != null && album.trim().isNotEmpty) {
+    return 'Music/$root/Albums/${seg('${album.trim()} - ${artist.trim()}')}/';
+  }
+  return 'Music/$root/Songs/${seg(artist)}/';
+}
+
 /// Publish one staged file: container-sniff the real extension,
 /// optional user-folder copy, else MediaStore insert. Returns the
 /// landed identifier (content URI or path). Throws NeedleException
@@ -292,6 +321,7 @@ Future<String> _publishStaged(
   String stagedPath,
   String baseName,
   String formatGuess,
+  String relPath,
 ) async {
   final staged = File(stagedPath);
   if (!await staged.exists()) {
@@ -323,6 +353,7 @@ Future<String> _publishStaged(
     'srcPath': stagedPath,
     'displayName': displayName,
     'mimeType': _mimeFor(ext),
+    'relativePath': relPath,
   });
   if (uri == null || uri.isEmpty) {
     throw const NeedleException('download-failed', 'publish failed');

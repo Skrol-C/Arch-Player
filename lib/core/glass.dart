@@ -78,6 +78,24 @@ abstract final class ArchGlass {
     ),
   );
 
+  /// Sheets: SpotiFLAC-mornye grammar in our skin (MIT): white
+  /// veil ~0.46, tight blur, strong rim bend. Frost reads dirty
+  /// over busy art; the veil + bend carry readability instead.
+  static LiquidGlassStyle sheet({double radius = 28}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1,
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x75FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 3, sigmaY: 3),
+    ),
+    refraction: const LiquidGlassRefraction(
+      distortion: 0.16,
+      distortionWidth: 16,
+    ),
+  );
+
   /// Sigma-ramped menu lens: identical recipe, blur animated 0-12
   /// across the entrance so consecutive frames differ
   /// infinitesimally (no blend step, nowhere for a flash to live).
@@ -98,24 +116,24 @@ abstract final class ArchGlass {
     ),
   );
 
-  /// Morphed menu lens: the lens starts life AS the travel cover
-  /// (opaque paper-white, zero blur, zero bend) and becomes the
-  /// recipe as [p] goes 0-1. The swap frame is pixel-identical on
-  /// both sides, so no blend - and no flash - can exist. End
-  /// state (p=1) is pixel-identical to menu().
+  /// Morphed menu lens: the lens renders the RESTED recipe from
+  /// frame zero - no paper cover, no morph. The cover existed to
+  /// prevent a theoretical swap flash; on real hardware the
+  /// cover's own first frame was the visible artifact (white
+  /// border parked while blur compiled). If a swap flash ever
+  /// shows, it reproduces in one tap and reverts in one line.
   static LiquidGlassStyle menuMorphed(double p) {
-    final s = (p * p * (3 - 2 * p)).clamp(0.0, 1.0);
-    return LiquidGlassStyle(
-      shape: const LiquidGlassShape.continuousRoundedRectangle(
+    return const LiquidGlassStyle(
+      shape: LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 28,
         borderWidth: 1,
       ),
       appearance: LiquidGlassAppearance(
-        color: Color.lerp(paper, const Color(0x66FFFFFF), s)!,
-        blur: LiquidGlassBlur(sigmaX: 12 * s, sigmaY: 12 * s),
+        color: Color(0x66FFFFFF),
+        blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
       ),
       refraction: LiquidGlassRefraction(
-        distortion: 0.13 * s,
+        distortion: 0.13,
         distortionWidth: 14,
       ),
     );

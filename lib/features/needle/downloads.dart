@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../../core/log.dart';
 import 'bridge/api.dart' as bridge;
 import 'calling.dart';

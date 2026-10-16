@@ -23,6 +23,12 @@ class NeedlePrefs {
   };
 }
 
+/// Display label for a stored quality id. Unknown ids echo back.
+abstract final class NeedleQualitiesLabel {
+  static String of(String id) =>
+      NeedlePrefs.qualities[id] ?? (id.isEmpty ? '' : id);
+}
+
 final repoUrlsProvider = NotifierProvider<RepoUrlsNotifier, List<String>>(
   RepoUrlsNotifier.new,
 );
@@ -90,6 +96,50 @@ class DownloadQualityNotifier extends Notifier<String> {
 final downloadDirProvider = NotifierProvider<DownloadDirNotifier, String>(
   DownloadDirNotifier.new,
 );
+
+/// Needle library root under shared Music (default `Needle`).
+/// Pulls file into Songs/{Artist}, Albums/{Album - Artist},
+/// Playlist/{Name} beneath it. Grandfathered pulls stay where
+/// they landed; Doctor offers moves later.
+final needleRootProvider =
+    NotifierProvider<NeedleRootNotifier, String>(
+      NeedleRootNotifier.new,
+    );
+
+class NeedleRootNotifier extends Notifier<String> {
+  static const _key = 'arch.needleRoot';
+
+  static String sanitizeSegment(String s) {
+    var out = s.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '').replaceAll(
+        RegExp(r'\s+'), ' ');
+    if (out.isEmpty) return 'Unknown';
+    if (out.length > 80) out = out.substring(0, 80).trim();
+    return out.isEmpty ? 'Unknown' : out;
+  }
+
+  @override
+  String build() {
+    _sync();
+    return 'Needle';
+  }
+
+  Future<void> _sync() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = (prefs.getString(_key) ?? '').trim();
+    if (v.isNotEmpty) state = v;
+  }
+
+  Future<void> set(String v) async {
+    final clean = v
+        .trim()
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final next = clean.isEmpty ? 'Needle' : clean;
+    state = next;
+    (await SharedPreferences.getInstance()).setString(_key, next);
+  }
+}
 
 class DownloadDirNotifier extends Notifier<String> {
   static const _key = 'arch.dlDir';

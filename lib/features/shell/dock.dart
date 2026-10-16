@@ -10,6 +10,7 @@ import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/song_row.dart';
+import '../needle/queue_store.dart';
 import '../player/mini_player.dart';
 import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
@@ -173,6 +174,10 @@ class NowPlayingDock extends ConsumerWidget {
     if (d != null) {
       ArchLog.i('nav', 'pill -> $d');
       ref.read(destinationProvider.notifier).state = d;
+      if (d == Destination.needle) {
+        // Visiting clears the landing glow; pending counts live on.
+        ref.read(needleGlowProvider.notifier).state = false;
+      }
     }
     ref.read(pillCollapsedProvider.notifier).state = false;
     final nav = Navigator.of(context);
@@ -188,7 +193,10 @@ class _FullPill extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dest = ref.watch(destinationProvider);
-    return LiquidGlassTabBar.withImpeller(
+    final pending = ref.watch(downloadQueueProvider).where((j) =>
+        j.state == QueueState.queued || j.state == QueueState.active).length;
+    final glow = ref.watch(needleGlowProvider);
+    final bar = LiquidGlassTabBar.withImpeller(
       items: [
         for (var i = 0; i < _labels.length; i++)
           LiquidGlassTabBarItem(icon: _icons[i], label: _labels[i]),
@@ -216,6 +224,45 @@ class _FullPill extends ConsumerWidget {
         appearance: ArchGlass.frostAppearance,
         adaptivity: ArchGlass.adaptive,
       ),
+    );
+    // Queue badge + landing glow: above the Needle tab
+    // (index 2 of 4), never the pill corner. Fractional offset
+    // survives width changes.
+    if (pending == 0 && !glow) return bar;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        bar,
+        Positioned(
+          left: NowPlayingDock.pillWidth * 0.625,
+          top: -8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: archPink,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: glow
+                  ? [
+                      BoxShadow(
+                        color: archPink.withValues(alpha: 0.55),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Text(
+              pending > 0 ? '$pending' : 'new',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
