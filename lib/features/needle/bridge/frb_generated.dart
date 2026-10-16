@@ -68,7 +68,7 @@ class NeedleCore
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -537455638;
+  int get rustContentHash => -1793337736;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -88,6 +88,15 @@ abstract class NeedleCoreApi extends BaseApi {
   });
 
   Future<bool> crateApiNeedleDownloadCancel({required BigInt jobId});
+
+  Future<String> crateApiNeedleDownloadDiscard({required String destPath});
+
+  Stream<DownloadProgress> crateApiNeedleDownloadResume({
+    required BigInt jobId,
+    required String url,
+    required String destPath,
+    required String allowHostsJson,
+  });
 
   Future<String> crateApiNeedleExtCall({
     required BigInt handle,
@@ -117,6 +126,8 @@ abstract class NeedleCoreApi extends BaseApi {
     required String filesDir,
     required String namespace,
   });
+
+  Future<String> crateApiNeedleFingerprint({required String path});
 
   Future<String> crateApiNeedlePing({required String nonce});
 
@@ -209,6 +220,81 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
       );
 
   @override
+  Future<String> crateApiNeedleDownloadDiscard({required String destPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(destPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleDownloadDiscardConstMeta,
+        argValues: [destPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleDownloadDiscardConstMeta =>
+      const TaskConstMeta(
+        debugName: "needle_download_discard",
+        argNames: ["destPath"],
+      );
+
+  @override
+  Stream<DownloadProgress> crateApiNeedleDownloadResume({
+    required BigInt jobId,
+    required String url,
+    required String destPath,
+    required String allowHostsJson,
+  }) {
+    final sink = RustStreamSink<DownloadProgress>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_u_64(jobId, serializer);
+            sse_encode_String(url, serializer);
+            sse_encode_String(destPath, serializer);
+            sse_encode_String(allowHostsJson, serializer);
+            sse_encode_StreamSink_download_progress_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 4,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_String,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiNeedleDownloadResumeConstMeta,
+          argValues: [jobId, url, destPath, allowHostsJson, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiNeedleDownloadResumeConstMeta =>
+      const TaskConstMeta(
+        debugName: "needle_download_resume",
+        argNames: ["jobId", "url", "destPath", "allowHostsJson", "sink"],
+      );
+
+  @override
   Future<String> crateApiNeedleExtCall({
     required BigInt handle,
     required String entry,
@@ -226,7 +312,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 5,
             port: port_,
           );
         },
@@ -260,7 +346,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -298,7 +384,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -342,7 +428,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -380,6 +466,34 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
       );
 
   @override
+  Future<String> crateApiNeedleFingerprint({required String path}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiNeedleFingerprintConstMeta,
+        argValues: [path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNeedleFingerprintConstMeta =>
+      const TaskConstMeta(debugName: "needle_fingerprint", argNames: ["path"]);
+
+  @override
   Future<String> crateApiNeedlePing({required String nonce}) {
     return handler.executeNormal(
       NormalTask(
@@ -389,7 +503,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 10,
             port: port_,
           );
         },
@@ -416,7 +530,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 11,
             port: port_,
           );
         },
@@ -443,7 +557,7 @@ class NeedleCoreApiImpl extends NeedleCoreApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 12,
             port: port_,
           );
         },

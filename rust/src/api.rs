@@ -49,8 +49,42 @@ pub struct DownloadProgress {
 
 /// Cooperative cancel for [needle_download]: the next chunk
 /// boundary aborts and cleans the partial file. Idempotent.
+/// NOTE: resume partials are KEPT on cancel (retry continues);
+/// only the legacy path deletes. See [needle_download_discard].
 pub fn needle_download_cancel(job_id: u64) -> bool {
     crate::download::cancel(job_id)
+}
+
+/// Resumable download: Range-continue a previous partial when the
+/// sidecar validators still match, else restart fresh. Same
+/// envelope + progress contract as [needle_download]; `total` is
+/// always the full length. Cancel keeps the partial for retry.
+pub fn needle_download_resume(
+    job_id: u64,
+    url: String,
+    dest_path: String,
+    allow_hosts_json: String,
+    sink: crate::frb_generated::StreamSink<DownloadProgress>,
+) -> String {
+    crate::download::fetch_resume(job_id, &url, &dest_path, &allow_hosts_json, &|p| {
+        let _ = sink.add(p);
+    })
+}
+
+/// Explicit discard for resume partials: deletes the `.part` file
+/// plus its sidecar. Returns `{ok, removed}` as JSON.
+pub fn needle_download_discard(dest_path: String) -> String {
+    let removed = crate::download::discard(&dest_path);
+    serde_json::json!({"ok": true, "removed": removed}).to_string()
+}
+
+/// Acoustic fingerprint for blank-slate files (Song Doctor
+/// songfinder): decode -> mono 11025 -> Chromaprint-compatible
+/// print, base64 for AcoustID. File reads only; lookup stays
+/// Dart. Returns `{ok, fingerprint, duration}` or `{ok:false,
+/// error}` as a JSON string. Never throws.
+pub fn needle_fingerprint(path: String) -> String {
+    crate::fingerprint::fingerprint_file(&path)
 }
 
 /// One-shot sandboxed eval with host capabilities (the pure path

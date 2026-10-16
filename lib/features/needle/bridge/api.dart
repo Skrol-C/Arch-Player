@@ -36,8 +36,39 @@ Stream<DownloadProgress> needleDownload({
 
 /// Cooperative cancel for [needle_download]: the next chunk
 /// boundary aborts and cleans the partial file. Idempotent.
+/// NOTE: resume partials are KEPT on cancel (retry continues);
+/// only the legacy path deletes. See [needle_download_discard].
 Future<bool> needleDownloadCancel({required BigInt jobId}) =>
     NeedleCore.instance.api.crateApiNeedleDownloadCancel(jobId: jobId);
+
+/// Resumable download: Range-continue a previous partial when the
+/// sidecar validators still match, else restart fresh. Same
+/// envelope + progress contract as [needle_download]; `total` is
+/// always the full length. Cancel keeps the partial for retry.
+Stream<DownloadProgress> needleDownloadResume({
+  required BigInt jobId,
+  required String url,
+  required String destPath,
+  required String allowHostsJson,
+}) => NeedleCore.instance.api.crateApiNeedleDownloadResume(
+  jobId: jobId,
+  url: url,
+  destPath: destPath,
+  allowHostsJson: allowHostsJson,
+);
+
+/// Explicit discard for resume partials: deletes the `.part` file
+/// plus its sidecar. Returns `{ok, removed}` as JSON.
+Future<String> needleDownloadDiscard({required String destPath}) =>
+    NeedleCore.instance.api.crateApiNeedleDownloadDiscard(destPath: destPath);
+
+/// Acoustic fingerprint for blank-slate files (Song Doctor
+/// songfinder): decode -> mono 11025 -> Chromaprint-compatible
+/// print, base64 for AcoustID. File reads only; lookup stays
+/// Dart. Returns `{ok, fingerprint, duration}` or `{ok:false,
+/// error}` as a JSON string. Never throws.
+Future<String> needleFingerprint({required String path}) =>
+    NeedleCore.instance.api.crateApiNeedleFingerprint(path: path);
 
 /// One-shot sandboxed eval with host capabilities (the pure path
 /// used by runSandbox and the startup smoke). Extension loading
