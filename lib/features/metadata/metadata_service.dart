@@ -631,6 +631,53 @@ class MetadataService {
     return na.isNotEmpty && (na == nb || na.contains(nb) || nb.contains(na));
   }
 
+  /// Artist lists agree on any shared name: a pull credited to
+  /// "Yeat, Joji" must match a release credited to "Yeat". Tokens
+  /// are compared for equality, never substring, so "Ye" still
+  /// cannot match "Yeat".
+  static bool _sameArtist(String a, String b) {
+    final ta = _artistTokens(a), tb = _artistTokens(b);
+    if (ta.isEmpty || tb.isEmpty) return false;
+    for (final t in ta) {
+      if (tb.contains(t)) return true;
+    }
+    return false;
+  }
+
+  /// "Yeat, Joji" / "Yeat & Joji" / "Yeat feat. Joji" all split to
+  /// the names. ` x ` (surrounded by spaces) is a collaboration
+  /// separator; a bare letter is not, so "Charli XCX" survives.
+  static Set<String> _artistTokens(String raw) {
+    final n = raw.toLowerCase().replaceAll('&', ',');
+    final parts = n.split(
+      RegExp(r'[,/;·]|\s+x\s+|\s+(?:feat|ft|with|and)\.?\s+'),
+    );
+    return {
+      for (final p in parts)
+        if (p.trim().isNotEmpty) p.trim(),
+    };
+  }
+
+  /// Album names may carry an edition suffix, so a prefix match is
+  /// allowed — but only when what follows is actually an edition
+  /// marker ("(Deluxe)", "[Remastered]", "- EP"). Plain containment
+  /// would let "AM" match "DAMN.".
+  static bool _sameAlbum(String a, String b) {
+    final na = _cleanName(a), nb = _cleanName(b);
+    if (na.isEmpty || nb.isEmpty) return false;
+    if (na == nb) return true;
+    final short = na.length <= nb.length ? na : nb;
+    final long = na.length <= nb.length ? nb : na;
+    if (!long.startsWith(short)) return false;
+    final rest = long.substring(short.length).trimLeft();
+    if (rest.startsWith('(') || rest.startsWith('[') || rest.startsWith('-')) {
+      return true;
+    }
+    return RegExp(
+      r'^(deluxe|remaster(ed)?|edition|version|explicit|special|bonus|ep)\b',
+    ).hasMatch(rest);
+  }
+
   static String _cleanName(String name) {
     var n = name.toLowerCase();
     n = n.split(RegExp(r'\s+feat\.?\s+')).first;
@@ -827,9 +874,288 @@ class MetadataService {
     return await _readAlbumCredits(artist, album) ?? const [];
   }
 
-  /// Record label: MusicBrainz release search label-info, first
-  /// high-score hit. Null = unknown, never guessed. Cached by the
-  /// caller alongside the album file.
+  /// PaxSenIX lyrics (lyrics.paxsenix.org, keyless): Musixmatch
+  /// lane first, then eastern lanes (QQ, NetEase, Kugou) for
+  /// misses. Returns null when nothing resolves. Results are
+  /// DISPLAY-ONLY (LyricSource.paxsenix): Musixmatch terms forbid
+  /// embedding; the embed step must check the source. Timeouts
+  /// per lane; third party, no SLA, never load-bearing.
+  Future<LyricDoc?> paxLyrics({
+    required String artist,
+    required String title,
+    int durationSecs = 0,
+  }) async {
+    const base = 'https://lyrics.paxsenix.org';
+    LyricDoc? fromLrc(String? lrc) {
+      if (lrc == null || lrc.trim().isEmpty) return null;
+      final text = lrc.trim();
+      if (_looksSynced(text)) {
+        return LyricDoc(
+            syncedLrc: text, source: LyricSource.paxsenix);
+      }
+      return LyricDoc(plain: text, source: LyricSource.paxsenix);
+    }
+
+    Future<LyricDoc?> musixmatch() async {
+      final uri = Uri.parse('$base/musixmatch/lyrics').replace(
+        queryParameters: {
+          't': title,
+          'a': artist,
+          if (durationSecs > 0) 'd': '$durationSecs',
+          'format': 'lrc',
+          'v': '2',
+        },
+      );
+      final res =
+          await http.get(uri).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      try {
+        final m = jsonDecode(res.body) as Map;
+        final data = m['data'] ?? m;
+        if (data is! Map) return null;
+        for (final k in ['synced_lyrics', 'syncedLyrics', 'lrc', 'lyrics', 'plain_lyrics', 'plainLyrics', 'text']) {
+          final v = data[k];
+          if (v is String && v.trim().isNotEmpty) {
+            return fromLrc(v);
+          }
+          if (v is List && v.isNotEmpty) {
+            final joined = [
+              for (final e in v)
+                if (e is Map && (e['text'] ?? e['line']) is String)
+                  (e['text'] ?? e['line']) as String
+                else if (e is String)
+                  e,
+            ].join('\n').trim();
+            if (joined.isNotEmpty) return fromLrc(joined);
+          }
+        }
+        return null;
+      } catch (_) {
+        return fromLrc(res.body);
+      }
+    }
+
+    Future<LyricDoc?> qqNetEase() async {
+      for (final lane in ['qq', 'netease', 'kugou']) {
+        try {
+          final search = Uri.parse('$base/$lane/search').replace(
+            queryParameters: {
+              'q': '$artist $title',
+            },
+          );
+          final sres = await http
+              .get(search)
+              .timeout(const Duration(seconds: 10));
+          if (sres.statusCode != 200) continue;
+          String? id;
+          try {
+            final m = jsonDecode(sres.body) as Map;
+            final data = m['data'] ?? m['result'] ?? m['results'];
+            final list = data is List
+                ? data
+                : (data is Map ? (data['list'] ?? data['songs']) : null);
+            if (list is List && list.isNotEmpty) {
+              final first = list.first;
+              if (first is Map) {
+                id = (first['id'] ?? first['songid'] ?? first['songId'])
+                    ?.toString();
+              }
+            } else if (data is Map) {
+              id = (data['id'] ?? data['songid'])?.toString();
+            }
+          } catch (_) {
+            continue;
+          }
+          if (id == null || id.isEmpty) continue;
+          final lres = await http
+              .get(Uri.parse('$base/$lane/lyrics')
+                  .replace(queryParameters: {'id': id, 'v': '2'}))
+              .timeout(const Duration(seconds: 10));
+          if (lres.statusCode != 200) continue;
+          try {
+            final m = jsonDecode(lres.body) as Map;
+            final data = m['data'] ?? m;
+            if (data is Map) {
+              for (final k in ['lrc', 'lyric', 'lyrics', 'synced_lyrics', 'text']) {
+                final v = data[k];
+                if (v is String && v.trim().isNotEmpty) {
+                  final doc = fromLrc(v);
+                  if (doc != null) return doc;
+                }
+              }
+            }
+          } catch (_) {}
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    try {
+      final mm = await musixmatch();
+      if (mm != null) {
+        ArchLog.i('meta', 'lyrics paxsenix (musixmatch): $artist - $title');
+        return mm;
+      }
+    } catch (_) {}
+    try {
+      final east = await qqNetEase();
+      if (east != null) {
+        ArchLog.i('meta', 'lyrics paxsenix (eastern): $artist - $title');
+        return east;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static bool _looksSynced(String text) {
+    var hits = 0;
+    for (final line in text.split('\n')) {
+      if (RegExp(r'^\s*\[\d{1,3}:\d{2}([.:]\d{1,3})?\]').hasMatch(line)) {
+        hits++;
+        if (hits >= 2) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Hi-res cover for an album, best first: Apple Music master
+  /// (3000px, keyless), Cover Art Archive original (often
+  /// 1500-3000px), Deezer cover_xl (1000px). Null = unknown.
+  Future<String?> hiResCoverFor({
+    required String artist,
+    required String album,
+  }) async {
+    try {
+      final apple = await _appleCover(artist, album);
+      if (apple != null && apple.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane apple: $artist - $album');
+        return apple;
+      }
+    } catch (_) {}
+    try {
+      final caa = await _caaAlbumCover(artist, album);
+      if (caa != null && caa.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane caa: $artist - $album');
+        return caa;
+      }
+    } catch (_) {}
+    try {
+      final id = await _dzAlbumId(artist, album);
+      if (id == 0) return null;
+      final res = await http
+          .get(Uri.parse('$_dzBase/album/$id'))
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body) as Map;
+      for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+        final v = body[k] as String?;
+        if (v != null && v.isNotEmpty) {
+          ArchLog.i('meta', 'cover lane deezer ($k): $artist - $album');
+          return v;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Apple Music artwork: iTunes Search by album term, artist
+  /// verified, then the 100px template swapped for a 3000px
+  /// master. Keyless. Null when Apple has no match.
+  Future<String?> _appleCover(String artist, String album) async {
+    if (album.trim().isEmpty) return null;
+    final uri = Uri.parse(
+      'https://itunes.apple.com/search'
+      '?term=${Uri.encodeQueryComponent(album)}'
+      '&entity=album&attribute=albumTerm&limit=10',
+    );
+    final res = await http.get(uri).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final list = (jsonDecode(res.body) as Map)['results'] as List? ?? [];
+    for (final a in list) {
+      final m = a as Map;
+      if (!_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
+        continue;
+      }
+      if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
+      final art = (m['artworkUrl100'] as String?) ?? '';
+      if (art.isEmpty) continue;
+      final big = art.replaceAll(RegExp(r'/\d+x\d+bb\.'), '/3000x3000bb.');
+      if (big != art) return big;
+    }
+    return null;
+  }
+
+  /// Cover Art Archive original front art for an album: MusicBrainz
+  /// release search for the release-group, then CAA. The `image`
+  /// field is the original file (not a thumbnail). Keyless.
+  Future<String?> _caaAlbumCover(String artist, String album) async {
+    if (album.trim().isEmpty) return null;
+    final memoKey = 'alb:${artist.toLowerCase()}\u0000${album.toLowerCase()}';
+    if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+    try {
+      final q = 'release:"${album.replaceAll('"', '')}"'
+          ' AND artist:"${artist.replaceAll('"', '')}"';
+      final search = Uri.parse(
+        '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+      );
+      final res = await _viaMbGate(
+        () => http.get(search, headers: {'User-Agent': _userAgent}),
+      );
+      if (res.statusCode != 200) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final releases = (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
+      String rgid = '';
+      for (final r in releases) {
+        final m = r as Map;
+        if (((m['score'] as num?)?.toInt() ?? 0) < 85) continue;
+        // Score alone is not trust: verify both sides of the name.
+        // MusicBrainz keys this `artist-credit` (hyphenated) — read
+        // the right key or every release is rejected and the lane
+        // silently never fires.
+        final credits = (m['artist-credit'] as List?) ?? [];
+        final names = credits
+            .map((c) => ((c as Map)['name'] as String?) ?? '')
+            .join(', ');
+        if (!_sameArtist(artist, names)) continue;
+        if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
+        final rg = m['release-group'] as Map?;
+        rgid = (rg?['id'] as String?) ?? '';
+        if (rgid.isNotEmpty) break;
+      }
+      if (rgid.isEmpty) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final cres = await http.get(
+        Uri.parse('https://coverartarchive.org/release-group/$rgid'),
+        headers: {'User-Agent': _userAgent},
+      ).timeout(const Duration(seconds: 15));
+      if (cres.statusCode != 200) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final images = (jsonDecode(cres.body) as Map)['images'] as List? ?? [];
+      for (final img in images) {
+        final m = img as Map;
+        if (m['front'] != true) continue;
+        final thumbs = m['thumbnails'] as Map?;
+        final url =
+            (m['image'] ?? thumbs?['large'] ?? thumbs?['small']) as String?;
+        _caaMemo[memoKey] = url;
+        return url;
+      }
+      _caaMemo[memoKey] = null;
+      return null;
+    } catch (_) {
+      _caaMemo[memoKey] = null;
+      return null;
+    }
+  }
+
   Future<String?> labelFor({
     required String artist,
     required String album,
@@ -837,8 +1163,7 @@ class MetadataService {
     try {
       final cached = await _readAlbumLabel(artist, album);
       if (cached != null) return cached == '' ? null : cached;
-      final q =
-          'release:"${album.replaceAll('"', '')}" AND artist:"${artist.replaceAll('"', '')}"';
+      final q = 'release:"${album.replaceAll('"', '')}" AND artist:"${artist.replaceAll('"', '')}"';
       final search = Uri.parse(
         '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
       );

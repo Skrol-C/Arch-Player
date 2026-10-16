@@ -29,6 +29,7 @@ class QueueJob {
   final List<({String id, String name})> providers;
   final int attempt;
   final String quality;
+  final String releaseType;
   final QueueState state;
   final QueuePhase phase;
   final double progress;
@@ -44,6 +45,7 @@ class QueueJob {
     required this.providers,
     this.attempt = 0,
     required this.quality,
+    this.releaseType = '',
     this.state = QueueState.queued,
     this.phase = QueuePhase.resolving,
     this.progress = 0,
@@ -72,6 +74,7 @@ class QueueJob {
         providers: providers,
         attempt: attempt ?? this.attempt,
         quality: quality,
+        releaseType: releaseType,
         state: state ?? this.state,
         phase: phase ?? this.phase,
         progress: progress ?? this.progress,
@@ -104,6 +107,7 @@ class DownloadQueueNotifier extends Notifier<List<QueueJob>> {
     required List<InstalledExtension> providers,
     String? providerId,
     String? quality,
+    String releaseType = '',
   }) {
     final ordered = [
       for (final p in providers)
@@ -128,6 +132,7 @@ class DownloadQueueNotifier extends Notifier<List<QueueJob>> {
         for (final p in ordered) (id: p.id, name: p.displayName),
       ],
       quality: quality ?? NeedlePrefs.qualityLossless,
+      releaseType: releaseType,
     );
     state = [...state, job];
     ArchLog.i('queue', 'enqueued $title ($id, ${job.providers.length} providers)');

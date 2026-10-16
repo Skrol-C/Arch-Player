@@ -25,6 +25,7 @@ import '../needle/needle_store.dart';
 import '../player/format_marks.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
+import '../player/track_menu.dart';
 import '../shell/dock.dart';
 
 /// A song, owned or remote. Owned carries the library Song (play,
@@ -195,6 +196,36 @@ class _SongPageState extends ConsumerState<SongPage> {
     await playAndOpen(ref, context, () => handler.playSong(song, queue));
   }
 
+  /// Song menu: Song Doctor + Lyric Finder placeholders for now;
+  /// the real slices land behind these values later.
+  Future<void> _openMenu(BuildContext context, WidgetRef ref) async {
+    final value = await showTrackMenu(
+      context: context,
+      groups: const [
+        [
+          MenuAction(
+            icon: CupertinoIcons.bandage,
+            label: 'Song Doctor',
+            subtitle: 'Coming soon',
+            value: 'doctor',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.text_bubble,
+            label: 'Lyric Finder',
+            subtitle: 'Coming soon',
+            value: 'lyrics',
+          ),
+        ],
+      ],
+    );
+    if ((value == 'doctor' || value == 'lyrics') && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('On the way — not yet available.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -215,6 +246,14 @@ class _SongPageState extends ConsumerState<SongPage> {
           onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_rounded, color: ink),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Options',
+            onPressed: () => _openMenu(context, ref),
+            icon:
+                const Icon(Icons.more_horiz_rounded, color: ink),
+          ),
+        ],
       ),
       body: DockScrollReporter(
         child: Stack(
@@ -751,6 +790,8 @@ class _ControlsState extends ConsumerState<_Controls> {
     setState(() => _busy = true);
     HapticFeedback.selectionClick();
     final from = rowRect(context);
+    // Song-page pulls are loose tracks by construction (owned or
+    // remote single views), never album filings.
     final enqueued = await showDownloadSheet(
       context,
       ref,
@@ -760,6 +801,7 @@ class _ControlsState extends ConsumerState<_Controls> {
       art: r.artUrl,
       isrc: r.isrc,
       providerId: r.providerId,
+      releaseType: 'single',
     );
     if (!mounted) return;
     setState(() {

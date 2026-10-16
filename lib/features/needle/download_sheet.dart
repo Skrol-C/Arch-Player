@@ -33,6 +33,7 @@ Future<bool> showDownloadSheet(
   String art = '',
   String isrc = '',
   String providerId = '',
+  String releaseType = '',
 }) async {
   final downloaders = [
     for (final p in ref.read(installedExtensionsProvider))
@@ -96,8 +97,9 @@ Future<bool> showDownloadSheet(
     providers: downloaders,
     providerId: picked.$1,
     quality: picked.$2,
+    releaseType: releaseType,
   );
-  runQueue(ref);
+  runQueue(ProviderScope.containerOf(context, listen: false));
   ArchLog.i(
       'queue', 'enqueued $title via ${picked.$1} @ ${picked.$2}');
   if (context.mounted) {

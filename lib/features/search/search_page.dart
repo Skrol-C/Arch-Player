@@ -57,6 +57,7 @@ class _Hit {
   final String kind;
   final bool explicit;
   final String previewUrl;
+  final String releaseType;
   const _Hit({
     required this.providerId,
     required this.id,
@@ -69,7 +70,36 @@ class _Hit {
     required this.kind,
     this.explicit = false,
     this.previewUrl = '',
+    this.releaseType = '',
   });
+}
+
+/// Black release-type mark (SINGLE/EP). Albums are the default
+/// and stay unbadged. Rendered only when the provider said so.
+class _ReleaseBadge extends StatelessWidget {
+  final String releaseType;
+  const _ReleaseBadge({required this.releaseType});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: ink,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        releaseType.toUpperCase(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
 }
 
 /// Parental-advisory E mark. Rendered only when a provider says so.
@@ -349,7 +379,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   /// provider (name/title, artists/artist, cover/images/thumbnail,
   /// duration_ms/duration-seconds). Null = unusable row.
   _Hit? _trackHit(Map m, String pid,
-      {String kind = 'track', String? albumFallback, String? artFallback}) {
+      {String kind = 'track',
+      String? albumFallback,
+      String? artFallback}) {
     final name = (m['name'] ?? m['title'] ?? '').toString();
     if (name.isEmpty) return null;
     final art = (m['cover_url'] ??
@@ -381,6 +413,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       kind: kind,
       explicit: _explicitOf(m),
       previewUrl: _previewOf(m),
+      releaseType: kind == 'album' ? _releaseTypeOf(m) : '',
     );
   }
 
@@ -419,6 +452,28 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       return t == 'true' || t == '1' || t == 'explicit';
     }
     return false;
+  }
+
+  /// Release type for the black SINGLE/EP badge: single/ep
+  /// only; albums are the default and stay unbadged. Reads the
+  /// extension's own album_type/albumType first, empty otherwise.
+  static String _releaseTypeOf(Map item) {
+    final raw =
+        (item['album_type'] ?? item['albumType'] ?? '').toString().toLowerCase();
+    // Bare "ep"/"single" item_types that never set album_type.
+    final kindRaw = (item['item_type'] ?? item['type'] ?? '').toString().toLowerCase();
+    final v = raw.isNotEmpty ? raw : kindRaw;
+    if (v.contains('single')) return 'single';
+    if (v == 'ep' || v.contains(' e.p') || v.contains('(ep)') || v.contains('ep,')) {
+      return 'ep';
+    }
+    if (v.contains('ep')) {
+      // Guarded: "deep", "keep", "sleep" contain ep. Match whole
+      // words and the common "Name - EP"/"EP - Name" shapes only.
+      final words = v.split(RegExp(r'[^a-z]+'));
+      if (words.contains('ep')) return 'ep';
+    }
+    return '';
   }
 
   List<_Hit> _parse(dynamic value) {
@@ -460,6 +515,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         kind: kind,
         explicit: _explicitOf(item),
         previewUrl: _previewOf(item),
+        releaseType: kind == 'album' ? _releaseTypeOf(item) : '',
       ));
       // One diagnostic per search: which keys an album-kind item
       // carries determines badge/label/genre coverage.
@@ -1143,6 +1199,11 @@ class _RowState extends ConsumerState<_Row> {
       art: widget.hit.art,
       isrc: widget.hit.isrc,
       providerId: widget.hit.providerId,
+      releaseType: widget.hit.kind == 'track'
+          ? (widget.hit.releaseType.isNotEmpty
+              ? widget.hit.releaseType
+              : 'single')
+          : widget.hit.releaseType,
     );
     if (!mounted) return;
     setState(() {
@@ -1333,6 +1394,10 @@ class _RowState extends ConsumerState<_Row> {
                 if (previewable) ...[
                   const Icon(Icons.play_circle_outline_rounded,
                       color: inkDim, size: 20),
+                  const SizedBox(width: 8),
+                ],
+                if (hit.releaseType.isNotEmpty) ...[
+                  _ReleaseBadge(releaseType: hit.releaseType),
                   const SizedBox(width: 8),
                 ],
                 if (hit.explicit) ...[
@@ -1734,6 +1799,7 @@ class _SubPullState extends ConsumerState<_SubPull> {
       art: widget.hit.art,
       isrc: widget.hit.isrc,
       providerId: widget.hit.providerId,
+      releaseType: '',
     );
     if (!mounted) return;
     setState(() {

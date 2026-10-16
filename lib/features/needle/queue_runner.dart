@@ -14,6 +14,12 @@ import 'sandbox.dart';
 /// job's ordered providers (smart router) before surfacing.
 /// One runner at a time; enqueue/retry/unpause kick it.
 ///
+/// Takes a [ProviderContainer], never a WidgetRef: the pull
+/// awaits for many seconds, and touching a widget-owned ref
+/// after an await throws once that widget is gone (the runner
+/// outlives the sheet/hub that started it). The container
+/// lives as long as the app scope, so it is always safe.
+///
 /// Honest limits: an in-flight extension call cannot be aborted
 /// (cancel of an active job removes the row; the phase finishes
 /// and the track still lands). Verify-gated pulls fail with the
@@ -21,20 +27,20 @@ import 'sandbox.dart';
 /// search, then retries.
 bool _running = false;
 
-Future<void> runQueue(WidgetRef ref) async {
+Future<void> runQueue(ProviderContainer container) async {
   if (_running) return;
   _running = true;
   try {
-    await _drain(ref);
+    await _drain(container);
   } finally {
     _running = false;
   }
 }
 
-Future<void> _drain(WidgetRef ref) async {
-  final queue = ref.read(downloadQueueProvider.notifier);
+Future<void> _drain(ProviderContainer container) async {
+  final queue = container.read(downloadQueueProvider.notifier);
   while (true) {
-    final jobs = ref.read(downloadQueueProvider);
+    final jobs = container.read(downloadQueueProvider);
     QueueJob? next;
     for (final j in jobs) {
       if (j.state == QueueState.queued) {
@@ -43,20 +49,20 @@ Future<void> _drain(WidgetRef ref) async {
       }
     }
     if (next == null) return;
-    await _runJob(ref, queue, next);
+    await _runJob(container, queue, next);
   }
 }
 
 Future<void> _runJob(
-  WidgetRef ref,
+  ProviderContainer container,
   DownloadQueueNotifier queue,
   QueueJob job,
 ) async {
   // Job may have been cancelled while waiting.
-  if (!ref.read(downloadQueueProvider).any((j) => j.id == job.id)) {
+  if (!container.read(downloadQueueProvider).any((j) => j.id == job.id)) {
     return;
   }
-  final installed = ref.read(installedExtensionsProvider);
+  final installed = container.read(installedExtensionsProvider);
   InstalledExtension? providerFor(String id) {
     for (final p in installed) {
       if (p.id == id) return p;
@@ -66,10 +72,10 @@ Future<void> _runJob(
 
   var attempt = job.attempt;
   while (true) {
-    if (!ref.read(downloadQueueProvider).any((j) => j.id == job.id)) {
+    if (!container.read(downloadQueueProvider).any((j) => j.id == job.id)) {
       return;
     }
-    final providers = ref
+    final providers = container
         .read(downloadQueueProvider)
         .firstWhere((j) => j.id == job.id)
         .providers;
@@ -103,21 +109,34 @@ Future<void> _runJob(
         isrc: job.isrc,
         quality: job.quality,
         album: job.album.isEmpty ? null : job.album,
+        artUrl: job.art,
+        releaseType: job.releaseType,
         onPhase: (phase, progress) {
           queue.update(job.id, phase: phase, progress: progress);
         },
       );
       landedPath = pulled.path;
       landedFormat = pulled.format;
-      if (!ref.read(downloadQueueProvider).any((j) => j.id == job.id)) {
+      if (!container.read(downloadQueueProvider).any((j) => j.id == job.id)) {
         // Cancelled mid-flight: row gone, track still landed.
-        ref.invalidate(songsProvider);
+        container.invalidate(songsProvider);
         return;
       }
       queue.update(job.id,
           state: QueueState.done, phase: QueuePhase.publishing, progress: 1);
       ArchLog.i('queue', 'landed ${job.title} via ${provider.id}');
-      await ref.read(catalogProvider.notifier).record(CatalogEntry(
+      final catalog = container.read(catalogProvider.notifier);
+      // Re-pull replaces: one entry per recording. The earlier file
+      // itself survives for now — Dart has no write access under
+      // scoped storage — but the catalog stops piling up numbered
+      // duplicates, and this is the single place native delete
+      // plugs in later.
+      final prior = catalog.priorFor(job.title, job.artist);
+      if (prior.isNotEmpty) {
+        await catalog.removeIds({for (final p in prior) p.id});
+        ArchLog.i('queue', 'replaced ${prior.length} earlier ${job.title}');
+      }
+      await catalog.record(CatalogEntry(
             id: 'c${DateTime.now().millisecondsSinceEpoch}',
             title: job.title,
             artist: job.artist,
@@ -128,10 +147,11 @@ Future<void> _runJob(
             landedMs: DateTime.now().millisecondsSinceEpoch,
             path: landedPath,
             format: landedFormat,
+            releaseType: job.releaseType,
           ));
-      ref.read(needleGlowProvider.notifier).state = true;
+      container.read(needleGlowProvider.notifier).state = true;
       await Future<void>.delayed(const Duration(seconds: 2));
-      ref.invalidate(songsProvider);
+      container.invalidate(songsProvider);
       return;
     } on NeedleException catch (e) {
       if (e.code == 'verify-required') {

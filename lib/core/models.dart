@@ -250,7 +250,9 @@ class TopTrack {
 /// Resolved lyrics for one track. [syncedLrc] is LRC text (from SYLT
 /// or LRCLib synced); [plain] is untimed prose. Resolution order:
 /// embedded -> LRCLib -> none. Never throws, never lies about source.
-enum LyricSource { embedded, lrclib, none }
+/// [paxsenix] marks PaxSenIX-sourced lines (incl. Musixmatch):
+/// display + cache ONLY, never embedded into files (their terms).
+enum LyricSource { embedded, lrclib, paxsenix, none }
 
 class LyricDoc {
   final String? plain;

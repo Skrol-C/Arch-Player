@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
+import 'embed.dart';
+import 'enrich.dart';
 import 'extension.dart';
 import 'extensions.dart';
 import 'ffmpeg_decrypt.dart';
@@ -160,7 +162,9 @@ Future<PulledTrack> pullTrack({
   String isrc = '',
   String? quality,
   String? album,
+  String artUrl = '',
   int? durationMs,
+  String releaseType = '',
   void Function(QueuePhase phase, double progress)? onPhase,
 }) async {
   if (!Needle.ready) {
@@ -237,15 +241,38 @@ Future<PulledTrack> pullTrack({
   // a mov_key descriptor). Unencrypted files pass through.
   onPhase?.call(QueuePhase.decrypting, 0.75);
   final readyPath = await _maybeDecrypt(stagedPath, dlV);
+  // 3c. Tag embed: gathered metadata into the file (ffmpeg,
+  // audio bytes untouched). Failures pass through untagged.
+  onPhase?.call(QueuePhase.decrypting, 0.8);
+  String taggedPath = readyPath;
+  try {
+    final meta = await gatherPullMeta(
+      title: title,
+      artist: artist,
+      album: album ?? '',
+      artUrl: artUrl,
+      isrc: isrc,
+      durationSecs:
+          durationMs != null ? (durationMs ~/ 1000) : 0,
+    );
+    taggedPath = await embedPullMeta(
+      readyPath,
+      meta,
+      containerExt: await _sniffExtension(readyPath),
+    );
+  } catch (e) {
+    ArchLog.w('needle', 'enrich/embed skipped: $e');
+  }
   // 4. Land in shared Music via MediaStore insert (own insert:
   // no permission needed, indexed immediately). App-specific
   // dirs are invisible to MediaStore, so staging there is only
   // ever a waypoint, never the destination.
   onPhase?.call(QueuePhase.publishing, 0.9);
   await migrateLegacyPulls();
-  final relPath = await _needleRelPath(album: album, artist: artist);
+  final relPath = await _needleRelPath(
+      album: album, artist: artist, releaseType: releaseType);
   final landed = await _publishStaged(
-    readyPath,
+    taggedPath,
     '${_sanitize(artist)} - ${_sanitize(title)}',
     format,
     relPath,
@@ -297,17 +324,24 @@ Future<String> _maybeDecrypt(String stagedPath, dynamic dlV) async {
 }
 
 /// Needle library destination for a pull, relative to shared
-/// storage (`Music/Needle/...`). Albums file under
-/// `Albums/{Album - Artist}/`, everything else under
-/// `Songs/{Artist}/`. Playlist routing arrives with batch pulls.
+/// storage (`Music/Needle/...`). Real albums file under
+/// `Albums/{Album - Artist}/`; singles, EPs, and loose tracks
+/// (even ones naming an album) file under `Songs/{Artist}/`.
+/// Playlist routing arrives with batch pulls.
 Future<String> _needleRelPath(
-    {String? album, required String artist}) async {
+    {String? album,
+    required String artist,
+    String releaseType = ''}) async {
   final prefs = await SharedPreferences.getInstance();
   final root = ((prefs.getString('arch.needleRoot') ?? '').trim().isEmpty)
       ? 'Needle'
       : prefs.getString('arch.needleRoot')!.trim();
   String seg(String s) => NeedleRootNotifier.sanitizeSegment(s);
-  if (album != null && album.trim().isNotEmpty) {
+  final rt = releaseType.trim().toLowerCase();
+  // Singles/EPs are songs wearing album names: file with tracks.
+  if (rt.isEmpty &&
+      album != null &&
+      album.trim().isNotEmpty) {
     return 'Music/$root/Albums/${seg('${album.trim()} - ${artist.trim()}')}/';
   }
   return 'Music/$root/Songs/${seg(artist)}/';

@@ -265,6 +265,10 @@ class _JobRow extends ConsumerWidget {
 
   Future<void> _retry(
     BuildContext context, WidgetRef ref, DownloadQueueNotifier queue) async {
+    // Capture the container while the widget is certainly mounted:
+    // the verification flow awaits, and this BuildContext may be
+    // gone by the time the pull starts.
+    final container = ProviderScope.containerOf(context, listen: false);
     const prefix = 'Needs verification: ';
     final err = job.error ?? '';
     if (err.startsWith(prefix)) {
@@ -291,14 +295,14 @@ class _JobRow extends ConsumerWidget {
           );
           if (granted) {
             queue.retry(job.id);
-            runQueue(ref);
+            runQueue(container);
           }
           return;
         }
       }
     }
     queue.retry(job.id);
-    runQueue(ref);
+    runQueue(container);
   }
 
   Widget _trailing(
@@ -394,7 +398,9 @@ class _CatalogPane extends ConsumerWidget {
     final albums = <String, List<CatalogEntry>>{};
     final singles = <CatalogEntry>[];
     for (final e in entries) {
-      if (e.album.isNotEmpty) {
+      // Release type decides, not the album tag: a single carries an
+      // album name but was filed (and should read) as a track.
+      if (e.isAlbum) {
         albums.putIfAbsent(e.album, () => []).add(e);
       } else {
         singles.add(e);

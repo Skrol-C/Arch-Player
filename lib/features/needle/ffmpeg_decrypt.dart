@@ -94,7 +94,13 @@ Future<String?> _tryKey(
   final cmd =
       '-v error -decryption_key "$key" -f $demuxer -i "$inputPath" $map-c copy $muxer"$outPath" -y';
   try {
-    final session = await FFmpegKit.execute(cmd);
+    final session = await FFmpegKit.execute(cmd).timeout(
+      const Duration(seconds: 120),
+      onTimeout: () {
+        FFmpegKit.cancel();
+        throw StateError('decrypt timed out');
+      },
+    );
     final code = await session.getReturnCode();
     final f = File(outPath);
     if (ReturnCode.isSuccess(code) &&

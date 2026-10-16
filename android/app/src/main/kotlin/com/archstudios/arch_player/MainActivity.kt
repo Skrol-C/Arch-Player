@@ -132,11 +132,12 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                         val src = call.argument<String>("srcPath").orEmpty()
                         val name = call.argument<String>("displayName").orEmpty()
                         val mime = call.argument<String>("mimeType").orEmpty()
+                        val rel = call.argument<String>("relativePath").orEmpty()
                         if (src.isEmpty() || name.isEmpty()) {
                             result.success(null)
                         } else {
                             io.execute {
-                                result.success(publishAudio(src, name, mime))
+                                result.success(publishAudio(src, name, mime, rel))
                             }
                         }
                     }
@@ -284,12 +285,15 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         return s
     }
 
-    /// Publish staged bytes into shared Music/Arch Player via
-    /// MediaStore (29+). Own inserts need no permission; the entry
-    /// is indexed immediately on unpend. Pre-29 falls back to a
-    /// direct copy into public Music (needs write permission,
-    /// best-effort). Returns the content URI string or null.
-    private fun publishAudio(src: String, name: String, mime: String): String? {
+    /// Publish staged bytes into shared Music via MediaStore
+    /// (29+). Own inserts need no permission; the entry is indexed
+    /// immediately on unpend. [relativePath] selects the folder
+    /// (e.g. "Music/Needle/Songs/X/"); anything outside shared
+    /// Music or blank falls back to "Music/Arch Player/".
+    /// Pre-29 falls back to a direct copy into public Music (needs
+    /// write permission, best-effort). Returns the content URI
+    /// string or null.
+    private fun publishAudio(src: String, name: String, mime: String, relativePath: String = ""): String? {
         return runCatching {
             val srcFile = java.io.File(src)
             if (!srcFile.isFile || srcFile.length() <= 0) return null
@@ -304,12 +308,19 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                 }
             }
             if (Build.VERSION.SDK_INT >= 29) {
+                // Clamp to shared Music: no escapes, no blank, always
+                // trailing slash. Grandfathered pulls keep landing in
+                // the old folder when nothing is passed.
+                var rel = relativePath.trim().replace('\\', '/')
+                if (!rel.startsWith("Music/")) rel = "Music/Arch Player/"
+                if (!rel.endsWith("/")) rel += "/"
+                if (rel.contains("..")) rel = "Music/Arch Player/"
                 val values = android.content.ContentValues().apply {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, name)
                     put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
                     put(
                         MediaStore.Audio.Media.RELATIVE_PATH,
-                        "Music/Arch Player/",
+                        rel,
                     )
                     put(MediaStore.Audio.Media.IS_PENDING, 1)
                 }

@@ -82,6 +82,8 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
     final label = switch (doc.source) {
       LyricSource.embedded => 'Embedded lyrics',
       LyricSource.lrclib => 'Lyrics - LRCLib',
+      // Third-party lanes (incl. Musixmatch): attributed, honest.
+      LyricSource.paxsenix => 'Lyrics - external',
       LyricSource.none => '',
     };
     if (label.isEmpty) return const SizedBox.shrink();

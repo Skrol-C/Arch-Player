@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/log.dart';
+
 /// Catalog: every landed pull filed with its date, provider, and
 /// quality. Written at publish time by the queue runner; read by
 /// the hub Catalog pane (albums + tracks sections). Bounded.
@@ -18,6 +20,12 @@ class CatalogEntry {
   final String path;
   final String format;
 
+  /// Release type as routed at pull time ('', 'single', 'ep').
+  /// Stored because the tag alone lies: a single carries an album
+  /// name, and without this the catalog files it as an album while
+  /// the file itself sits in Songs/.
+  final String releaseType;
+
   const CatalogEntry({
     required this.id,
     required this.title,
@@ -29,7 +37,22 @@ class CatalogEntry {
     required this.landedMs,
     this.path = '',
     this.format = '',
+    this.releaseType = '',
   });
+
+  /// Albums group; everything else is a track. Mirrors the routing
+  /// in `_needleRelPath`: singles and EPs are tracks even when they
+  /// name an album, because that is where they actually landed.
+  bool get isAlbum {
+    final rt = releaseType.trim().toLowerCase();
+    if (rt == 'single' || rt == 'ep') return false;
+    return album.trim().isNotEmpty;
+  }
+
+  /// Same recording identity, for re-pull replacement.
+  bool sameTrackAs(String otherTitle, String otherArtist) =>
+      title.trim().toLowerCase() == otherTitle.trim().toLowerCase() &&
+      artist.trim().toLowerCase() == otherArtist.trim().toLowerCase();
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -42,6 +65,7 @@ class CatalogEntry {
         'landedMs': landedMs,
         'path': path,
         'format': format,
+        'releaseType': releaseType,
       };
 
   static CatalogEntry? fromJson(Map m) {
@@ -57,6 +81,8 @@ class CatalogEntry {
         landedMs: (m['landedMs'] as num?)?.toInt() ?? 0,
         path: (m['path'] as String?) ?? '',
         format: (m['format'] as String?) ?? '',
+        // Absent on entries filed before release types were kept.
+        releaseType: (m['releaseType'] as String?) ?? '',
       );
     } catch (_) {
       return null;
@@ -105,5 +131,23 @@ class CatalogNotifier extends Notifier<List<CatalogEntry>> {
         if (x.id != e.id) x,
     ].take(_cap).toList();
     await _save();
+  }
+
+  /// Prior copies of the same recording. Re-pulls replace rather
+  /// than pile up numbered duplicates.
+  List<CatalogEntry> priorFor(String title, String artist) =>
+      [for (final e in state) if (e.sameTrackAs(title, artist)) e];
+
+  /// Drop entries by id; returns what was removed so the caller can
+  /// report it (and, when native delete lands, remove the files).
+  Future<List<CatalogEntry>> removeIds(Set<String> ids) async {
+    if (ids.isEmpty) return const [];
+    final gone = [for (final e in state) if (ids.contains(e.id)) e];
+    if (gone.isEmpty) return const [];
+    state = [for (final e in state) if (!ids.contains(e.id)) e];
+    await _save();
+    ArchLog.i('catalog',
+        'unfiled ${gone.length} ${gone.length == 1 ? 'entry' : 'entries'}');
+    return gone;
   }
 }
