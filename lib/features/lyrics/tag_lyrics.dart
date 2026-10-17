@@ -412,7 +412,7 @@ String? _scanGenre22(Uint8List tag) {
 }
 
 String? _vorbisGenre(String path) {
-  for (final entry in _vorbisComments(path)) {
+  for (final entry in vorbisComments(path)) {
     final eq = entry.indexOf('=');
     if (eq <= 0) continue;
     if (entry.substring(0, eq).trim().toUpperCase() == 'GENRE') {
@@ -423,8 +423,10 @@ String? _vorbisGenre(String path) {
   return null;
 }
 
-/// Shared Vorbis comment entry reader (KEY=value strings).
-List<String> _vorbisComments(String path) {
+/// Shared Vorbis comment entry reader (KEY=value strings). Public
+/// because the embedded-art reader wants the same walk for Ogg/Opus
+/// pictures (`METADATA_BLOCK_PICTURE` is just another comment).
+List<String> vorbisComments(String path) {
   final out = <String>[];
   try {
     final lower = path.toLowerCase();
@@ -493,8 +495,15 @@ List<String> _vorbisComments(String path) {
         if (packets.length >= 3) break;
       }
       if (packets.length > 1) {
+        // Vorbis packets start with `\x01vorbis` (7 bytes to skip);
+        // Opus packets start with `OpusTags` and `_commentEntries`
+        // skips that itself. Hardcoding 7 put Opus one byte off, so
+        // its comments never parsed at all.
+        final pkt = packets[1];
+        final isOpus = pkt.length >= 8 &&
+            String.fromCharCodes(pkt.sublist(0, 8)) == 'OpusTags';
         return _commentEntries(
-            Uint8List.fromList(packets[1].skip(7).toList()));
+            Uint8List.fromList(isOpus ? pkt : pkt.skip(7).toList()));
       }
     } finally {
       raf.closeSync();

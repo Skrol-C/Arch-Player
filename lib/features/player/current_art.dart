@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
+import '../library/data/embedded_art.dart';
 import '../library/song_row.dart';
 import 'player_providers.dart';
 
@@ -47,10 +51,27 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
   String? _lastItemId;
   Widget? _retained;
 
+  /// Full-bleed only: the cover read out of the file itself. MediaStore
+  /// answers with a downscaled rendition (512-750px measured) while the
+  /// hero draws ~1200px, so the picture looked soft although files
+  /// carry 640-1800px.
+  Uint8List? _fileArt;
+  String? _fileArtPath;
+  String? _inflightPath;
+  String? _painted;
+  bool _noPathLogged = false;
+
   Song get _song => widget.song;
 
   @override
   Widget build(BuildContext context) {
+    // Full-bleed surfaces quote the file, not the album row. Grids and
+    // rows deliberately keep the cheap renditions: decoding an 1800px
+    // JPEG per tile would be a memory storm.
+    if (widget.fill && _song.path.isNotEmpty) {
+      final art = _fileArtBranch();
+      if (art != null) return art;
+    }
     if (!widget.useLiveFile) return _fallback();
     final handler = ref.watch(audioHandlerProvider);
     return StreamBuilder<MediaItem?>(
@@ -61,6 +82,7 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
         final id = item?.id;
         final file = item?.extras?['artCacheFile'] as String?;
         if (file != null && file.isNotEmpty) {
+          _note('notif-file');
           final body = Image.file(
             File(file),
             key: ValueKey(file),
@@ -108,6 +130,7 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
   Widget? _network(MediaItem? item, Widget hold) {
     final url = item?.extras?['coverUrl'] as String?;
     if (url == null || url.isEmpty) return null;
+    _note('network-cover');
     final img = CachedNetworkImage(
       imageUrl: url,
       width: widget.fill ? null : widget.size,
@@ -123,7 +146,87 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
     );
   }
 
+  /// The file's own cover for full-bleed surfaces. Null while it is
+  /// still resolving, so the caller keeps drawing the normal chain and
+  /// nothing flashes.
+  Widget? _fileArtBranch() {
+    final path = _song.path;
+    if (path.isEmpty) {
+      if (!_noPathLogged) {
+        _noPathLogged = true;
+        ArchLog.w('art', 'hero has no file path (${_song.title})');
+      }
+      return null;
+    }
+    if (_fileArtPath != path) {
+      // Retry keyed on the PATH, not a boolean: a load started for a
+      // previous track must not block every later one (that left the
+      // hero on the 512 fallback until an unrelated rebuild).
+      if (_inflightPath != path) {
+        _inflightPath = path;
+        unawaited(_loadFileArt(path));
+      }
+      _note('pending-file-art');
+      return null;
+    }
+    final bytes = _fileArt;
+    if (bytes == null) return null; // known artless: normal chain wins
+    _note('file-art ${bytes.length}B');
+    return Image.memory(
+      bytes,
+      key: ValueKey('fileart:$path'),
+      width: widget.fill ? null : widget.size,
+      height: widget.fill ? null : widget.size,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      // Decode bound: sources reach 1800px, the screen never needs
+      // more than ~1400, and the bitmap is 4 bytes a pixel.
+      cacheWidth: 1400,
+      errorBuilder: (_, _, _) => _fallback(),
+    );
+  }
+
+  Future<void> _loadFileArt(String path) async {
+    EmbeddedArt? art;
+    try {
+      if (EmbeddedArtCache.has(path)) {
+        art = EmbeddedArtCache.get(path);
+        ArchLog.i('art', 'hero: cache hit for $path');
+      } else {
+        // Off the UI isolate: this is a file walk, not a UI job.
+        // compute() takes a TOP-LEVEL function on purpose - a closure
+        // written here would capture this State in the isolate
+        // message and the send fails ("object is unsendable").
+        ArchLog.i('art', 'hero: reading cover for $path');
+        art = await compute(readEmbeddedArt, path);
+        EmbeddedArtCache.put(path, art);
+      }
+    } catch (e) {
+      ArchLog.w('art', 'file cover read failed: $e');
+      art = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _inflightPath = null;
+      // A fast skip through tracks must not paint one file's cover
+      // over another's.
+      if (_song.path == path) {
+        _fileArtPath = path;
+        _fileArt = art?.bytes;
+      }
+    });
+  }
+
+  /// Log what the hero actually paints, once per change. "Blurry" has
+  /// to be answerable from the log.
+  void _note(String what) {
+    if (_painted == what) return;
+    _painted = what;
+    ArchLog.i('art', 'hero paints: $what');
+  }
+
   Widget _fallback() {
+    _note('fallback (album ${_song.albumId})');
     if (_song.albumId > 0) {
       return AlbumArt(
         albumId: _song.albumId,
