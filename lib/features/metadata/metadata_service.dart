@@ -56,6 +56,54 @@ class TrackFacts {
     this.isrc = '',
     this.composer = '',
   });
+
+  /// Every field a pull can carry. A lane cascade stops once this is
+  /// true, so a provider that answers everything costs one request.
+  bool get isComplete =>
+      track.isNotEmpty &&
+      disc.isNotEmpty &&
+      date.isNotEmpty &&
+      albumArtist.isNotEmpty &&
+      genre.isNotEmpty &&
+      bpm.isNotEmpty &&
+      isrc.isNotEmpty &&
+      composer.isNotEmpty &&
+      copyright.isNotEmpty;
+
+  /// Fill-only merge: what this record already knows wins, [other]
+  /// supplies the rest. A miss never overwrites a hit — Apple lacks
+  /// the copyright atom for some releases, Deezer lacks the album,
+  /// and neither gets to erase what the other found.
+  TrackFacts mergedWith(TrackFacts other) => TrackFacts(
+        track: track.isNotEmpty ? track : other.track,
+        trackTotal: trackTotal.isNotEmpty ? trackTotal : other.trackTotal,
+        disc: disc.isNotEmpty ? disc : other.disc,
+        discTotal: discTotal.isNotEmpty ? discTotal : other.discTotal,
+        date: date.isNotEmpty ? date : other.date,
+        albumArtist: albumArtist.isNotEmpty ? albumArtist : other.albumArtist,
+        copyright: copyright.isNotEmpty ? copyright : other.copyright,
+        genre: genre.isNotEmpty ? genre : other.genre,
+        bpm: bpm.isNotEmpty ? bpm : other.bpm,
+        isrc: isrc.isNotEmpty ? isrc : other.isrc,
+        composer: composer.isNotEmpty ? composer : other.composer,
+      );
+
+  /// How many of the eleven fields landed — the log line that says
+  /// whether a pull was thin because the providers were, or because
+  /// the lanes never matched.
+  int get filled => [
+        track,
+        trackTotal,
+        disc,
+        discTotal,
+        date,
+        albumArtist,
+        copyright,
+        genre,
+        bpm,
+        isrc,
+        composer,
+      ].where((v) => v.isNotEmpty).length;
 }
 
 class MetadataService {
@@ -1412,80 +1460,213 @@ class MetadataService {
     return const ReleaseFacts();
   }
 
-  /// Track-level facts from the two providers that hand them over
-  /// without album lookups: iTunes carries positions, release date,
-  /// album artist and copyright; Deezer carries bpm, ISRC and the
-  /// composer role. Both are keyless and fast (no MusicBrainz gate).
+  /// Track facts from every provider that has them. Apple and Deezer
+  /// are independent and fast, so both are asked at once; MusicBrainz
+  /// is asked only when something is still missing. A field one lane
+  /// answers is never overwritten by a later one, and a field no lane
+  /// answers stays empty — the embed then writes what exists and
+  /// leaves the rest untouched. The cascade stops the moment every
+  /// field is filled.
   Future<TrackFacts> trackFactsFor({
     required String artist,
     required String album,
     required String title,
   }) async {
+    // The query identity has to be clean. A raw title carries
+    // "(feat. X)" and the artist may be a list ("Kanye West, Ye,
+    // Travis Scott"); Apple ranks that query badly enough that the
+    // real hit never appears, and one miss costs five fields at once
+    // (verified: BULLY/3.FATHER returned 15 unrelated songs raw, and
+    // the album's own track once cleaned).
+    final qTitle = _searchTitle(title);
+    final qArtist = _primaryArtist(artist);
+    if (qTitle.isEmpty) return const TrackFacts();
+    var facts = const TrackFacts();
+    final parallel = await Future.wait([
+      _safeFacts(() => _appleTrackLane(qTitle, qArtist, album)),
+      _safeFacts(() => _dzTrackLane(qTitle, qArtist, album)),
+    ]);
+    for (final lane in parallel) {
+      facts = facts.mergedWith(lane);
+    }
+    if (!facts.isComplete) {
+      facts = facts
+          .mergedWith(await _safeFacts(() => _mbTrackLane(qTitle, qArtist, album)));
+    }
+    // Album artist is the one field with a free fallback, and it
+    // drives album grouping: the primary credit beats an empty atom.
+    if (facts.albumArtist.isEmpty && qArtist.isNotEmpty) {
+      facts = facts.mergedWith(TrackFacts(albumArtist: qArtist));
+    }
+    ArchLog.i('meta', 'track facts: ${facts.filled}/11 fields'
+        '${facts.isComplete ? '' : ' (incomplete)'}');
+    return facts;
+  }
+
+  /// One dead lane degrades its fields, never the pull.
+  Future<TrackFacts> _safeFacts(Future<TrackFacts> Function() lane) async {
+    try {
+      return await lane();
+    } catch (_) {
+      return const TrackFacts();
+    }
+  }
+
+  /// iTunes lane: the numbers, the date, the album artist, the
+  /// copyright, the genre.
+  Future<TrackFacts> _appleTrackLane(
+      String title, String artist, String album) async {
+    final hit = await _appleTrackHit(title, artist, album);
+    if (hit == null) return const TrackFacts();
+    return TrackFacts(
+      track: _num(hit['trackNumber']),
+      trackTotal: _num(hit['trackCount']),
+      disc: _num(hit['discNumber']),
+      discTotal: _num(hit['discCount']),
+      date: _isoDay((hit['releaseDate'] as String?) ?? ''),
+      albumArtist: (hit['collectionArtistName'] as String?) ?? '',
+      copyright: (hit['copyright'] as String?) ?? '',
+      genre: (hit['primaryGenreName'] as String?) ?? '',
+    );
+  }
+
+  /// Deezer lane: exactly the fields iTunes does not carry — BPM,
+  /// ISRC, and the composer credit.
+  Future<TrackFacts> _dzTrackLane(
+      String title, String artist, String album) async {
+    final dz = await _dzTrackHit(title, artist, album);
+    if (dz == null) return const TrackFacts();
+    var composer = '';
+    for (final c in (dz['contributors'] as List?) ?? []) {
+      final cm = c as Map;
+      final role = ((cm['role'] as String?) ?? '').toLowerCase();
+      if (role == 'composer' || role == 'author' || role == 'writer') {
+        composer = ((cm['name'] as String?) ?? '').trim();
+        if (composer.isNotEmpty) break;
+      }
+    }
+    return TrackFacts(
+      track: _num(dz['track_position']),
+      disc: _num(dz['disk_number']),
+      date: (dz['release_date'] as String?) ?? '',
+      bpm: _num(dz['bpm']),
+      isrc: (dz['isrc'] as String?) ?? '',
+      composer: composer,
+    );
+  }
+
+  /// MusicBrainz lane: dates and track numbers for catalogue releases
+  /// the streaming providers never got. Both requests ride the 1req/s
+  /// gate, so this lane can be slow — which is why it only runs when
+  /// the fast lanes left a hole.
+  Future<TrackFacts> _mbTrackLane(
+      String title, String artist, String album) async {
+    final q = 'recording:"${title.replaceAll('"', '')}"'
+        ' AND artist:"${artist.replaceAll('"', '')}"';
+    final search = await _viaMbGate(() => http.get(
+          Uri.parse('$_mbBase/recording/?query='
+              '${Uri.encodeQueryComponent(q)}&fmt=json&limit=5'),
+          headers: {'User-Agent': _userAgent},
+        ));
+    if (search.statusCode != 200) return const TrackFacts();
+    final list = (jsonDecode(search.body) as Map)['recordings'] as List? ?? [];
+    String? id;
+    for (final r in list) {
+      final m = r as Map;
+      if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+        continue;
+      }
+      final names = ((m['artist-credit'] as List?) ?? [])
+          .map((c) => ((c as Map)['name'] as String?) ?? '')
+          .join(', ');
+      if (!_sameArtist(artist, names)) continue;
+      id = m['id'] as String?;
+      break;
+    }
+    if (id == null) return const TrackFacts();
+    final look = await _viaMbGate(() => http.get(
+          Uri.parse('$_mbBase/recording/$id?inc=releases+tags&fmt=json'),
+          headers: {'User-Agent': _userAgent},
+        ));
+    if (look.statusCode != 200) return const TrackFacts();
+    final m = jsonDecode(look.body) as Map;
+    // Track numbers live under releases[].media[].track[].number, as
+    // strings, alongside the medium's position (the disc) and its
+    // track-count (the total).
     var track = '';
     var trackTotal = '';
     var disc = '';
-    var discTotal = '';
-    var date = '';
-    var albumArtist = '';
-    var copyright = '';
-    var genre = '';
-    var bpm = '';
-    var isrc = '';
-    var composer = '';
-    if (title.trim().isNotEmpty) {
-      try {
-        final hit = await _appleTrackHit(title, artist, album);
-        if (hit != null) {
-          track = _num(hit['trackNumber']);
-          trackTotal = _num(hit['trackCount']);
-          disc = _num(hit['discNumber']);
-          discTotal = _num(hit['discCount']);
-          final d = (hit['releaseDate'] as String?) ?? '';
-          if (d.length >= 10) date = d.substring(0, 10);
-          albumArtist = (hit['collectionArtistName'] as String?) ?? '';
-          copyright = (hit['copyright'] as String?) ?? '';
-          genre = (hit['primaryGenreName'] as String?) ?? '';
-        }
-      } catch (_) {}
-      try {
-        final dz = await _dzTrackHit(title, artist, album);
-        if (dz != null) {
-          if (track.isEmpty) track = _num(dz['track_position']);
-          if (disc.isEmpty) disc = _num(dz['disk_number']);
-          if (date.isEmpty) date = (dz['release_date'] as String?) ?? '';
-          bpm = _num(dz['bpm']);
-          isrc = (dz['isrc'] as String?) ?? '';
-          final contributors = (dz['contributors'] as List?) ?? [];
-          for (final c in contributors) {
-            final cm = c as Map;
-            final role = ((cm['role'] as String?) ?? '').toLowerCase();
-            if (role == 'composer' || role == 'author' || role == 'writer') {
-              composer = ((cm['name'] as String?) ?? '').trim();
-              if (composer.isNotEmpty) break;
-            }
+    for (final rel in (m['releases'] as List?) ?? []) {
+      for (final md in ((rel as Map)['media'] as List?) ?? []) {
+        final mm = md as Map;
+        for (final t in (mm['track'] as List?) ?? []) {
+          final tm = t as Map;
+          if (normTitle((tm['title'] as String?) ?? '') != normTitle(title)) {
+            continue;
           }
+          track = _numAny(tm['number']);
+          trackTotal = _numAny(mm['track-count']);
+          disc = _numAny(mm['position']);
+          break;
         }
-      } catch (_) {}
+        if (track.isNotEmpty) break;
+      }
+      if (track.isNotEmpty) break;
     }
-    // Album artist: providers rarely carry it, and it drives album
-    // grouping, so fall back to the primary artist of the credit.
-    if (albumArtist.isEmpty) {
-      final parts = splitArtists(artist);
-      albumArtist = parts.isEmpty ? artist : parts.first;
-    }
+    // Genres arrive as folksonomy tags with weights: heaviest first.
+    final tags = ((m['tags'] as List?) ?? []).toList()
+      ..sort((a, b) => _tagWeight(b).compareTo(_tagWeight(a)));
+    final genre =
+        tags.isEmpty ? '' : ((tags.first as Map)['name'] as String?) ?? '';
     return TrackFacts(
       track: track,
       trackTotal: trackTotal,
       disc: disc,
-      discTotal: discTotal,
-      date: date,
-      albumArtist: albumArtist,
-      copyright: copyright,
+      date: (m['first-release-date'] as String?) ?? '',
       genre: genre,
-      bpm: bpm,
-      isrc: isrc,
-      composer: composer,
     );
+  }
+
+  static int _tagWeight(Object? tag) {
+    final v = (tag as Map)['count'];
+    return v is num ? v.toInt() : 0;
+  }
+
+  /// "2016-02-14T07:00:00Z" -> "2016-02-14": the day, no clock.
+  static String _isoDay(String raw) {
+    final m = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(raw);
+    return m?.group(1) ?? '';
+  }
+
+  /// Search-shaped title: feature credits dropped, spacing collapsed.
+  /// Casing survives (both catalogues are case-insensitive, and the
+  /// query stays readable in the log).
+  static String _searchTitle(String t) {
+    var s = t.replaceAll(
+      RegExp(
+        r'\s*[\(\[]\s*(feat\.?|ft\.?|featuring)\b[^\)\]]*[\)\]]',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    s = s.split(RegExp(r'\s+feat\.?\s+', caseSensitive: false)).first;
+    s = s.split(RegExp(r'\s+ft\.?\s+', caseSensitive: false)).first;
+    return s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// The credit the catalogues index under: "Kanye West, Ye, Travis
+  /// Scott" -> "Kanye West".
+  static String _primaryArtist(String raw) {
+    final parts = splitArtists(raw);
+    return parts.isEmpty ? raw.trim() : parts.first;
+  }
+
+  /// MusicBrainz hands numbers back as strings ("3"); Apple and Deezer
+  /// hand back ints. One reader for both.
+  static String _numAny(Object? v) {
+    if (v is num) return _num(v);
+    if (v is String) return _num(int.tryParse(v.trim()) ?? 0);
+    return '';
   }
 
   static String _num(Object? v) {
@@ -1497,29 +1678,104 @@ class MetadataService {
   }
 
   /// The iTunes hit for a track, verified on artist + title + album.
+  /// Apple ranks a term by how many tokens it carries, and a correct
+  /// query can still bury the entry past the first page (verified:
+  /// "FATHER Kanye West" pushes BULLY/3 to rank 26, while
+  /// "FATHER Kanye West BULLY" puts it at rank 0 and "FATHER Kanye"
+  /// at rank 1). So the term is tried in three shapes, most precise
+  /// first — and every hit still has to pass title + artist + album,
+  /// so a broader term can never win a wrong track.
   Future<Map?> _appleTrackHit(
       String title, String artist, String album) async {
-    final uri = Uri.parse(
-      'https://itunes.apple.com/search'
-      '?term=${Uri.encodeQueryComponent('$title $artist')}'
-      '&entity=song&attribute=songTerm&limit=15',
-    );
-    final res = await http.get(uri).timeout(const Duration(seconds: 15));
-    if (res.statusCode != 200) return null;
-    final list = (jsonDecode(res.body) as Map)['results'] as List? ?? [];
-    for (final a in list) {
-      final m = a as Map;
-      if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
-      if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
-        continue;
+    for (final term in _appleTerms(title, artist, album)) {
+      final uri = Uri.parse(
+        'https://itunes.apple.com/search'
+        '?term=${Uri.encodeQueryComponent(term)}'
+        '&entity=song&attribute=songTerm&limit=30',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) continue;
+      final list = (jsonDecode(res.body) as Map)['results'] as List? ?? [];
+      for (final a in list) {
+        final m = a as Map;
+        if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
+        if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
+          continue;
+        }
+        if (album.trim().isNotEmpty &&
+            !_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
+          continue;
+        }
+        return m;
       }
-      if (album.trim().isNotEmpty &&
-          !_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
-        continue;
-      }
-      return m;
     }
+    // Direct song search is a ranking lottery: Apple's index does not
+    // always surface a track its own album page carries (verified:
+    // BULLY/3.FATHER is absent from every song-term page at limit 30,
+    // while the album's lookup returns it at track 3 of 18). Resolve
+    // the album id, then read the tracklist off it.
+    return _appleAlbumHit(title, artist, album);
+  }
+
+  /// The same track, found through its album: match the collection by
+  /// name + artist, then read that album's tracklist. Slower than a
+  /// song search (two requests) and far more reliable — the lookup
+  /// endpoint carries track totals and disc numbers the search
+  /// endpoint drops.
+  Future<Map?> _appleAlbumHit(
+      String title, String artist, String album) async {
+    if (album.trim().isEmpty) return null;
+    try {
+      final search = await http.get(Uri.parse(
+        'https://itunes.apple.com/search'
+        '?term=${Uri.encodeQueryComponent('$album $artist')}'
+        '&entity=song&attribute=songTerm&limit=30',
+      )).timeout(const Duration(seconds: 15));
+      if (search.statusCode != 200) return null;
+      final ids = <Object>[];
+      for (final a in (jsonDecode(search.body) as Map)['results'] as List? ??
+          const []) {
+        final m = a as Map;
+        if (!_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
+          continue;
+        }
+        if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
+        final id = m['collectionId'];
+        if (id != null && !ids.contains(id)) ids.add(id);
+        if (ids.length >= 3) break;
+      }
+      for (final id in ids) {
+        final look = await http
+            .get(Uri.parse(
+                'https://itunes.apple.com/lookup?id=$id&entity=song&limit=60'))
+            .timeout(const Duration(seconds: 15));
+        if (look.statusCode != 200) continue;
+        for (final a in (jsonDecode(look.body) as Map)['results'] as List? ??
+            const []) {
+          final m = a as Map;
+          if (m['wrapperType'] != 'track') continue;
+          if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
+            continue;
+          }
+          return m;
+        }
+      }
+    } catch (_) {}
     return null;
+  }
+
+  /// Search shapes for one track, most precise first: title + artist
+  /// + album, then title + artist, then title + the artist's first
+  /// name (Apple ranks short terms higher — the "Kanye West" form
+  /// buries the hit that "Kanye" surfaces).
+  static List<String> _appleTerms(
+      String title, String artist, String album) {
+    final terms = <String>[];
+    if (album.trim().isNotEmpty) terms.add('$title $artist $album');
+    terms.add('$title $artist');
+    final first = artist.split(RegExp(r'\s+')).first;
+    if (first.isNotEmpty && first != artist) terms.add('$title $first');
+    return terms;
   }
 
   /// The Deezer hit for a track, verified the same way.
