@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
@@ -169,9 +171,25 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
             '-c:a', 'copy', '-c:v', 'mjpeg', '-q:v', _coverQ, '-vf', _coverVf,
             '-disposition:v', 'attached_pic',
           ]);
+        } else if (ext == 'ogg' || ext == 'oga' || ext == 'opus') {
+          // Vorbis comments carry art as a base64 PICTURE block, not
+          // a stream: the ogg muxer rejects attached_pic outright.
+          // Re-encode to the same cap, build the block in Dart, pass
+          // it as a comment. `-map 0:a` drops any pre-existing video
+          // streams (a re-applied cover must not leave stale art
+          // behind for stream-reading players); audio stays `-c copy`
+          // via the shared coverPath = null path below.
+          final block = await _coverPictureBlock(coverPath);
+          if (block != null) {
+            opts.addAll([
+              '-map', '0:a', '-metadata', 'METADATA_BLOCK_PICTURE=$block',
+            ]);
+            writes++;
+          }
+          // The image is comment data, never a stream: always drop
+          // the `-i` added above, whether the block built or not.
+          mapped = false;
         } else {
-          // ogg/opus picture blocks need base64 COMMENT mapping;
-          // skip art for those (tags still land).
           mapped = false;
         }
         if (mapped) {
@@ -193,24 +211,48 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
     final base =
         dot > sep + 1 ? stagedPath.substring(0, dot) : stagedPath;
     final out = '${base}_tagged.$ext';
-    final argv = <String>[
-      '-y', '-v', 'error',
-      ...inputs,
-      ...opts,
-      if (coverPath == null) ...['-c', 'copy'],
-      out,
-    ];
-    final session = await FFmpegKit.executeWithArguments(argv).timeout(
-      const Duration(seconds: 90),
-      onTimeout: () {
-        // Abandoning the future does NOT kill the process, and
-        // FFmpegKit serializes sessions: a stalled call blocks
-        // every later one (the "stuck on embedding" hang).
-        FFmpegKit.cancel();
-        throw StateError('embed timed out');
-      },
-    );
-    final code = await session.getReturnCode();
+    List<String> buildArgv({String? forceFormat}) {
+      final a = <String>[
+        '-y', '-v', 'error',
+        ...inputs,
+        ...opts,
+        if (coverPath == null) ...['-c', 'copy'],
+      ];
+      if (forceFormat != null) a.addAll(['-f', forceFormat]);
+      a.add(out);
+      return a;
+    }
+
+    Future<(ReturnCode?, String)> runTag(List<String> argv) async {
+      final session = await FFmpegKit.executeWithArguments(argv).timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          // Abandoning the future does NOT kill the process, and
+          // FFmpegKit serializes sessions: a stalled call blocks
+          // every later one (the "stuck on embedding" hang).
+          FFmpegKit.cancel();
+          throw StateError('embed timed out');
+        },
+      );
+      final code = await session.getReturnCode();
+      final log = (await session.getOutput()) ?? '';
+      return (code, log);
+    }
+
+    var (code, log) = await runTag(buildArgv());
+    if (!ReturnCode.isSuccess(code) &&
+        (ext == 'm4a' || ext == 'mp4' || ext == 'm4b') &&
+        log.contains('Could not find tag for codec')) {
+      // Codec/container mismatch the extension hides: observed
+      // FLAC-in-.m4a from providers (magic says ftyp, stream says
+      // flac). The ipod muxer refuses the stream outright; the mp4
+      // muxer takes the same bytes with -c copy (verified: ©-atoms
+      // + covr land, audio untouched). Retry once — anything else
+      // fails the same way below.
+      ArchLog.i('embed',
+          'ipod muxer refused codec for .$ext, retrying with mp4 muxer');
+      (code, log) = await runTag(buildArgv(forceFormat: 'mp4'));
+    }
     final f = File(out);
     if (ReturnCode.isSuccess(code) &&
         await f.exists() &&
@@ -225,7 +267,6 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
       await f.delete();
     } catch (_) {}
     // Diagnosability: a bare "failed" burns device round-trips.
-    final log = (await session.getOutput()) ?? '';
     ArchLog.w('embed',
         'tag command failed for .$ext (code ${code?.getValue()}) ${_clip(log)}');
     return stagedPath;
@@ -248,8 +289,64 @@ String _clip(String s) {
   return one.length > 500 ? '${one.substring(0, 500)}…' : one;
 }
 
-Future<String?> _fetchCover(String url) async {
+/// Cover bytes as a base64 FLAC PICTURE block for Vorbis comments
+/// (ogg/oga/opus). The fetched file is re-encoded to the same cap
+/// first, so the block stays ~500KB, not the 5MB CAA originals can
+/// run to. Returns null on any failure — caller falls back to
+/// tags-only, never wedges the pull.
+Future<String?> _coverPictureBlock(String coverPath) async {
+  File? small;
   try {
+    final dir = await getTemporaryDirectory();
+    small = File(
+        '${dir.path}/embed_pic_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    final session = await FFmpegKit.executeWithArguments([
+      '-y', '-v', 'error', '-i', coverPath,
+      '-vf', _coverVf, '-c:v', 'mjpeg', '-q:v', _coverQ, small.path,
+    ]).timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        FFmpegKit.cancel();
+        throw StateError('cover re-encode timed out');
+      },
+    );
+    final code = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(code) ||
+        !await small.exists() ||
+        await small.length() == 0) {
+      return null;
+    }
+    final bytes = await small.readAsBytes();
+    if (bytes.length < 4) return null;
+    // PICTURE block: type 3 (front cover), mime, empty desc, zero
+    // dims (legal: unknown), data. Re-encoded above so always jpeg.
+    final mime = (bytes[0] == 0xFF && bytes[1] == 0xD8)
+        ? 'image/jpeg'
+        : 'image/png';
+    final b = BytesBuilder();
+    void u32(int v) => b.add(
+        [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF]);
+    u32(3);
+    u32(mime.length);
+    b.add(mime.codeUnits);
+    u32(0);
+    u32(0);
+    u32(0);
+    u32(0);
+    u32(0);
+    u32(bytes.length);
+    b.add(bytes);
+    return base64Encode(b.toBytes());
+  } catch (_) {
+    return null;
+  } finally {
+    try {
+      if (small != null && await small.exists()) await small.delete();
+    } catch (_) {}
+  }
+}
+
+Future<String?> _fetchCover(String url) async {  try {
     final res =
         await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;

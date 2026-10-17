@@ -11,6 +11,7 @@ import '../../core/theme.dart';
 import '../metadata/lyrics_providers.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
+import 'word_lyrics.dart';
 
 /// Our synced-lyrics stage: Apple mechanics in our skin. Lines are
 /// parsed with the lyric package's own parser (zero new parsing
@@ -34,7 +35,16 @@ class LyricStage extends ConsumerStatefulWidget {
   final String syncedLrc;
   final Duration offset;
 
-  const LyricStage({super.key, required this.syncedLrc, required this.offset});
+  /// Word timings (see word_lyrics.dart). When present and usable the
+  /// stage builds its document from them and the sweep renderer
+  /// engages; otherwise it parses [syncedLrc] exactly as before.
+  final String? wordTimings;
+
+  const LyricStage(
+      {super.key,
+      required this.syncedLrc,
+      required this.offset,
+      this.wordTimings});
 
   @override
   ConsumerState<LyricStage> createState() => _LyricStageState();
@@ -63,7 +73,8 @@ class _LyricStageState extends ConsumerState<LyricStage> {
     super.initState();
     List<LyricLine> lines = const [];
     try {
-      lines = LyricDocument.parse(widget.syncedLrc).lines;
+      lines = documentFromWordTimings(widget.wordTimings)?.lines ??
+          LyricDocument.parse(widget.syncedLrc).lines;
     } catch (_) {
       lines = const [];
     }

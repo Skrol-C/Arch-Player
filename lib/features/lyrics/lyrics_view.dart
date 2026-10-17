@@ -46,6 +46,7 @@ class _LyricsSlotState extends ConsumerState<LyricsSlot> {
                   key: ValueKey('stage-${song.id}'),
                   syncedLrc: doc.syncedLrc!,
                   offset: Duration.zero,
+                  wordTimings: doc.wordTimings,
                 ),
               ),
               _sourceLine(doc),

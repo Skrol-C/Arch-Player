@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
+import 'data/art_previews.dart';
 import 'data/library_repository.dart';
 
 String fmtDuration(Duration d) {
@@ -63,6 +66,89 @@ class AlbumArt extends StatelessWidget {
     );
     if (fill) return body;
     return SizedBox(width: size, height: size, child: body);
+  }
+}
+
+/// File art through the preview store, falling back to the album
+/// row. Same API shape as [AlbumArt] so call sites swap one line:
+/// every surface that knows a file path paints the file's own art
+/// instead of depending on MediaStore album art (missing for fresh
+/// pulls). The future is memoized per path — a rebuild never
+/// refires the read, which is what the placeholder flicker was.
+class FileArtImage extends StatefulWidget {
+  final String path;
+  final int albumId;
+  final double size;
+  final double radius;
+  final bool fill;
+  final bool detail;
+
+  const FileArtImage({
+    super.key,
+    required this.path,
+    required this.albumId,
+    this.size = 52,
+    this.radius = 12,
+    this.fill = false,
+    this.detail = false,
+  });
+
+  @override
+  State<FileArtImage> createState() => _FileArtImageState();
+}
+
+class _FileArtImageState extends State<FileArtImage> {
+  Future<String?>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future =
+        widget.path.isEmpty ? null : ArtPreviews.previewFor(widget.path);
+  }
+
+  @override
+  void didUpdateWidget(covariant FileArtImage old) {
+    super.didUpdateWidget(old);
+    if (old.path != widget.path) {
+      _future =
+          widget.path.isEmpty ? null : ArtPreviews.previewFor(widget.path);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fb = AlbumArt(
+      albumId: widget.albumId,
+      size: widget.size,
+      radius: widget.radius,
+      fill: widget.fill,
+      detail: widget.detail,
+    );
+    if (_future == null) return fb;
+    return FutureBuilder<String?>(
+      future: _future,
+      builder: (context, snap) {
+        final p = snap.data;
+        if (p == null || p.isEmpty) return fb;
+        final img = Image.file(
+          File(p),
+          fit: BoxFit.cover,
+          cacheWidth: widget.detail
+              ? 1400
+              : widget.fill
+                  ? 700
+                  : (widget.size * 3).round().clamp(200, 700),
+          errorBuilder: (_, _, _) => fb,
+        );
+        final body = ClipRRect(
+          borderRadius: BorderRadius.circular(widget.radius),
+          child: img,
+        );
+        if (widget.fill) return body;
+        return SizedBox(width: widget.size, height: widget.size, child: body);
+      },
+    );
   }
 }
 
@@ -198,14 +284,18 @@ class _CaaCover extends ConsumerWidget {
 
 class SongRow extends StatelessWidget {
   final Song song;
-  final Widget art;
+
+  /// Leading art. Null = the file's own art via the preview store
+  /// (album row underneath), so rows never depend on callers
+  /// threading art through.
+  final Widget? art;
   final bool isCurrent;
   final VoidCallback onTap;
 
   const SongRow({
     super.key,
     required this.song,
-    required this.art,
+    this.art,
     required this.isCurrent,
     required this.onTap,
   });
@@ -215,7 +305,10 @@ class SongRow extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: SizedBox(width: 52, height: 52, child: art),
+      leading: SizedBox(
+          width: 52,
+          height: 52,
+          child: art ?? FileArtImage(path: song.path, albumId: song.albumId)),
       title: Text(
         song.title,
         maxLines: 1,

@@ -695,7 +695,11 @@ class _FeaturedRelease extends ConsumerWidget {
       }
       yearText = year > 0 ? '$year' : '${o.songs.length} songs';
       title = o.title;
-      cover = AlbumArt(albumId: o.songs.first.albumId, size: 64, radius: 12);
+      cover = FileArtImage(
+          path: o.songs.first.path,
+          albumId: o.songs.first.albumId,
+          size: 64,
+          radius: 12);
       open = () {
         HapticFeedback.selectionClick();
         Navigator.of(context)

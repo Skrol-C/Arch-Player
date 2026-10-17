@@ -476,29 +476,5 @@ String? _imageMime(Uint8List b) {
   return null;
 }
 
-/// Full-bleed art only, so a handful of entries is plenty. Keyed by
-/// file path. Nulls are cached too: an artless file must not be
-/// re-read every time it plays.
-class EmbeddedArtCache {
-  static const _cap = 8;
-  static final Map<String, EmbeddedArt?> _mem = {};
-  static final List<String> _order = [];
-
-  static bool has(String path) => _mem.containsKey(path);
-
-  static EmbeddedArt? get(String path) {
-    if (!_mem.containsKey(path)) return null;
-    _order.remove(path);
-    _order.add(path);
-    return _mem[path];
-  }
-
-  static void put(String path, EmbeddedArt? art) {
-    _mem[path] = art;
-    _order.remove(path);
-    _order.add(path);
-    while (_order.length > _cap) {
-      _mem.remove(_order.removeAt(0));
-    }
-  }
-}
+/// File-art previews that survive restarts live in
+/// art_previews.dart; this file stays the pure container reader.

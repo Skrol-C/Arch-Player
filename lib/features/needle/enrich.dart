@@ -63,6 +63,11 @@ class PullMeta {
 
 /// Enrich a pull in parallel lanes. One dead lane degrades its
 /// block, never the pull. Never throws.
+///
+/// [includeLyrics]/[includeCover] exist for the Doctor: its sparse
+/// apply writes neither (Finder owns lyrics, pencil owns covers),
+/// so running those lanes would burn seconds and requests for
+/// results it discards. Pull keeps both on.
 Future<PullMeta> gatherPullMeta({
   required String title,
   required String artist,
@@ -70,6 +75,8 @@ Future<PullMeta> gatherPullMeta({
   String artUrl = '',
   String isrc = '',
   int durationSecs = 0,
+  bool includeLyrics = true,
+  bool includeCover = true,
 }) async {
   final svc = MetadataService();
   List<AlbumCredit> credits = const [];
@@ -87,16 +94,21 @@ Future<PullMeta> gatherPullMeta({
       // Label + catalogue number + barcode + release type, all off one
       // release search (the lane labelFor would otherwise repeat).
       svc.releaseFactsFor(artist: artist, album: album),
-      svc.trackFactsFor(artist: artist, album: album, title: title),
-      _lyricsLadder(
-        svc,
-        artist: artist,
-        title: title,
-        album: album,
-        durationSecs: durationSecs,
-      ),
-      _hiResCover(svc,
-          artist: artist, album: album, title: title, fallback: artUrl),
+      svc.trackFactsFor(
+          artist: artist, album: album, title: title, durationSecs: durationSecs),
+      includeLyrics
+          ? _lyricsLadder(
+              svc,
+              artist: artist,
+              title: title,
+              album: album,
+              durationSecs: durationSecs,
+            )
+          : Future.value(const LyricDoc()),
+      includeCover
+          ? _hiResCover(svc,
+              artist: artist, album: album, title: title, fallback: artUrl)
+          : Future.value(artUrl),
     ]);
     credits = results[0] as List<AlbumCredit>;
     genres = results[1] as List<String>;

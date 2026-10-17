@@ -1262,15 +1262,11 @@ class _QueuePanel extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(8),
                           child: SizedBox.square(
                             dimension: 44,
-                            child: CurrentArt(
-                              song: song,
+                            child: FileArtImage(
+                              path: song.path,
+                              albumId: song.albumId,
                               size: 44,
                               radius: 8,
-                              iconSize: 22,
-                              // Rows paint their own art, never the
-                              // live item's file (queue-wide inherit
-                              // bug otherwise).
-                              useLiveFile: false,
                             ),
                           ),
                         ),

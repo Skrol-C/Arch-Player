@@ -4,13 +4,12 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
-import '../library/data/embedded_art.dart';
+import '../library/data/art_previews.dart';
 import '../library/song_row.dart';
 import 'player_providers.dart';
 
@@ -54,9 +53,12 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
   /// Full-bleed only: the cover read out of the file itself. MediaStore
   /// answers with a downscaled rendition (512-750px measured) while the
   /// hero draws ~1200px, so the picture looked soft although files
-  /// carry 640-1800px.
-  Uint8List? _fileArt;
-  String? _fileArtPath;
+  /// carry 640-1800px. Resolved through the preview store (disk-
+  /// persistent, mtime-keyed): cold starts paint from disk instead of
+  /// re-walking the file, and a retagged file can never serve
+  /// yesterday's art.
+  String? _previewPath;
+  String? _previewFor;
   String? _inflightPath;
   String? _painted;
   bool _noPathLogged = false;
@@ -158,7 +160,7 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
       }
       return null;
     }
-    if (_fileArtPath != path) {
+    if (_previewFor != path) {
       // Retry keyed on the PATH, not a boolean: a load started for a
       // previous track must not block every later one (that left the
       // hero on the 512 fallback until an unrelated rebuild).
@@ -169,11 +171,11 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
       _note('pending-file-art');
       return null;
     }
-    final bytes = _fileArt;
-    if (bytes == null) return null; // known artless: normal chain wins
-    _note('file-art ${bytes.length}B');
-    return Image.memory(
-      bytes,
+    final preview = _previewPath;
+    if (preview == null) return null; // known artless: normal chain wins
+    _note('file-art $preview');
+    return Image.file(
+      File(preview),
       key: ValueKey('fileart:$path'),
       width: widget.fill ? null : widget.size,
       height: widget.fill ? null : widget.size,
@@ -187,32 +189,25 @@ class _CurrentArtState extends ConsumerState<CurrentArt> {
   }
 
   Future<void> _loadFileArt(String path) async {
-    EmbeddedArt? art;
+    String? preview;
     try {
-      if (EmbeddedArtCache.has(path)) {
-        art = EmbeddedArtCache.get(path);
-        ArchLog.i('art', 'hero: cache hit for $path');
-      } else {
-        // Off the UI isolate: this is a file walk, not a UI job.
-        // compute() takes a TOP-LEVEL function on purpose - a closure
-        // written here would capture this State in the isolate
-        // message and the send fails ("object is unsendable").
-        ArchLog.i('art', 'hero: reading cover for $path');
-        art = await compute(readEmbeddedArt, path);
-        EmbeddedArtCache.put(path, art);
-      }
+      preview = await ArtPreviews.previewFor(path);
     } catch (e) {
       ArchLog.w('art', 'file cover read failed: $e');
-      art = null;
+      preview = null;
     }
+    // Diagnostic on purpose: "the hero is blurry" must be answerable
+    // from the log, not from guesswork.
+    ArchLog.i('art',
+        preview == null ? 'hero: no preview for $path' : 'hero: preview $preview');
     if (!mounted) return;
     setState(() {
       _inflightPath = null;
       // A fast skip through tracks must not paint one file's cover
       // over another's.
       if (_song.path == path) {
-        _fileArtPath = path;
-        _fileArt = art?.bytes;
+        _previewFor = path;
+        _previewPath = preview;
       }
     });
   }

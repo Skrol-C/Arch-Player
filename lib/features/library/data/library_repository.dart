@@ -136,4 +136,13 @@ class ArtCache {
       _cache.remove(_order.removeAt(0));
     }
   }
+
+  /// Drop every cached rendition for one album (its cover changed
+  /// under us: retag, cover replace). Keys are '$px:$albumId'.
+  static void evictAlbum(int albumId) {
+    if (albumId <= 0) return;
+    final tail = ':$albumId';
+    _cache.removeWhere((k, _) => k.endsWith(tail));
+    _order.removeWhere((k) => k.endsWith(tail));
+  }
 }

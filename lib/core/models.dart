@@ -260,13 +260,20 @@ class LyricDoc {
   final LyricSource source;
   final bool instrumental;
 
+  /// Word-level timings as compact JSON (see word_lyrics.dart), from
+  /// LRCLib `lyricsfile` when `hasWordSync` is true. Display + cache
+  /// ONLY — no container holds word timings, so this never embeds.
+  final String? wordTimings;
+
   const LyricDoc({
     this.plain,
     this.syncedLrc,
     this.source = LyricSource.none,
     this.instrumental = false,
+    this.wordTimings,
   });
 
   bool get hasSynced => syncedLrc != null && syncedLrc!.trim().isNotEmpty;
   bool get hasPlain => plain != null && plain!.trim().isNotEmpty;
+  bool get hasWords => wordTimings != null && wordTimings!.isNotEmpty;
 }

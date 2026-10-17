@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
 import '../../core/models.dart';
+import '../library/data/art_previews.dart';
 import '../library/data/library_repository.dart';
 
 /// Album art for lock-screen/notification, cached on disk. The native side
@@ -275,6 +276,23 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   Future<void> _attachArtFile(Song song) async {
     try {
+      // File-art previews first: instant when warm, exact for owned
+      // files, and independent of MediaStore album art (missing for
+      // fresh pulls — the old path silently attached nothing there).
+      if (song.path.isNotEmpty) {
+        final id = song.uri.toString();
+        if (mediaItem.value?.id != id) return;
+        final preview = await ArtPreviews.previewFor(song.path)
+            .timeout(const Duration(seconds: 8));
+        if (preview != null && preview.isNotEmpty) {
+          if (mediaItem.value?.id != id) return;
+          _setItem(mediaItem.value!.copyWith(
+            extras: {...?mediaItem.value!.extras, 'artCacheFile': preview},
+          ));
+          ArchLog.i('player', 'notif art preview id=${song.id}');
+          return;
+        }
+      }
       if (song.albumId <= 0) return;
       final id = song.uri.toString();
       if (mediaItem.value?.id != id) return;

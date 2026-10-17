@@ -119,7 +119,11 @@ class _HeroCard extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            AlbumArt(albumId: artId, size: 140, radius: 16),
+            FileArtImage(
+                path: songs.first.path,
+                albumId: artId,
+                size: 140,
+                radius: 16),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -331,7 +335,11 @@ class _RailCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AlbumArt(albumId: song.albumId, size: 120, radius: 16),
+              FileArtImage(
+                  path: song.path,
+                  albumId: song.albumId,
+                  size: 120,
+                  radius: 16),
               const SizedBox(height: 6),
               Row(
                 children: [

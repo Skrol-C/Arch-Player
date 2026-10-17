@@ -231,7 +231,6 @@ class _SongList extends ConsumerWidget {
         final song = visible[i];
         return SongRow(
           song: song,
-          art: AlbumArt(albumId: song.albumId),
           isCurrent: song.id == currentId,
           onTap: () => _tapToPlay(ref, context, song, visible),
         );
@@ -273,7 +272,8 @@ class _SongGrid extends ConsumerWidget {
                           ? Border.all(color: archPink, width: 2)
                           : null,
                     ),
-                    child: AlbumArt(
+                    child: FileArtImage(
+                      path: song.path,
                       albumId: song.albumId,
                       fill: true,
                       radius: 16,
@@ -337,7 +337,8 @@ class _AlbumGrid extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: AlbumArt(
+                  child: FileArtImage(
+                    path: album.songs.first.path,
                     albumId: album.songs.first.albumId,
                     fill: true,
                     radius: 16,

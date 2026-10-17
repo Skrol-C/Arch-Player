@@ -578,12 +578,13 @@ class TrackDetailsSheet extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               SizedBox(
-                                width: 88,
+                                width: 96,
                                 child: Text(
                                   rows[i][0],
                                   style: TextStyle(color: sub),
                                 ),
                               ),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   rows[i][1],

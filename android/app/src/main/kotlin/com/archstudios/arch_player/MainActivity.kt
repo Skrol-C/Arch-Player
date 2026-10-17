@@ -1,9 +1,12 @@
 package com.archstudios.arch_player
 
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ContentUris
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -23,6 +26,17 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     // MediaStore scans and bitmap decodes NEVER run on the main thread.
     // That was the ANR: seconds of main-thread work while scrolling.
     private val io = java.util.concurrent.Executors.newCachedThreadPool()
+
+    // Write consent (API 30+): MediaStore returns an IntentSender the
+    // user must approve. This is the app's FIRST activity-result path -
+    // the session-grant flow dodges one with a deep link, but there is
+    // no deep link for write access.
+    //
+    // startIntentSenderForResult + onActivityResult, NOT
+    // registerForActivityResult: the latter is unresolved on this
+    // project's androidx.activity version (verified by compiling).
+    private val consentRequestCode = 4711
+    private var pendingConsent: MethodChannel.Result? = null
 
     // Playback channel at HIGH importance, created BEFORE audio_service
     // posts anything: first creation wins, and the package default is
@@ -89,6 +103,24 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         }
     }
 
+    /// Consent result for requestWriteAccess. Only our own request code
+    /// is consumed; every other result keeps flowing to super (plugins
+    /// rely on that path).
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        if (requestCode == consentRequestCode) {
+            val pending = pendingConsent
+            pendingConsent = null
+            pending?.success(resultCode == Activity.RESULT_OK)
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
@@ -139,6 +171,44 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                             io.execute {
                                 result.success(publishAudio(src, name, mime, rel))
                             }
+                        }
+                    }
+                    // Remove a published file. Our own inserts need no
+                    // permission; a row we do not own throws, which Dart
+                    // answers with requestWriteAccess then retries.
+                    "deleteAudio" -> {
+                        val uri = call.argument<String>("uri").orEmpty()
+                        val path = call.argument<String>("path").orEmpty()
+                        if (uri.isEmpty() && path.isEmpty()) {
+                            result.success(false)
+                        } else {
+                            io.execute { result.success(deleteAudio(uri, path)) }
+                        }
+                    }
+                    // Swap a re-tagged temp copy in over an existing row.
+                    // MediaStore cannot rewrite tags, so the tagger wrote
+                    // a new file and this replaces the bytes in place.
+                    "retagAudio" -> {
+                        val uri = call.argument<String>("uri").orEmpty()
+                        val src = call.argument<String>("srcPath").orEmpty()
+                        val path = call.argument<String>("path").orEmpty()
+                        if (uri.isEmpty() || src.isEmpty()) {
+                            result.success(false)
+                        } else {
+                            io.execute {
+                                result.success(retagAudio(uri, src, path))
+                            }
+                        }
+                    }
+                    // Ask the OS for write access to specific items
+                    // (API 30+). True = granted. One prompt can cover
+                    // several items, so a batch asks once.
+                    "requestWriteAccess" -> {
+                        val uris = call.argument<List<String>>("uris").orEmpty()
+                        if (Build.VERSION.SDK_INT < 30 || uris.isEmpty()) {
+                            result.success(false)
+                        } else {
+                            requestWriteAccess(uris, result)
                         }
                     }
                     "setKeepAwake" -> {
@@ -283,6 +353,77 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         var s = 1
         while (w / (s * 2) >= target && h / (s * 2) >= target) s *= 2
         return s
+    }
+
+    /// Delete one published file. Our own MediaStore inserts need no
+    /// permission; a row we do not own throws
+    /// RecoverableSecurityException, which we swallow to `false` so Dart
+    /// can ask for consent and retry. Never throws.
+    private fun deleteAudio(uri: String, path: String): Boolean {
+        if (uri.isNotEmpty()) {
+            val removed = runCatching {
+                contentResolver.delete(Uri.parse(uri), null, null) > 0
+            }.getOrDefault(false)
+            if (removed) return true
+        }
+        if (path.isNotEmpty()) {
+            return runCatching {
+                val f = java.io.File(path)
+                if (f.isFile) f.delete() else false
+            }.getOrDefault(false)
+        }
+        return false
+    }
+
+    /// Replace an existing row's bytes with a freshly tagged temp file.
+    /// The tagger copies audio (-c copy), so this is a plain stream copy
+    /// plus a scan nudge so MediaStore re-reads the new tags.
+    private fun retagAudio(uri: String, srcPath: String, path: String): Boolean {
+        val src = java.io.File(srcPath)
+        if (!src.isFile || src.length() <= 0L) return false
+        val ok = runCatching {
+            contentResolver.openOutputStream(Uri.parse(uri), "wt")?.use { out ->
+                src.inputStream().use { input -> input.copyTo(out) }
+            } != null
+        }.getOrDefault(false)
+        if (!ok) return false
+        if (path.isNotEmpty()) {
+            runCatching {
+                android.media.MediaScannerConnection.scanFile(
+                    this, arrayOf(path), null, null)
+            }
+        }
+        return true
+    }
+
+    /// MediaStore write consent for items we do not own. Exactly one
+    /// request may be in flight: a second would strand the first
+    /// caller's result.
+    private fun requestWriteAccess(
+        uris: List<String>,
+        result: MethodChannel.Result,
+    ) {
+        if (pendingConsent != null) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            val list = uris.map { Uri.parse(it) }
+            val pi = MediaStore.createWriteRequest(contentResolver, list)
+            pendingConsent = result
+            startIntentSenderForResult(
+                pi.intentSender,
+                consentRequestCode,
+                null,
+                0,
+                0,
+                0,
+            )
+        }.onFailure {
+            android.util.Log.w("ArchLib", "write consent failed: ${it.message}")
+            pendingConsent = null
+            result.success(false)
+        }
     }
 
     /// Publish staged bytes into shared Music via MediaStore

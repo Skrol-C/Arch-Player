@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -6,21 +7,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../library/data/art_previews.dart';
+import '../library/data/library_repository.dart';
+import '../library/data/media_writes.dart';
 import '../library/data/tag_fields.dart';
+import '../needle/embed.dart';
+import '../needle/enrich.dart';
 import '../search/provider_marks.dart';
 import '../library/artist_page.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart';
+import '../metadata/cover_measure.dart';
 import '../metadata/lyrics_providers.dart';
 import '../metadata/metadata_providers.dart';
 import '../needle/download_sheet.dart';
+import '../doctor/doctor_sheet.dart';
 import '../needle/fly_to_needle.dart';
 import '../needle/needle_store.dart';
 import '../player/format_marks.dart';
@@ -197,8 +208,54 @@ class _SongPageState extends ConsumerState<SongPage> {
     await playAndOpen(ref, context, () => handler.playSong(song, queue));
   }
 
-  /// Song menu: Song Doctor + Lyric Finder placeholders for now;
-  /// the real slices land behind these values later.
+  /// Delete this track's file. Confirmed first, then written through the
+  /// library channel: our own inserts go straight through, and a file we
+  /// did not publish asks the OS for write access once before retrying.
+  Future<void> _delete(
+      BuildContext context, WidgetRef ref, Song song) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this track?'),
+        content: Text(
+            'Removes the file from this device. This cannot be undone.\n\n'
+            '${song.title}\n${song.artist}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete', style: TextStyle(color: archPink)),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !context.mounted) return;
+    HapticFeedback.mediumImpact();
+    final outcome = await MediaWrites.deleteWithConsent(
+      uri: song.uri.toString(),
+      path: song.path,
+    );
+    ArchLog.i('write', 'delete "${song.title}": ${outcome.name}');
+    if (!context.mounted) return;
+    switch (outcome) {
+      case WriteOutcome.ok:
+        ref.invalidate(songsProvider);
+        Navigator.of(context).maybePop();
+      case WriteOutcome.denied:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Not permitted — the file was left alone.')));
+      case WriteOutcome.failed:
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not delete '
+                '${song.path.isEmpty ? song.title : song.path}')));
+    }
+  }
+
+  /// Song menu: Doctor opens the repair sheet, Finder the lyric
+  /// sheet (same sheet, second page).
   Future<void> _openMenu(BuildContext context, WidgetRef ref) async {
     final value = await showTrackMenu(
       context: context,
@@ -207,23 +264,21 @@ class _SongPageState extends ConsumerState<SongPage> {
           MenuAction(
             icon: CupertinoIcons.bandage,
             label: 'Song Doctor',
-            subtitle: 'Coming soon',
             value: 'doctor',
           ),
           MenuAction(
             icon: CupertinoIcons.text_bubble,
             label: 'Lyric Finder',
-            subtitle: 'Coming soon',
             value: 'lyrics',
           ),
         ],
       ],
     );
-    if ((value == 'doctor' || value == 'lyrics') && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('On the way — not yet available.')),
-      );
+    if (!context.mounted) return;
+    if (value == 'doctor') {
+      await showDoctorSheet(context, _r, initialPage: 0);
+    } else if (value == 'lyrics') {
+      await showDoctorSheet(context, _r, initialPage: 1);
     }
   }
 
@@ -248,6 +303,12 @@ class _SongPageState extends ConsumerState<SongPage> {
           icon: const Icon(Icons.arrow_back_rounded, color: ink),
         ),
         actions: [
+          if (_r.owned != null)
+            IconButton(
+              tooltip: 'Delete track',
+              onPressed: () => _delete(context, ref, _r.owned!),
+              icon: const Icon(CupertinoIcons.trash, color: ink),
+            ),
           IconButton(
             tooltip: 'Options',
             onPressed: () => _openMenu(context, ref),
@@ -357,6 +418,501 @@ class _OverviewPage extends ConsumerWidget {
   }
 }
 
+/// Formats embedPullMeta can actually write a cover into. Ogg
+/// family rides the Vorbis path (base64 PICTURE comment); wav/aac
+/// have no reliable cover story in ffmpeg, so the pencil stays
+/// hidden there rather than opening a dialog that can only fail.
+bool _coverWritable(String path) {
+  final ext = path.toLowerCase().split('.').last;
+  return const {'mp3', 'flac', 'm4a', 'mp4', 'm4b', 'ogg', 'oga', 'opus'}
+      .contains(ext);
+}
+
+/// Pencil over the hero art: re-fetch the cover and write it into
+/// the file. Owned songs only (remote tracks have no file to write
+/// to); consent flow covers rows we didn't publish.
+class _CoverPencil extends ConsumerWidget {
+  final Song song;
+  const _CoverPencil({required this.song});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      onTap: () async {
+        HapticFeedback.selectionClick();
+        final ok = await showCoverSheet(context, song);
+        if (ok == true && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cover updated.')),
+          );
+        }
+      },
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: paper.withValues(alpha: 0.85),
+          border: Border.all(color: ink.withValues(alpha: 0.15)),
+        ),
+        child: const Icon(CupertinoIcons.pencil, size: 16, color: ink),
+      ),
+    );
+  }
+}
+
+/// Cover picker as a glass sheet (house grammar: one lens, drag
+/// handle, no nested lenses). One candidate per lane, side by
+/// side; the hero shows the selection at full size. Selecting
+/// writes nothing; Use embeds through the Doctor's temp -> embed
+/// -> retag path.
+Future<bool?> showCoverSheet(BuildContext context, Song song) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    useRootNavigator: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.transparent,
+    elevation: 0,
+    isScrollControlled: true,
+    showDragHandle: false,
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: LiquidGlassLens(
+        style: ArchGlass.sheet(radius: 28),
+        child: _CoverPickerSheet(song: song),
+      ),
+    ),
+  );
+}
+
+class _CoverPickerSheet extends ConsumerStatefulWidget {
+  final Song song;
+  const _CoverPickerSheet({required this.song});
+
+  @override
+  ConsumerState<_CoverPickerSheet> createState() =>
+      _CoverPickerDialogState();
+}
+
+class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
+  List<({String label, String url, String thumb})>? _candidates;
+
+  /// Measured per candidate: exact bytes + decoded dimensions. The
+  /// thumbnail reuses the same bytes, so one fetch serves art, size
+  /// and resolution — no HEAD guessing, no assumed lane sizes.
+  final Map<int, ({int bytes, int width, int height})> _info = {};
+  final Set<int> _failed = {};
+  int _selected = 0;
+  bool _applying = false;
+  String? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  /// MediaStore substitutes "Unknown ..." placeholders for missing
+  /// tags; searching for those words would only waste three lanes.
+  String _clean(String v, String placeholder) =>
+      v == placeholder ? '' : v;
+
+  Future<void> _fetch() async {
+    final song = widget.song;
+    final found = await ref
+        .read(metadataServiceProvider)
+        .coverCandidatesFor(
+          artist: _clean(song.artist, 'Unknown artist'),
+          album: _clean(song.album, 'Unknown album'),
+          title: _clean(song.title, 'Unknown title'),
+        );
+    if (!mounted) return;
+    setState(() => _candidates = found);
+    // Info for every row, in parallel; rows fill in as each lands.
+    for (var i = 0; i < found.length; i++) {
+      unawaited(_fetchInfo(i, found[i].url));
+    }
+  }
+
+  /// Chips without the megabytes: HEAD for bytes, 64KB Range for
+  /// dims, bounded full GET only as fallback (see cover_measure).
+  /// Display pixels ride separate small URLs, so measuring never
+  /// pays for them.
+  Future<void> _fetchInfo(int index, String url) async {
+    final m = await measureCoverArt(url);
+    if (!mounted) return;
+    setState(() {
+      if (m != null) {
+        _info[index] = m;
+      } else {
+        _failed.add(index);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cands = _candidates;
+    final body = cands == null
+        ? const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: CircularProgressIndicator(
+                  color: archPink, strokeWidth: 2),
+            ),
+          )
+        : cands.isEmpty
+            ? const Text(
+                'No covers found anywhere.',
+                style: TextStyle(color: inkDim, fontSize: 14),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _hero(cands),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 132,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: cands.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: 10),
+                      itemBuilder: (_, i) =>
+                          _candidateStrip(cands[i], i),
+                    ),
+                  ),
+                  if (_status != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_status!,
+                        style: const TextStyle(
+                            color: inkDim, fontSize: 13)),
+                  ],
+                  if (_applying) ...[
+                    const SizedBox(height: 8),
+                    const LinearProgressIndicator(color: archPink),
+                  ],
+                ],
+              );
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: ink.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Cover art',
+              style: TextStyle(
+                fontFamily: 'ArchSerif',
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            body,
+            if (cands != null && cands.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _applying ? null : () => _useSelected(cands),
+                      child: Text(_applying ? 'Writing…' : 'Use'),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _applying
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ] else if (cands != null) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _useSelected(
+      List<({String label, String url, String thumb})> cands) {
+    final i = _selected.clamp(0, cands.length - 1);
+    if (_failed.contains(i)) return;
+    _apply(cands[i].url);
+  }
+
+  /// The selection at full size, with its measured chips. This is
+  /// what Use writes — no 56px guessing.
+  Widget _hero(List<({String label, String url, String thumb})> cands) {
+    final i = _selected.clamp(0, cands.length - 1);
+    final cand = cands[i];
+    final info = _info[i];
+    final failed = _failed.contains(i);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: SizedBox(
+            height: 200,
+            width: double.infinity,
+            child: failed
+                ? Container(
+                    color: paperRaised,
+                    child: const Icon(Icons.album_outlined,
+                        color: inkDim, size: 48),
+                  )
+                : CachedNetworkImage(
+                    imageUrl: cand.url,
+                    memCacheWidth: 800,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => Container(
+                      color: paperRaised,
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                            color: archPink, strokeWidth: 2),
+                      ),
+                    ),
+                    errorWidget: (_, _, _) => Container(
+                      color: paperRaised,
+                      child: const Icon(Icons.album_outlined,
+                          color: inkDim, size: 48),
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                cand.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 15),
+              ),
+            ),
+            if (info != null) ...[
+              if (info.width >= kHqSide || info.height >= kHqSide)
+                _chip('HQ', hot: true),
+              _chip('${info.width} × ${info.height}'),
+              _chip(formatArtBytes(info.bytes)),
+            ] else if (failed)
+              const Text("couldn't load",
+                  style: TextStyle(color: inkDim, fontSize: 12))
+            else
+              const SizedBox(
+                height: 12,
+                width: 12,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: inkDim),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _candidateStrip(
+      ({String label, String url, String thumb}) cand, int i) {
+    final selected = _selected == i;
+    final failed = _failed.contains(i);
+    final thumbUrl = cand.thumb.isNotEmpty ? cand.thumb : cand.url;
+    return GestureDetector(
+      onTap: (_applying || failed)
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              setState(() => _selected = i);
+            },
+      behavior: HitTestBehavior.opaque,
+      child: Opacity(
+        opacity: failed ? 0.45 : 1.0,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: selected ? archPink : Colors.transparent,
+                  width: 2.5,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(
+                  imageUrl: thumbUrl,
+                  width: 84,
+                  height: 84,
+                  memCacheWidth: 168,
+                  memCacheHeight: 168,
+                  fit: BoxFit.cover,
+                  placeholder: (_, _) => Container(
+                    width: 84,
+                    height: 84,
+                    color: paperRaised,
+                    child: const Center(
+                      child: SizedBox(
+                        height: 14,
+                        width: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: inkDim),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (_, _, _) => Container(
+                    width: 84,
+                    height: 84,
+                    color: paperRaised,
+                    child: const Icon(Icons.album_outlined,
+                        color: inkDim, size: 28),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 88,
+              child: Text(
+                cand.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? ink : inkDim,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String text, {bool hot = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: hot ? archPink : paperRaised,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: hot ? Colors.white : inkDim,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _apply(String url) async {
+    final song = widget.song;
+    // Captured before any await: popping after async work must not
+    // touch context across the gap.
+    final navigator = Navigator.of(context);
+    setState(() {
+      _applying = true;
+      _status = null;
+    });
+    HapticFeedback.mediumImpact();
+    String? tempIn;
+    String? tagged;
+    try {
+      final dir = await getTemporaryDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final ext = song.path.split('.').last.toLowerCase();
+      tempIn = '${dir.path}/cover_$stamp.$ext';
+      await File(song.path).copy(tempIn);
+      // Cover-only record: every tag field stays empty so tag()
+      // skips it and the file's own metadata is untouched.
+      tagged = await embedPullMeta(
+        tempIn,
+        PullMeta(title: '', artist: '', album: '', coverUrl: url),
+      );
+      if (tagged == tempIn) {
+        throw StateError('cover not written');
+      }
+      final outcome = await MediaWrites.retagWithConsent(
+        uri: song.uri.toString(),
+        srcPath: tagged,
+        path: song.path,
+      );
+      ArchLog.i('cover', 'pencil "${song.title}": ${outcome.name}');
+      if (!mounted) return;
+      if (outcome == WriteOutcome.ok) {
+        // Refresh the preview now (mtime key changed anyway) so the
+        // hero paints instantly instead of next-paint; the album-row
+        // memory cache is dropped so MediaStore gets re-queried too.
+        await ArtPreviews.refresh(song.path);
+        ArtCache.evictAlbum(song.albumId);
+        ref.invalidate(songsProvider);
+        navigator.pop(true);
+      } else if (outcome == WriteOutcome.denied) {
+        setState(() {
+          _applying = false;
+          _status = 'Not permitted — the file was left alone.';
+        });
+      } else {
+        setState(() {
+          _applying = false;
+          _status = 'Could not write ${song.path}.';
+        });
+      }
+    } catch (e) {
+      ArchLog.w('cover', 'pencil apply failed: $e');
+      if (mounted) {
+        setState(() {
+          _applying = false;
+          _status = 'Cover fetch failed — nothing changed.';
+        });
+      }
+    } finally {
+      for (final p in [tempIn, tagged]) {
+        if (p == null) continue;
+        try {
+          final f = File(p);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
+}
+
 class _Hero extends ConsumerWidget {
   final SongRef songRef;
   final Future<void> Function(Song, List<Song>) onPlay;
@@ -380,7 +936,12 @@ class _Hero extends ConsumerWidget {
         ),
       );
     } else if (owned != null && owned.albumId > 0) {
-      art = AlbumArt(albumId: owned.albumId, size: 320, radius: 32);
+      art = FileArtImage(
+          path: owned.path,
+          albumId: owned.albumId,
+          size: 320,
+          radius: 32,
+          detail: true);
     } else if (r.artUrl.isNotEmpty) {
       art = ClipRRect(
         borderRadius: BorderRadius.circular(32),
@@ -413,7 +974,25 @@ class _Hero extends ConsumerWidget {
     final oa = ownedAlbum;
     return Column(
       children: [
-        Center(child: SizedBox(width: 320, height: 320, child: art)),
+        Center(
+          child: SizedBox(
+            width: 320,
+            height: 320,
+            child: Stack(
+              children: [
+                art,
+                if (owned != null &&
+                    owned.path.isNotEmpty &&
+                    _coverWritable(owned.path))
+                  Positioned(
+                    right: 10,
+                    bottom: 10,
+                    child: _CoverPencil(song: owned),
+                  ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 20),
         Text(
           r.title,
@@ -476,8 +1055,11 @@ class _Hero extends ConsumerWidget {
                     width: 44,
                     height: 44,
                     child: owned != null && owned.albumId > 0
-                        ? AlbumArt(
-                            albumId: owned.albumId, size: 44, radius: 12)
+                        ? FileArtImage(
+                            path: owned.path,
+                            albumId: owned.albumId,
+                            size: 44,
+                            radius: 12)
                         : r.artUrl.isNotEmpty
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
@@ -1196,10 +1778,22 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
     final fileGenre = fields?[kGenre];
     final fileLabel = fields?[kLabel];
     final fileIsrc = fields?[kIsrc];
+    final fileAlbumArtist = fields?[kAlbumArtist];
+    final fileTrack = fields?.numbered(kTrack, kTrackTotal);
+    final fileDisc = fields?.numbered(kDisc, kDiscTotal);
 
     final rows = <List<String>>[
       ['Artist', r.artist],
       if (r.album.isNotEmpty) ['Album', r.album],
+      if (fileAlbumArtist case String albumArtist) ...[
+        ['Album artist', albumArtist]
+      ],
+      if (fileTrack case String track) ...[
+        ['Track', track]
+      ],
+      if (fileDisc case String disc) ...[
+        ['Disc', disc]
+      ],
       if (fileYear != null)
         ['Year', fileYear]
       else if (r.year > 0)
@@ -1233,13 +1827,17 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
 
     // Everything the file carries that the card above does not already
     // state. Title/artist/album are the page's own subject; date, genre,
-    // label and ISRC live in the card; totals fold into Track/Disc.
+    // label, ISRC, album artist, track and disc live in the card;
+    // totals fold into Track/Disc.
     final tagRows = <List<String>>[];
     if (fields != null) {
       for (final k in tagFieldOrder.keys) {
         if (k == kTitle ||
             k == kArtist ||
             k == kAlbum ||
+            k == kAlbumArtist ||
+            k == kTrack ||
+            k == kDisc ||
             k == kDate ||
             k == kGenre ||
             k == kLabel ||
@@ -1248,11 +1846,7 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
             k == kDiscTotal) {
           continue;
         }
-        final v = k == kTrack
-            ? fields.numbered(kTrack, kTrackTotal)
-            : k == kDisc
-                ? fields.numbered(kDisc, kDiscTotal)
-                : fields[k];
+        final v = fields[k];
         if (v == null || v.isEmpty) continue;
         tagRows.add([tagFieldOrder[k]!, v]);
       }
@@ -1413,12 +2007,13 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 84,
+            width: 96,
             child: Text(
               k,
               style: const TextStyle(color: inkDim, fontSize: 14),
             ),
           ),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               v,

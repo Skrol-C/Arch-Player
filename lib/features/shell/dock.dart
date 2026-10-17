@@ -399,8 +399,12 @@ class _CompactMini extends ConsumerWidget {
                   key: ValueKey(song.albumId),
                   width: 38,
                   height: 38,
-                  child: song.albumId > 0
-                      ? AlbumArt(albumId: song.albumId, size: 38, radius: 10)
+                  child: song.albumId > 0 || song.path.isNotEmpty
+                      ? FileArtImage(
+                          path: song.path,
+                          albumId: song.albumId,
+                          size: 38,
+                          radius: 10)
                       : Container(
                           decoration: BoxDecoration(
                             color: paperRaised,

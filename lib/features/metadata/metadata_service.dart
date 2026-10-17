@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/secrets.local.dart' as secrets;
+import '../lyrics/word_lyrics.dart';
 
 /// Enriches a local artist name: MusicBrainz (identity + discography),
 /// Deezer (portrait + top tracks), Last.fm (bio). Three independent lanes -
@@ -372,6 +373,35 @@ class MetadataService {
     return doc;
   }
 
+  /// Full LRCLib record in one fetch: line text, plain text and
+  /// word timings together. The Finder derives its word AND synced
+  /// rounds from this instead of fetching twice — one response
+  /// carries both. Empty doc on miss.
+  Future<LyricDoc> lrclibDocFor({
+    required String artist,
+    required String title,
+    required String album,
+    required int durationSecs,
+  }) async {
+    try {
+      return await _lrclibFetch(
+            artist: artist,
+            title: title,
+            album: album,
+            durationSecs: durationSecs,
+          ) ??
+          const LyricDoc();
+    } catch (_) {
+      return const LyricDoc();
+    }
+  }
+
+  /// Persist a Finder pick so the player shows it. Cache only — the
+  /// file itself is untouched (rewriting embedded lyrics is a
+  /// Doctor-apply concern, and PaxSenIX lines never embed anyway).
+  Future<void> saveLyrics(int songId, LyricDoc doc) =>
+      _writeLyricCache(songId, doc);
+
   /// Remote (unowned) lyrics: same ladder, network-only, never
   /// cached - there is no song id to key on.
   Future<LyricDoc> lyricsForRemote({
@@ -430,15 +460,41 @@ class MetadataService {
             m['instrumental'] != true) {
           continue;
         }
+        // Duration guard: every answer carries its own `duration`
+        // (seconds). A hit more than ±10s from the file is a different
+        // recording — live cut, remix, re-recording — whose timings
+        // would land seconds off. Skip it, don't serve it. Missing
+        // data on either side never rejects.
+        final hitDur = (m['duration'] as num?)?.toDouble();
+        if (durationSecs > 0 &&
+            hitDur != null &&
+            hitDur > 0 &&
+            (hitDur - durationSecs).abs() > 10) {
+          ArchLog.i(
+            'meta',
+            'lyrics duration guard: $artist - $title rung ${r + 1} '
+            'claims ${hitDur.round()}s, file is ${durationSecs}s — skipping',
+          );
+          continue;
+        }
+        // Word timings ride the same response (`lyricsfile`); parse
+        // them when the record claims word sync. Absent or unparsable
+        // = line-level as before, never a failure.
+        final words = m['hasWordSync'] == true
+            ? wordTimingsFromLyricsFile(m['lyricsfile'] as String?)
+            : null;
         final doc = LyricDoc(
           plain: (plain == null || plain.isEmpty) ? null : plain,
           syncedLrc: (synced == null || synced.isEmpty) ? null : synced,
           source: LyricSource.lrclib,
           instrumental: m['instrumental'] == true,
+          wordTimings: words,
         );
         ArchLog.i(
           'meta',
-          'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasSynced
+          'lyrics live: $artist - $title (rung ${r + 1}/${rungs.length}, ${doc.hasWords
+              ? 'word-synced'
+              : doc.hasSynced
               ? 'synced'
               : doc.hasPlain
               ? 'plain'
@@ -455,8 +511,71 @@ class MetadataService {
     return null;
   }
 
-  static String _stripFeat(String title) {
-    var t = title;
+  /// Cache source round-trip. Unknown or absent names fall back to
+  /// LRCLib (the only lane the local ladder ever stored).
+  static LyricSource _sourceOf(Object? v) {
+    if (v is String) {
+      for (final s in LyricSource.values) {
+        if (s.name == v) return s;
+      }
+    }
+    return LyricSource.lrclib;
+  }
+
+  /// AcoustID match for a chromaprint fingerprint (decoded in Rust,
+  /// looked up here). Returns (title, artist) of the best recording,
+  /// or null. POST, because fingerprints run long for full tracks.
+  Future<(String, String)?> acoustidLookup({
+    required String fingerprint,
+    required int durationSecs,
+  }) async {
+    final key = secrets.acoustIdApiKey;
+    if (key.isEmpty || fingerprint.isEmpty || durationSecs <= 0) return null;
+    try {
+      final res = await http.post(
+        Uri.parse('https://api.acoustid.org/v2/lookup'),
+        body: {
+          'client': key,
+          'meta': 'recordings',
+          'format': 'json',
+          'duration': '$durationSecs',
+          'fingerprint': fingerprint,
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (res.statusCode != 200) return null;
+      final m = jsonDecode(res.body) as Map;
+      if (m['status'] != 'ok') return null;
+      var best = 0.0;
+      var title = '';
+      var artist = '';
+      for (final r in ((m['results'] as List?) ?? const [])) {
+        final rm = r as Map;
+        final score = (rm['score'] as num?)?.toDouble() ?? 0;
+        if (score <= best) continue;
+        for (final rec in ((rm['recordings'] as List?) ?? const [])) {
+          final recm = rec as Map;
+          final t = (recm['title'] as String?)?.trim() ?? '';
+          final names = ((recm['artists'] as List?) ?? const [])
+              .map((a) => ((a as Map)['name'] as String?)?.trim() ?? '')
+              .where((n) => n.isNotEmpty)
+              .join(', ');
+          if (t.isEmpty || names.isEmpty) continue;
+          best = score;
+          title = t;
+          artist = names;
+          break;
+        }
+      }
+      if (title.isEmpty || artist.isEmpty) return null;
+      ArchLog.i('doctor', 'fingerprint: "$title" by $artist (score $best)');
+      return (title, artist);
+    } catch (e) {
+      ArchLog.w('doctor', 'acoustid lookup failed: $e');
+      return null;
+    }
+  }
+
+  static String _stripFeat(String title) {    var t = title;
     t = t.replaceAll(
       RegExp(
         r'\s*[\(\[]?\s*feat\.?\s+[^\)\]]*[\)\]]?\s*$',
@@ -480,7 +599,8 @@ class MetadataService {
       final file = File('${(await _lyricDir()).path}/$songId.json');
       if (!await file.exists()) return null;
       final m = jsonDecode(await file.readAsString()) as Map;
-      if ((m['v'] as num?)?.toInt() != 1) {
+      // Cache v2 adds word timings; v1 files predate the field and go.
+      if ((m['v'] as num?)?.toInt() != 2) {
         await file.delete();
         return null;
       }
@@ -494,8 +614,9 @@ class MetadataService {
       return LyricDoc(
         plain: plain,
         syncedLrc: synced,
-        source: LyricSource.lrclib,
+        source: _sourceOf(m['source']),
         instrumental: m['instrumental'] == true,
+        wordTimings: m['words'] as String?,
       );
     } catch (_) {
       return null;
@@ -510,10 +631,14 @@ class MetadataService {
       final file = File('${dir.path}/$songId.json');
       await file.writeAsString(
         jsonEncode({
-          'v': 1,
+          'v': 2,
           'plain': doc.plain,
           'synced': doc.syncedLrc,
           'instrumental': doc.instrumental,
+          'words': doc.wordTimings,
+          // The source rides along so a saved PaxSenIX pick still
+          // reads "external" instead of being relabelled LRCLib.
+          'source': doc.source.name,
         }),
       );
       // Bounded: lyrics are small but infinite tracks aren't. Oldest
@@ -975,6 +1100,77 @@ class MetadataService {
   /// DISPLAY-ONLY (LyricSource.paxsenix): Musixmatch terms forbid
   /// embedding; the embed step must check the source. Timeouts
   /// per lane; third party, no SLA, never load-bearing.
+  /// Seconds-long hint out of a search-result map whose shape we
+  /// don't control (QQ, NetEase and Kugou all name it differently,
+  /// and mix seconds with milliseconds). First numeric field with a
+  /// duration-ish name wins; magnitude decides the unit (>10000 =
+  /// ms); absurd values (>2h) are timestamps, not tracks. Null when
+  /// nothing qualifies — callers treat that as "no information",
+  /// never as a reject.
+  static double? _resultSecs(Map m) {
+    for (final e in m.entries) {
+      final k = '${e.key}'.toLowerCase();
+      if (!RegExp(r'dur|length|interval|^dt$|play_?time|song_?time')
+          .hasMatch(k)) {
+        continue;
+      }
+      final v = e.value;
+      final n = v is num ? v.toDouble() : double.tryParse('$v');
+      if (n == null || n <= 0) continue;
+      final secs = n > 10000 ? n / 1000 : n;
+      if (secs <= 0 || secs > 7200) continue;
+      return secs;
+    }
+    return null;
+  }
+
+  /// Pick a candidate id from an eastern search list. Closest reported
+  /// length within ±10s of the file wins; otherwise list.first,
+  /// exactly as before. No usable lengths anywhere = no information,
+  /// never a reject.
+  static String? _pickResultId(List list, int durationSecs, String lane) {
+    String? first;
+    String? bestId;
+    var bestDiff = double.infinity;
+    var sawLengths = false;
+    for (final c in list) {
+      if (c is! Map) continue;
+      final cid =
+          (c['id'] ?? c['songid'] ?? c['songId'])?.toString();
+      if (cid == null || cid.isEmpty) continue;
+      first ??= cid;
+      if (durationSecs > 0) {
+        final secs = _resultSecs(c);
+        if (secs != null) {
+          sawLengths = true;
+          final diff = (secs - durationSecs).abs();
+          if (diff <= 10 && diff < bestDiff) {
+            bestDiff = diff;
+            bestId = cid;
+          }
+        }
+      }
+    }
+    final picked = bestId ?? first;
+    if (durationSecs > 0) {
+      if (!sawLengths) {
+        // Tells us the payload shape has nothing usable — the loop
+        // to close once this line is ever read on device.
+        ArchLog.i(
+          'meta',
+          'lyrics duration pick: $lane reports no lengths — keeping list.first',
+        );
+      } else if (bestId != null && bestId != first) {
+        ArchLog.i(
+          'meta',
+          'lyrics duration pick: $lane skipped list.first for a '
+          '${bestDiff.round()}s-closer match',
+        );
+      }
+    }
+    return picked;
+  }
+
   Future<LyricDoc?> paxLyrics({
     required String artist,
     required String title,
@@ -1008,6 +1204,20 @@ class MetadataService {
         final m = jsonDecode(res.body) as Map;
         final data = m['data'] ?? m;
         if (data is! Map) return null;
+        // Response-side guard to match the request's `d`: if the
+        // payload reports its own length and it disagrees with the
+        // file by more than ±10s, fall through to the eastern lanes.
+        if (durationSecs > 0) {
+          final secs = _resultSecs(data);
+          if (secs != null && (secs - durationSecs).abs() > 10) {
+            ArchLog.i(
+              'meta',
+              'lyrics duration guard: musixmatch claims ${secs.round()}s, '
+              'file is ${durationSecs}s — skipping',
+            );
+            return null;
+          }
+        }
         for (final k in ['synced_lyrics', 'syncedLyrics', 'lrc', 'lyrics', 'plain_lyrics', 'plainLyrics', 'text']) {
           final v = data[k];
           if (v is String && v.trim().isNotEmpty) {
@@ -1050,11 +1260,7 @@ class MetadataService {
                 ? data
                 : (data is Map ? (data['list'] ?? data['songs']) : null);
             if (list is List && list.isNotEmpty) {
-              final first = list.first;
-              if (first is Map) {
-                id = (first['id'] ?? first['songid'] ?? first['songId'])
-                    ?.toString();
-              }
+              id = _pickResultId(list, durationSecs, lane);
             } else if (data is Map) {
               id = (data['id'] ?? data['songid'])?.toString();
             }
@@ -1143,32 +1349,129 @@ class MetadataService {
       }
     } catch (_) {}
     try {
-      final dzt = await _dzCoverForTrack(artist, album, title);
-      if (dzt != null && dzt.isNotEmpty) {
-        ArchLog.i('meta', 'cover lane deezer track: $artist - $title');
-        return dzt;
-      }
-      final id = await _dzAlbumId(artist, album);
-      if (id == 0) return null;
-      final res = await http
-          .get(Uri.parse('$_dzBase/album/$id'))
-          .timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) return null;
-      final body = jsonDecode(res.body) as Map;
-      for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
-        final v = body[k] as String?;
-        if (v != null && v.isNotEmpty) {
-          ArchLog.i('meta', 'cover lane deezer ($k): $artist - $album');
-          return v;
-        }
-      }
-      return null;
+      return await _dzCover(artist, album, title);
     } catch (_) {
       return null;
     }
   }
 
-  /// Apple Music artwork. The track lane runs first — it is the one
+  /// One cover candidate per lane, for the song page pencil picker:
+  /// Apple 3000px, CAA original, Deezer (track cover, else album).
+  /// Lanes run in parallel; misses drop out silently. Empty =
+  /// nothing anywhere. `thumb` is the cheap display variant (600px
+  /// Apple swap, CAA 500px thumb); empty means "use the full URL".
+  Future<List<({String label, String url, String thumb})>>
+      coverCandidatesFor({
+    required String artist,
+    required String album,
+    required String title,
+  }) async {
+    // All three start before the first await: parallel, typed.
+    final appleF = _safeCover(() => _appleCover(artist, album, title));
+    final caaF = _safeCover(() => _caaCoverPair(artist, album, title));
+    final dzF = _safeCover(() => _dzCover(artist, album, title));
+    final apple = await appleF;
+    final caa = await caaF;
+    final dz = await dzF;
+    final found = <({String label, String url, String thumb})>[];
+    if (apple != null && apple.isNotEmpty) {
+      // Same template the full URL was built from, one regex back
+      // down. Falls back to full URL when the shape surprises us.
+      final small =
+          apple.replaceAll(RegExp(r'/\d+x\d+bb\.'), '/600x600bb.');
+      found.add((
+        label: 'Apple Music',
+        url: apple,
+        thumb: small != apple ? small : ''
+      ));
+    }
+    if (caa != null && caa.$1.isNotEmpty) {
+      found.add((label: 'Cover Art Archive', url: caa.$1, thumb: caa.$2));
+    }
+    if (dz != null && dz.isNotEmpty) {
+      found.add((label: 'Deezer', url: dz, thumb: ''));
+    }
+    ArchLog.i('meta',
+        'cover candidates: ${found.length}/3 for $artist - $title');
+    return found;
+  }
+
+  /// CAA lane returning the full image plus its display thumb. The
+  /// embed path keeps using _caaAlbumCover (full res only); the
+  /// picker needs both without fetching twice.
+  Future<(String, String)?> _caaCoverPair(
+      String artist, String album, String title) async {
+    try {
+      var rgid = '';
+      if (title.trim().isNotEmpty) {
+        rgid = await _mbReleaseGroupForTrack(title, artist, album);
+      }
+      if (rgid.isEmpty) rgid = await _mbReleaseGroupForAlbum(album, artist);
+      if (rgid.isEmpty) return null;
+      return await _caaFrontPair(rgid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// CAA front image + 500px thumb from one release-group fetch.
+  /// Shares _caaFront's contract (original file, never a thumbnail
+  /// as the image) but keeps the thumb instead of discarding it.
+  Future<(String, String)?> _caaFrontPair(String rgid) async {
+    final res = await http.get(
+      Uri.parse('https://coverartarchive.org/release-group/$rgid'),
+      headers: {'User-Agent': _userAgent},
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final images = (jsonDecode(res.body) as Map)['images'] as List? ?? [];
+    for (final img in images) {
+      final m = img as Map;
+      if (m['front'] != true) continue;
+      final thumbs = m['thumbnails'] as Map?;
+      final image =
+          (m['image'] ?? thumbs?['large'] ?? thumbs?['small']) as String?;
+      if (image == null || image.isEmpty) return null;
+      final thumb = (thumbs?['500'] ?? thumbs?['large'] ?? '') as String? ?? '';
+      return (image, thumb);
+    }
+    return null;
+  }
+
+  Future<T?> _safeCover<T>(Future<T?> Function() lane) async {
+    try {
+      return await lane();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deezer cover: the track's own album first, then the album
+  /// lookup. Shared by hiResCoverFor and the picker candidates so
+  /// the two never disagree about what "Deezer" means.
+  Future<String?> _dzCover(String artist, String album, String title) async {
+    try {
+      final dzt = await _dzCoverForTrack(artist, album, title);
+      if (dzt != null && dzt.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane deezer track: $artist - $title');
+        return dzt;
+      }
+    } catch (_) {}
+    final id = await _dzAlbumId(artist, album);
+    if (id == 0) return null;
+    final res = await http
+        .get(Uri.parse('$_dzBase/album/$id'))
+        .timeout(const Duration(seconds: 12));
+    if (res.statusCode != 200) return null;
+    final body = jsonDecode(res.body) as Map;
+    for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+      final v = body[k] as String?;
+      if (v != null && v.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane deezer ($k): $artist - $album');
+        return v;
+      }
+    }
+    return null;
+  }
   /// that fixes self-titled and greatest-hits collisions. The album
   /// lane stays as the fallback for when no track name is known.
   Future<String?> _appleCover(
@@ -1271,6 +1574,10 @@ class MetadataService {
 
   /// Cover Art Archive original front art for an album. Track lane
   /// first (recording -> its release-group), album-name lane second.
+  /// Hits are memoized; MISSES ARE NOT. MusicBrainz rate-limits and
+  /// hiccups, and this service instance lives for the whole session
+  /// (plain Provider) — caching a null would delete the row until
+  /// app restart over one transient 503. A retry costs one search.
   Future<String?> _caaAlbumCover(
       String artist, String album, String title) async {
     final memoKey = 'alb:${artist.toLowerCase()}\u0000'
@@ -1282,15 +1589,11 @@ class MetadataService {
         rgid = await _mbReleaseGroupForTrack(title, artist, album);
       }
       if (rgid.isEmpty) rgid = await _mbReleaseGroupForAlbum(album, artist);
-      if (rgid.isEmpty) {
-        _caaMemo[memoKey] = null;
-        return null;
-      }
+      if (rgid.isEmpty) return null;
       final url = await _caaFront('release-group', rgid);
-      _caaMemo[memoKey] = url;
+      if (url != null) _caaMemo[memoKey] = url;
       return url;
     } catch (_) {
-      _caaMemo[memoKey] = null;
       return null;
     }
   }
@@ -1462,15 +1765,26 @@ class MetadataService {
 
   /// Track facts from every provider that has them. Apple and Deezer
   /// are independent and fast, so both are asked at once; MusicBrainz
-  /// is asked only when something is still missing. A field one lane
-  /// answers is never overwritten by a later one, and a field no lane
-  /// answers stays empty — the embed then writes what exists and
-  /// leaves the rest untouched. The cascade stops the moment every
-  /// field is filled.
+  /// is gated to the scarce fields (numbers, and date when an album is
+  /// known) because it is the only source of those and costs two gated
+  /// calls. A field one lane answers is never overwritten by a later
+  /// one, and a field no lane answers stays empty — the embed then
+  /// writes what exists and leaves the rest untouched.
+  /// Duration gate for track hits: same ±10s window as the lyrics
+  /// guard. A same-name different-recording (live, remix, radio
+  /// edit) must not supply track numbers. Skipped when either side
+  /// is unknown — thin files often carry no duration, and a missing
+  /// signal must never reject.
+  static bool _durOk(int fileSecs, int hitSecs) {
+    if (fileSecs <= 0 || hitSecs <= 0) return true;
+    return durClose(fileSecs, hitSecs, window: 10);
+  }
+
   Future<TrackFacts> trackFactsFor({
     required String artist,
     required String album,
     required String title,
+    int durationSecs = 0,
   }) async {
     // The query identity has to be clean. A raw title carries
     // "(feat. X)" and the artist may be a list ("Kanye West, Ye,
@@ -1483,13 +1797,18 @@ class MetadataService {
     if (qTitle.isEmpty) return const TrackFacts();
     var facts = const TrackFacts();
     final parallel = await Future.wait([
-      _safeFacts(() => _appleTrackLane(qTitle, qArtist, album)),
-      _safeFacts(() => _dzTrackLane(qTitle, qArtist, album)),
+      _safeFacts(() => _appleTrackLane(qTitle, qArtist, album, durationSecs)),
+      _safeFacts(() => _dzTrackLane(qTitle, qArtist, album, durationSecs)),
     ]);
     for (final lane in parallel) {
       facts = facts.mergedWith(lane);
     }
-    if (!facts.isComplete) {
+    // MusicBrainz only fires for the scarce fields. It is the only
+    // source of a track NUMBER no one else has, and it costs two gated
+    // calls (~2s at 1 req/s); leaving the other lanes' holes empty is
+    // cheaper than filling them, so only these three gate the lane.
+    final needsNumbers = facts.track.isEmpty && facts.disc.isEmpty;
+    if (needsNumbers || (album.trim().isNotEmpty && facts.date.isEmpty)) {
       facts = facts
           .mergedWith(await _safeFacts(() => _mbTrackLane(qTitle, qArtist, album)));
     }
@@ -1515,8 +1834,8 @@ class MetadataService {
   /// iTunes lane: the numbers, the date, the album artist, the
   /// copyright, the genre.
   Future<TrackFacts> _appleTrackLane(
-      String title, String artist, String album) async {
-    final hit = await _appleTrackHit(title, artist, album);
+      String title, String artist, String album, int durationSecs) async {
+    final hit = await _appleTrackHit(title, artist, album, durationSecs);
     if (hit == null) return const TrackFacts();
     return TrackFacts(
       track: _num(hit['trackNumber']),
@@ -1533,8 +1852,8 @@ class MetadataService {
   /// Deezer lane: exactly the fields iTunes does not carry — BPM,
   /// ISRC, and the composer credit.
   Future<TrackFacts> _dzTrackLane(
-      String title, String artist, String album) async {
-    final dz = await _dzTrackHit(title, artist, album);
+      String title, String artist, String album, int durationSecs) async {
+    final dz = await _dzTrackHit(title, artist, album, durationSecs);
     if (dz == null) return const TrackFacts();
     var composer = '';
     for (final c in (dz['contributors'] as List?) ?? []) {
@@ -1564,13 +1883,22 @@ class MetadataService {
   /// when the fast lanes left a hole.
   Future<TrackFacts> _mbTrackLane(
       String title, String artist, String album) async {
+    var byRelease = const TrackFacts();
     if (album.trim().isNotEmpty) {
-      final byRelease = await _mbReleaseLane(title, artist, album);
-      if (byRelease.track.isNotEmpty || byRelease.date.isNotEmpty) {
+      byRelease = await _mbReleaseLane(title, artist, album);
+      // Numbers are the point of this lane. A date alone is NOT a
+      // reason to stop: the release route returns one on almost every
+      // path (including its own failure path), which would leave the
+      // recording route below permanently unreachable.
+      if (byRelease.track.isNotEmpty || byRelease.disc.isNotEmpty) {
         return byRelease;
       }
     }
-    return _mbRecordingLane(title, artist);
+    final byRecording = await _mbRecordingLane(title, artist);
+    // Release first: its date is the album's, where the recording's
+    // first-release-date is often a single that predates the album.
+    // The recording supplies whatever the release could not.
+    return byRelease.mergedWith(byRecording);
   }
 
   /// The album-first route: find the release with this album name,
@@ -1591,18 +1919,30 @@ class MetadataService {
     if (search.statusCode != 200) return const TrackFacts();
     final hits =
         ((jsonDecode(search.body) as Map)['releases'] as List? ?? []).cast<Map>();
-    Map? rel;
+    // Same selection rule as the cover lane: prefer Official, then the
+    // earliest date. Taking the first name match would let a deluxe
+    // reissue supply the numbering (reissues renumber) while the art
+    // came from the original.
+    final picks = <Map>[];
     for (final r in hits) {
       if (!_sameAlbum(album, (r['title'] as String?) ?? '')) continue;
       final names = ((r['artist-credit'] as List?) ?? [])
           .map((c) => ((c as Map)['name'] as String?) ?? '')
           .join(', ');
       if (names.isNotEmpty && !_sameArtist(artist, names)) continue;
-      rel = r;
-      break;
+      picks.add(r);
     }
-    final id = rel?['id'] as String?;
-    final relDate = (rel?['date'] as String?) ?? '';
+    if (picks.isEmpty) return const TrackFacts();
+    picks.sort((a, b) {
+      final ao = (a['status'] as String?) == 'Official' ? 0 : 1;
+      final bo = (b['status'] as String?) == 'Official' ? 0 : 1;
+      if (ao != bo) return ao - bo;
+      return ((a['date'] as String?) ?? '9999')
+          .compareTo((b['date'] as String?) ?? '9999');
+    });
+    final rel = picks.first;
+    final id = rel['id'] as String?;
+    final relDate = (rel['date'] as String?) ?? '';
     if (id == null) return const TrackFacts();
     final look = await _viaMbGate(() => http.get(
           Uri.parse('$_mbBase/release/$id?inc=recordings+tags&fmt=json'),
@@ -1667,7 +2007,7 @@ class MetadataService {
     }
     if (id == null) return const TrackFacts();
     final look = await _viaMbGate(() => http.get(
-          Uri.parse('$_mbBase/recording/$id?inc=releases+tags&fmt=json'),
+          Uri.parse('$_mbBase/recording/$id?inc=releases+media+tags&fmt=json'),
           headers: {'User-Agent': _userAgent},
         ));
     if (look.statusCode != 200) return const TrackFacts();
@@ -1767,7 +2107,7 @@ class MetadataService {
   /// first — and every hit still has to pass title + artist + album,
   /// so a broader term can never win a wrong track.
   Future<Map?> _appleTrackHit(
-      String title, String artist, String album) async {
+      String title, String artist, String album, int durationSecs) async {
     for (final term in _appleTerms(title, artist, album)) {
       final uri = Uri.parse(
         'https://itunes.apple.com/search'
@@ -1783,6 +2123,10 @@ class MetadataService {
         if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
           continue;
         }
+        if (durationSecs > 0) {
+          final hitMs = (m['trackTimeMillis'] as num?)?.toInt() ?? 0;
+          if (!_durOk(durationSecs, hitMs ~/ 1000)) continue;
+        }
         if (album.trim().isNotEmpty &&
             !_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
           continue;
@@ -1795,7 +2139,7 @@ class MetadataService {
     // BULLY/3.FATHER is absent from every song-term page at limit 30,
     // while the album's lookup returns it at track 3 of 18). Resolve
     // the album id, then read the tracklist off it.
-    return _appleAlbumHit(title, artist, album);
+    return _appleAlbumHit(title, artist, album, durationSecs);
   }
 
   /// The same track, found through its album: match the collection by
@@ -1804,7 +2148,7 @@ class MetadataService {
   /// endpoint carries track totals and disc numbers the search
   /// endpoint drops.
   Future<Map?> _appleAlbumHit(
-      String title, String artist, String album) async {
+      String title, String artist, String album, int durationSecs) async {
     if (album.trim().isEmpty) return null;
     try {
       final search = await http.get(Uri.parse(
@@ -1838,6 +2182,10 @@ class MetadataService {
           if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
             continue;
           }
+          if (durationSecs > 0) {
+            final hitMs = (m['trackTimeMillis'] as num?)?.toInt() ?? 0;
+            if (!_durOk(durationSecs, hitMs ~/ 1000)) continue;
+          }
           return m;
         }
       }
@@ -1860,7 +2208,8 @@ class MetadataService {
   }
 
   /// The Deezer hit for a track, verified the same way.
-  Future<Map?> _dzTrackHit(String title, String artist, String album) async {
+  Future<Map?> _dzTrackHit(
+      String title, String artist, String album, int durationSecs) async {
     final q = 'track:"${title.replaceAll('"', '')}"'
         ' artist:"${artist.replaceAll('"', '')}"';
     final res = await http
@@ -1875,6 +2224,10 @@ class MetadataService {
       if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
       if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
         continue;
+      }
+      if (durationSecs > 0) {
+        final hitSecs = (m['duration'] as num?)?.toInt() ?? 0;
+        if (!_durOk(durationSecs, hitSecs)) continue;
       }
       final alb = m['album'] as Map?;
       if (album.trim().isNotEmpty &&
