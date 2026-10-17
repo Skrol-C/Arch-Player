@@ -13,6 +13,51 @@ import '../../core/secrets.local.dart' as secrets;
 /// pic, bio, and discography fire in parallel and render as each lands.
 /// Every fetch is isolated: one dead provider degrades its block, never
 /// the page. Versioned atomic disk cache; offline renders last-known-good.
+/// Release-level facts that ride on one MusicBrainz release search.
+class ReleaseFacts {
+  final String label;
+  final String catalogNumber;
+  final String barcode;
+  final String releaseType;
+  final String date;
+  const ReleaseFacts({
+    this.label = '',
+    this.catalogNumber = '',
+    this.barcode = '',
+    this.releaseType = '',
+    this.date = '',
+  });
+}
+
+/// Track-level facts from iTunes + Deezer: the numbers (track, disc),
+/// date, album artist, copyright, bpm, ISRC and the composer role.
+class TrackFacts {
+  final String track;
+  final String trackTotal;
+  final String disc;
+  final String discTotal;
+  final String date;
+  final String albumArtist;
+  final String copyright;
+  final String genre;
+  final String bpm;
+  final String isrc;
+  final String composer;
+  const TrackFacts({
+    this.track = '',
+    this.trackTotal = '',
+    this.disc = '',
+    this.discTotal = '',
+    this.date = '',
+    this.albumArtist = '',
+    this.copyright = '',
+    this.genre = '',
+    this.bpm = '',
+    this.isrc = '',
+    this.composer = '',
+  });
+}
+
 class MetadataService {
   static const _mbBase = 'https://musicbrainz.org/ws/2';
   static const _dzBase = 'https://api.deezer.com';
@@ -36,6 +81,8 @@ class MetadataService {
   }
 
   final Map<String, String?> _caaMemo = {};
+
+  final Map<String, ReleaseFacts> _releaseFactsMemo = {};
 
   /// Full enrich, all three lanes in PARALLEL. Kept for prefetch.
   Future<ArtistMeta> enrich(String artistName) async {
@@ -1018,28 +1065,41 @@ class MetadataService {
     return false;
   }
 
-  /// Hi-res cover for an album, best first: Apple Music master
-  /// (3000px, keyless), Cover Art Archive original (often
-  /// 1500-3000px), Deezer cover_xl (1000px). Null = unknown.
+  /// Hi-res cover, best first: Apple master (3000px, keyless), Cover
+  /// Art Archive original (often 1500-3000px), Deezer cover_xl
+  /// (1000px). Null = unknown.
+  ///
+  /// [title] is not decoration. Album NAMES collide - Weezer has four
+  /// self-titled albums and every "Greatest Hits" matches every
+  /// other - so an album-name-only lookup returns the wrong cover
+  /// with total confidence (Blue where Green was meant). The TRACK is
+  /// the key that disambiguates; the album name is kept as
+  /// confirmation, never as the only evidence.
   Future<String?> hiResCoverFor({
     required String artist,
     required String album,
+    String title = '',
   }) async {
     try {
-      final apple = await _appleCover(artist, album);
+      final apple = await _appleCover(artist, album, title);
       if (apple != null && apple.isNotEmpty) {
-        ArchLog.i('meta', 'cover lane apple: $artist - $album');
+        ArchLog.i('meta', 'cover lane apple: $artist - $title - $album');
         return apple;
       }
     } catch (_) {}
     try {
-      final caa = await _caaAlbumCover(artist, album);
+      final caa = await _caaAlbumCover(artist, album, title);
       if (caa != null && caa.isNotEmpty) {
-        ArchLog.i('meta', 'cover lane caa: $artist - $album');
+        ArchLog.i('meta', 'cover lane caa: $artist - $title - $album');
         return caa;
       }
     } catch (_) {}
     try {
+      final dzt = await _dzCoverForTrack(artist, album, title);
+      if (dzt != null && dzt.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane deezer track: $artist - $title');
+        return dzt;
+      }
       final id = await _dzAlbumId(artist, album);
       if (id == 0) return null;
       final res = await http
@@ -1060,25 +1120,65 @@ class MetadataService {
     }
   }
 
-  /// Apple Music artwork: iTunes Search by album term, artist
-  /// verified, then the 100px template swapped for a 3000px
-  /// master. Keyless. Null when Apple has no match.
-  Future<String?> _appleCover(String artist, String album) async {
+  /// Apple Music artwork. The track lane runs first — it is the one
+  /// that fixes self-titled and greatest-hits collisions. The album
+  /// lane stays as the fallback for when no track name is known.
+  Future<String?> _appleCover(
+      String artist, String album, String title) async {
+    if (title.trim().isNotEmpty) {
+      final hit = await _appleSearch(
+        term: '$title $artist',
+        entity: 'song',
+        attribute: 'songTerm',
+        artist: artist,
+        album: album,
+        title: title,
+      );
+      if (hit != null) return hit;
+    }
     if (album.trim().isEmpty) return null;
+    return _appleSearch(
+      term: album,
+      entity: 'album',
+      attribute: 'albumTerm',
+      artist: artist,
+      album: album,
+      title: '',
+    );
+  }
+
+  /// One iTunes search pass, every hit verified before it is trusted:
+  /// artist always, track name when a song search supplied one, album
+  /// whenever we know it. That album check is what stops a
+  /// compilation containing the track ("Blue / Green / Red") from
+  /// winning over the album the track actually came from.
+  Future<String?> _appleSearch({
+    required String term,
+    required String entity,
+    required String attribute,
+    required String artist,
+    required String album,
+    required String title,
+  }) async {
     final uri = Uri.parse(
       'https://itunes.apple.com/search'
-      '?term=${Uri.encodeQueryComponent(album)}'
-      '&entity=album&attribute=albumTerm&limit=10',
+      '?term=${Uri.encodeQueryComponent(term)}'
+      '&entity=$entity&attribute=$attribute&limit=15',
     );
     final res = await http.get(uri).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) return null;
     final list = (jsonDecode(res.body) as Map)['results'] as List? ?? [];
     for (final a in list) {
       final m = a as Map;
-      if (!_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
+      if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
+      if (title.isNotEmpty) {
+        final name = (m['trackName'] as String?) ?? '';
+        if (name.isEmpty || normTitle(name) != normTitle(title)) continue;
+      }
+      if (album.trim().isNotEmpty &&
+          !_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
         continue;
       }
-      if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
       final art = (m['artworkUrl100'] as String?) ?? '';
       if (art.isEmpty) continue;
       final big = art.replaceAll(RegExp(r'/\d+x\d+bb\.'), '/3000x3000bb.');
@@ -1087,13 +1187,184 @@ class MetadataService {
     return null;
   }
 
-  /// Cover Art Archive original front art for an album: MusicBrainz
-  /// release search for the release-group, then CAA. The `image`
-  /// field is the original file (not a thumbnail). Keyless.
-  Future<String?> _caaAlbumCover(String artist, String album) async {
-    if (album.trim().isEmpty) return null;
-    final memoKey = 'alb:${artist.toLowerCase()}\u0000${album.toLowerCase()}';
+  /// Deezer cover by track: resolves to the track's own album, so a
+  /// self-titled record lands on the right one. Track search carries
+  /// the whole album object, so no second call is needed.
+  Future<String?> _dzCoverForTrack(
+      String artist, String album, String title) async {
+    if (title.trim().isEmpty) return null;
+    final q = 'track:"${title.replaceAll('"', '')}"'
+        ' artist:"${artist.replaceAll('"', '')}"';
+    final res = await http
+        .get(Uri.parse(
+            '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+    for (final t in list) {
+      final m = t as Map;
+      final am = m['artist'] as Map?;
+      if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
+      if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+        continue;
+      }
+      final alb = m['album'] as Map?;
+      if (album.trim().isNotEmpty &&
+          !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
+        continue;
+      }
+      for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+        final v = alb?[k] as String?;
+        if (v != null && v.isNotEmpty) return v;
+      }
+    }
+    return null;
+  }
+
+  /// Cover Art Archive original front art for an album. Track lane
+  /// first (recording -> its release-group), album-name lane second.
+  Future<String?> _caaAlbumCover(
+      String artist, String album, String title) async {
+    final memoKey = 'alb:${artist.toLowerCase()}\u0000'
+        '${album.toLowerCase()}\u0000${title.toLowerCase()}';
     if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+    try {
+      var rgid = '';
+      if (title.trim().isNotEmpty) {
+        rgid = await _mbReleaseGroupForTrack(title, artist, album);
+      }
+      if (rgid.isEmpty) rgid = await _mbReleaseGroupForAlbum(album, artist);
+      if (rgid.isEmpty) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final url = await _caaFront('release-group', rgid);
+      _caaMemo[memoKey] = url;
+      return url;
+    } catch (_) {
+      _caaMemo[memoKey] = null;
+      return null;
+    }
+  }
+
+  /// MusicBrainz release-group for a TRACK. This is the lookup that
+  /// survives colliding album names: find the recording, keep only the
+  /// releases whose title matches the album, then prefer Official and
+  /// the earliest date - the original album, never a later compilation.
+  ///
+  /// Note `releases` comes back on the recording search itself (25 of
+  /// them for "Smile"), each carrying `date` and `release-group`.
+  Future<String> _mbReleaseGroupForTrack(
+      String title, String artist, String album) async {
+    final q = 'recording:"${title.replaceAll('"', '')}"'
+        ' AND artist:"${artist.replaceAll('"', '')}"';
+    final search = Uri.parse(
+      '$_mbBase/recording/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+    );
+    final res = await _viaMbGate(
+      () => http.get(search, headers: {'User-Agent': _userAgent}),
+    );
+    if (res.statusCode != 200) return '';
+    final recs = (jsonDecode(res.body) as Map)['recordings'] as List? ?? [];
+    for (final rec in recs) {
+      final m = rec as Map;
+      if (((m['score'] as num?)?.toInt() ?? 0) < 85) continue;
+      // MusicBrainz keys this `artist-credit` (hyphenated) - read the
+      // right key or every candidate is rejected and the lane dies.
+      final credits = (m['artist-credit'] as List?) ?? [];
+      final names = credits
+          .map((c) => ((c as Map)['name'] as String?) ?? '')
+          .join(', ');
+      if (!_sameArtist(artist, names)) continue;
+      if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+        continue;
+      }
+      final picks = <Map>[];
+      for (final r in (m['releases'] as List?) ?? []) {
+        final rm = r as Map;
+        if (album.trim().isNotEmpty &&
+            !_sameAlbum(album, (rm['title'] as String?) ?? '')) {
+          continue;
+        }
+        picks.add(rm);
+      }
+      if (picks.isEmpty) continue;
+      picks.sort((a, b) {
+        final ao = (a['status'] as String?) == 'Official' ? 0 : 1;
+        final bo = (b['status'] as String?) == 'Official' ? 0 : 1;
+        if (ao != bo) return ao - bo;
+        return ((a['date'] as String?) ?? '9999')
+            .compareTo((b['date'] as String?) ?? '9999');
+      });
+      final rg = picks.first['release-group'] as Map?;
+      final id = (rg?['id'] as String?) ?? '';
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  /// MusicBrainz release-group by album name alone - no track to go
+  /// on. Cannot separate same-titled albums; that is exactly why the
+  /// track lane above exists.
+  Future<String> _mbReleaseGroupForAlbum(String album, String artist) async {
+    if (album.trim().isEmpty) return '';
+    final q = 'release:"${album.replaceAll('"', '')}"'
+        ' AND artist:"${artist.replaceAll('"', '')}"';
+    final search = Uri.parse(
+      '$_mbBase/release/?query=${Uri.encodeQueryComponent(q)}&fmt=json&limit=5',
+    );
+    final res = await _viaMbGate(
+      () => http.get(search, headers: {'User-Agent': _userAgent}),
+    );
+    if (res.statusCode != 200) return '';
+    final releases = (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
+    for (final r in releases) {
+      final m = r as Map;
+      if (((m['score'] as num?)?.toInt() ?? 0) < 85) continue;
+      final credits = (m['artist-credit'] as List?) ?? [];
+      final names = credits
+          .map((c) => ((c as Map)['name'] as String?) ?? '')
+          .join(', ');
+      if (!_sameArtist(artist, names)) continue;
+      if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
+      final rg = m['release-group'] as Map?;
+      final id = (rg?['id'] as String?) ?? '';
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  /// CAA front image from a `release-group/<id>` endpoint. The `image`
+  /// field is the original file, never a thumbnail.
+  Future<String?> _caaFront(String kind, String id) async {
+    final res = await http.get(
+      Uri.parse('https://coverartarchive.org/$kind/$id'),
+      headers: {'User-Agent': _userAgent},
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final images = (jsonDecode(res.body) as Map)['images'] as List? ?? [];
+    for (final img in images) {
+      final m = img as Map;
+      if (m['front'] != true) continue;
+      final thumbs = m['thumbnails'] as Map?;
+      return (m['image'] ?? thumbs?['large'] ?? thumbs?['small']) as String?;
+    }
+    return null;
+  }
+
+  /// Label, catalogue number, barcode and release type — all of them
+  /// ride on the release SEARCH the label lane already makes, so this
+  /// costs no extra request. (Verified: the search response carries
+  /// `barcode`, `label-info[].catalog-number` and
+  /// `release-group.primary-type`.)
+  Future<ReleaseFacts> releaseFactsFor({
+    required String artist,
+    required String album,
+  }) async {
+    if (album.trim().isEmpty) return const ReleaseFacts();
+    final memoKey = 'facts:${artist.toLowerCase()}\u0000${album.toLowerCase()}';
+    final memoed = _releaseFactsMemo[memoKey];
+    if (memoed != null) return memoed;
     try {
       final q = 'release:"${album.replaceAll('"', '')}"'
           ' AND artist:"${artist.replaceAll('"', '')}"';
@@ -1103,57 +1374,179 @@ class MetadataService {
       final res = await _viaMbGate(
         () => http.get(search, headers: {'User-Agent': _userAgent}),
       );
-      if (res.statusCode != 200) {
-        _caaMemo[memoKey] = null;
-        return null;
-      }
+      if (res.statusCode != 200) return const ReleaseFacts();
       final releases = (jsonDecode(res.body) as Map)['releases'] as List? ?? [];
-      String rgid = '';
       for (final r in releases) {
         final m = r as Map;
         if (((m['score'] as num?)?.toInt() ?? 0) < 85) continue;
-        // Score alone is not trust: verify both sides of the name.
-        // MusicBrainz keys this `artist-credit` (hyphenated) — read
-        // the right key or every release is rejected and the lane
-        // silently never fires.
         final credits = (m['artist-credit'] as List?) ?? [];
         final names = credits
             .map((c) => ((c as Map)['name'] as String?) ?? '')
             .join(', ');
         if (!_sameArtist(artist, names)) continue;
         if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
+        String label = '';
+        String catalog = '';
+        final info = (m['label-info'] as List?) ?? [];
+        for (final li in info) {
+          final lm = li as Map;
+          final name = ((lm['label'] as Map?)?['name'] as String?) ?? '';
+          if (name.isNotEmpty) {
+            label = name;
+            catalog = (lm['catalog-number'] as String?) ?? '';
+            break;
+          }
+        }
         final rg = m['release-group'] as Map?;
-        rgid = (rg?['id'] as String?) ?? '';
-        if (rgid.isNotEmpty) break;
+        final facts = ReleaseFacts(
+          label: label,
+          catalogNumber: catalog,
+          barcode: (m['barcode'] as String?) ?? '',
+          releaseType: (rg?['primary-type'] as String?) ?? '',
+          date: (m['date'] as String?) ?? '',
+        );
+        _releaseFactsMemo[memoKey] = facts;
+        return facts;
       }
-      if (rgid.isEmpty) {
-        _caaMemo[memoKey] = null;
-        return null;
-      }
-      final cres = await http.get(
-        Uri.parse('https://coverartarchive.org/release-group/$rgid'),
-        headers: {'User-Agent': _userAgent},
-      ).timeout(const Duration(seconds: 15));
-      if (cres.statusCode != 200) {
-        _caaMemo[memoKey] = null;
-        return null;
-      }
-      final images = (jsonDecode(cres.body) as Map)['images'] as List? ?? [];
-      for (final img in images) {
-        final m = img as Map;
-        if (m['front'] != true) continue;
-        final thumbs = m['thumbnails'] as Map?;
-        final url =
-            (m['image'] ?? thumbs?['large'] ?? thumbs?['small']) as String?;
-        _caaMemo[memoKey] = url;
-        return url;
-      }
-      _caaMemo[memoKey] = null;
-      return null;
-    } catch (_) {
-      _caaMemo[memoKey] = null;
-      return null;
+    } catch (_) {}
+    return const ReleaseFacts();
+  }
+
+  /// Track-level facts from the two providers that hand them over
+  /// without album lookups: iTunes carries positions, release date,
+  /// album artist and copyright; Deezer carries bpm, ISRC and the
+  /// composer role. Both are keyless and fast (no MusicBrainz gate).
+  Future<TrackFacts> trackFactsFor({
+    required String artist,
+    required String album,
+    required String title,
+  }) async {
+    var track = '';
+    var trackTotal = '';
+    var disc = '';
+    var discTotal = '';
+    var date = '';
+    var albumArtist = '';
+    var copyright = '';
+    var genre = '';
+    var bpm = '';
+    var isrc = '';
+    var composer = '';
+    if (title.trim().isNotEmpty) {
+      try {
+        final hit = await _appleTrackHit(title, artist, album);
+        if (hit != null) {
+          track = _num(hit['trackNumber']);
+          trackTotal = _num(hit['trackCount']);
+          disc = _num(hit['discNumber']);
+          discTotal = _num(hit['discCount']);
+          final d = (hit['releaseDate'] as String?) ?? '';
+          if (d.length >= 10) date = d.substring(0, 10);
+          albumArtist = (hit['collectionArtistName'] as String?) ?? '';
+          copyright = (hit['copyright'] as String?) ?? '';
+          genre = (hit['primaryGenreName'] as String?) ?? '';
+        }
+      } catch (_) {}
+      try {
+        final dz = await _dzTrackHit(title, artist, album);
+        if (dz != null) {
+          if (track.isEmpty) track = _num(dz['track_position']);
+          if (disc.isEmpty) disc = _num(dz['disk_number']);
+          if (date.isEmpty) date = (dz['release_date'] as String?) ?? '';
+          bpm = _num(dz['bpm']);
+          isrc = (dz['isrc'] as String?) ?? '';
+          final contributors = (dz['contributors'] as List?) ?? [];
+          for (final c in contributors) {
+            final cm = c as Map;
+            final role = ((cm['role'] as String?) ?? '').toLowerCase();
+            if (role == 'composer' || role == 'author' || role == 'writer') {
+              composer = ((cm['name'] as String?) ?? '').trim();
+              if (composer.isNotEmpty) break;
+            }
+          }
+        }
+      } catch (_) {}
     }
+    // Album artist: providers rarely carry it, and it drives album
+    // grouping, so fall back to the primary artist of the credit.
+    if (albumArtist.isEmpty) {
+      final parts = splitArtists(artist);
+      albumArtist = parts.isEmpty ? artist : parts.first;
+    }
+    return TrackFacts(
+      track: track,
+      trackTotal: trackTotal,
+      disc: disc,
+      discTotal: discTotal,
+      date: date,
+      albumArtist: albumArtist,
+      copyright: copyright,
+      genre: genre,
+      bpm: bpm,
+      isrc: isrc,
+      composer: composer,
+    );
+  }
+
+  static String _num(Object? v) {
+    if (v is num) {
+      final n = v.toInt();
+      return n > 0 ? '$n' : '';
+    }
+    return '';
+  }
+
+  /// The iTunes hit for a track, verified on artist + title + album.
+  Future<Map?> _appleTrackHit(
+      String title, String artist, String album) async {
+    final uri = Uri.parse(
+      'https://itunes.apple.com/search'
+      '?term=${Uri.encodeQueryComponent('$title $artist')}'
+      '&entity=song&attribute=songTerm&limit=15',
+    );
+    final res = await http.get(uri).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final list = (jsonDecode(res.body) as Map)['results'] as List? ?? [];
+    for (final a in list) {
+      final m = a as Map;
+      if (!_sameArtist(artist, (m['artistName'] as String?) ?? '')) continue;
+      if (normTitle((m['trackName'] as String?) ?? '') != normTitle(title)) {
+        continue;
+      }
+      if (album.trim().isNotEmpty &&
+          !_sameAlbum(album, (m['collectionName'] as String?) ?? '')) {
+        continue;
+      }
+      return m;
+    }
+    return null;
+  }
+
+  /// The Deezer hit for a track, verified the same way.
+  Future<Map?> _dzTrackHit(String title, String artist, String album) async {
+    final q = 'track:"${title.replaceAll('"', '')}"'
+        ' artist:"${artist.replaceAll('"', '')}"';
+    final res = await http
+        .get(Uri.parse(
+            '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) return null;
+    final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+    for (final t in list) {
+      final m = t as Map;
+      final am = m['artist'] as Map?;
+      if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
+      if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+        continue;
+      }
+      final alb = m['album'] as Map?;
+      if (album.trim().isNotEmpty &&
+          !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
+        continue;
+      }
+      return m;
+    }
+    return null;
   }
 
   Future<String?> labelFor({

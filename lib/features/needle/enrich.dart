@@ -19,6 +19,21 @@ class PullMeta {
   final List<AlbumCredit> credits;
   final LyricDoc lyrics;
   final int durationSecs;
+  // Numbers and catalogue facts: a pull should land as rich as the
+  // providers allow, not just title/artist/album.
+  final String albumArtist;
+  final String trackNumber;
+  final String trackTotal;
+  final String discNumber;
+  final String discTotal;
+  final String date;
+  final String copyright;
+  final String bpm;
+  final String catalogNumber;
+  final String barcode;
+  /// Canonical release type from MusicBrainz (Album / Single / EP /
+  /// Compilation / Live), not the provider's guess.
+  final String releaseType;
 
   const PullMeta({
     required this.title,
@@ -32,6 +47,17 @@ class PullMeta {
     this.credits = const [],
     this.lyrics = const LyricDoc(),
     this.durationSecs = 0,
+    this.albumArtist = '',
+    this.trackNumber = '',
+    this.trackTotal = '',
+    this.discNumber = '',
+    this.discTotal = '',
+    this.date = '',
+    this.copyright = '',
+    this.bpm = '',
+    this.catalogNumber = '',
+    this.barcode = '',
+    this.releaseType = '',
   });
 }
 
@@ -48,14 +74,20 @@ Future<PullMeta> gatherPullMeta({
   final svc = MetadataService();
   List<AlbumCredit> credits = const [];
   List<String> genres = const [];
-  String label = '';
+  var label = '';
+  var releaseType = '';
   LyricDoc lyrics = const LyricDoc();
+  TrackFacts trackFacts = const TrackFacts();
+  var facts = const ReleaseFacts();
   String cover = artUrl;
   try {
     final results = await Future.wait([
       svc.creditsFor(artist: artist, album: album),
       svc.genresFor(artist: artist, album: album),
-      svc.labelFor(artist: artist, album: album),
+      // Label + catalogue number + barcode + release type, all off one
+      // release search (the lane labelFor would otherwise repeat).
+      svc.releaseFactsFor(artist: artist, album: album),
+      svc.trackFactsFor(artist: artist, album: album, title: title),
       _lyricsLadder(
         svc,
         artist: artist,
@@ -63,15 +95,22 @@ Future<PullMeta> gatherPullMeta({
         album: album,
         durationSecs: durationSecs,
       ),
-      _hiResCover(svc, artist: artist, album: album, fallback: artUrl),
+      _hiResCover(svc,
+          artist: artist, album: album, title: title, fallback: artUrl),
     ]);
     credits = results[0] as List<AlbumCredit>;
     genres = results[1] as List<String>;
-    label = (results[2] as String?) ?? '';
-    lyrics = results[3] as LyricDoc;
-    cover = (results[4] as String?) ?? artUrl;
+    facts = results[2] as ReleaseFacts;
+    label = facts.label;
+    releaseType = facts.releaseType;
+    trackFacts = results[3] as TrackFacts;
+    lyrics = results[4] as LyricDoc;
+    cover = (results[5] as String?) ?? artUrl;
   } catch (e) {
     ArchLog.w('meta', 'gather degraded: $e');
+  }
+  if (genres.isEmpty && trackFacts.genre.isNotEmpty) {
+    genres = [trackFacts.genre];
   }
   return PullMeta(
     title: title,
@@ -79,12 +118,33 @@ Future<PullMeta> gatherPullMeta({
     album: album,
     genres: genres,
     label: label,
-    isrc: isrc,
+    // The search hit's ISRC usually beats a provider lookup; keep it
+    // when present and fall back to whatever the track lanes found.
+    isrc: isrc.isNotEmpty ? isrc : trackFacts.isrc,
+    composer: trackFacts.composer,
     coverUrl: cover,
     credits: credits,
     lyrics: lyrics,
     durationSecs: durationSecs,
+    albumArtist: trackFacts.albumArtist,
+    trackNumber: trackFacts.track,
+    trackTotal: trackFacts.trackTotal,
+    discNumber: trackFacts.disc,
+    discTotal: trackFacts.discTotal,
+    date: trackFacts.date.isNotEmpty ? trackFacts.date : _yearOf(facts.date),
+    copyright: trackFacts.copyright,
+    bpm: trackFacts.bpm,
+    catalogNumber: facts.catalogNumber,
+    barcode: facts.barcode,
+    releaseType: releaseType,
   );
+}
+
+/// "2001-05-15" -> "2001" when no fuller date survived.
+String _yearOf(String date) {
+  if (date.isEmpty) return '';
+  final m = RegExp(r'^(\d{4})').firstMatch(date);
+  return m?.group(1) ?? '';
 }
 
 /// Lyrics ladder for unlanded pulls: LRCLib first (embeddable),
@@ -123,10 +183,15 @@ Future<String?> _hiResCover(
   MetadataService svc, {
   required String artist,
   required String album,
+  required String title,
   required String fallback,
 }) async {
   try {
-    final url = await svc.hiResCoverFor(artist: artist, album: album);
+    // Title rides along: it is what tells four self-titled Weezer
+    // albums apart. Without it the lane matches on an album name that
+    // every one of them shares.
+    final url =
+        await svc.hiResCoverFor(artist: artist, album: album, title: title);
     if (url != null && url.isNotEmpty) return url;
   } catch (_) {}
   return fallback.isEmpty ? null : fallback;

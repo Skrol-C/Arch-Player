@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
 import '../../core/models.dart';
+import '../library/data/tag_fields.dart';
 import '../library/library_providers.dart';
 import '../lyrics/tag_lyrics.dart';
 import 'metadata_service.dart';
@@ -9,6 +11,16 @@ import 'metadata_service.dart';
 final metadataServiceProvider = Provider<MetadataService>(
   (ref) => MetadataService(),
 );
+
+/// Every tag the file itself carries, read off the UI thread (compute,
+/// not Isolate.run: a closure here would capture this provider's ref
+/// and fail to send).
+final tagFieldsProvider =
+    FutureProvider.autoDispose.family<TagFields, String>((ref, path) {
+  if (path.isEmpty) return Future.value(const TagFields({}, 'none'));
+  return compute(readTagFields, path);
+});
+
 
 final artistMetaProvider = FutureProvider.family<ArtistMeta, String>((
   ref,

@@ -59,6 +59,14 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
       tag('publisher', meta.label);
       tag('isrc', meta.isrc);
       tag('composer', meta.composer);
+      tag('track', _num(meta.trackNumber, meta.trackTotal));
+      tag('disc', _num(meta.discNumber, meta.discTotal));
+      tag('date', meta.date);
+      tag('album_artist', meta.albumArtist);
+      tag('copyright', meta.copyright);
+      tag('bpm', meta.bpm);
+      tag('catalognumber', meta.catalogNumber);
+      tag('barcode', meta.barcode);
       if (_embeddable(meta.lyrics)) {
         final lrc = meta.lyrics.syncedLrc;
         if (lrc != null && lrc.isNotEmpty) {
@@ -77,6 +85,18 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
       tag('LABEL', meta.label);
       tag('ISRC', meta.isrc);
       tag('COMPOSER', meta.composer);
+      // Vorbis spells the numbers out and keeps the totals separate.
+      tag('TRACKNUMBER', meta.trackNumber);
+      tag('TRACKTOTAL', meta.trackTotal);
+      tag('DISCNUMBER', meta.discNumber);
+      tag('DISCTOTAL', meta.discTotal);
+      tag('DATE', meta.date);
+      tag('ALBUMARTIST', meta.albumArtist);
+      tag('COPYRIGHT', meta.copyright);
+      tag('BPM', meta.bpm);
+      tag('CATALOGNUMBER', meta.catalogNumber);
+      tag('BARCODE', meta.barcode);
+      tag('RELEASETYPE', meta.releaseType);
       if (_embeddable(meta.lyrics)) {
         final lrc = meta.lyrics.syncedLrc;
         if (lrc != null && lrc.isNotEmpty) {
@@ -98,6 +118,16 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
       tag('label', meta.label);
       tag('isrc', meta.isrc);
       tag('composer', meta.composer);
+      // movenc maps these onto standard atoms: trkn, disk, (c)day,
+      // aART, cprt. Five fields have NO standard atom and ffmpeg will
+      // not write them here under any spelling (verified: isrc, label,
+      // catalognumber, barcode, and bpm/tmpo) - they stay mp3/flac-only
+      // in-file, and display-only for m4a.
+      tag('track', _num(meta.trackNumber, meta.trackTotal));
+      tag('disc', _num(meta.discNumber, meta.discTotal));
+      tag('date', meta.date);
+      tag('album_artist', meta.albumArtist);
+      tag('copyright', meta.copyright);
       if (_embeddable(meta.lyrics)) {
         final lrc = meta.lyrics.syncedLrc;
         if (lrc != null && lrc.isNotEmpty) {
@@ -204,6 +234,10 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
     return stagedPath;
   }
 }
+
+/// "3" of "12" -> "3/12"; a bare number stays bare.
+String _num(String n, String total) =>
+    n.isEmpty ? '' : (total.isEmpty ? n : '$n/$total');
 
 bool _embeddable(LyricDoc doc) =>
     doc.source == LyricSource.lrclib &&

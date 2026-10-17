@@ -12,6 +12,7 @@ import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../library/data/tag_fields.dart';
 import '../search/provider_marks.dart';
 import '../library/artist_page.dart';
 import '../library/library_providers.dart';
@@ -1157,15 +1158,28 @@ class _LyricsCard extends ConsumerWidget {
   }
 }
 
-/// Metadata facts in one grouped card. Label wears its ℗ mark;
-/// unknown fields are omitted, never blank rows.
-class _MetaCard extends ConsumerWidget {
+/// Metadata facts in one grouped card, plus a collapsible "Tags"
+/// section holding every remaining field the file actually carries.
+/// The card is the human summary; Tags is the raw truth. Label wears
+/// its ℗ mark; unknown fields are omitted, never blank rows.
+///
+/// The FILE wins over providers here: it is what the track really is,
+/// it answers offline, and it does not vanish when you leave search.
+class _MetaCard extends ConsumerStatefulWidget {
   final SongRef songRef;
   const _MetaCard({required this.songRef});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final r = songRef;
+  ConsumerState<_MetaCard> createState() => _MetaCardState();
+}
+
+class _MetaCardState extends ConsumerState<_MetaCard> {
+  bool _tagsOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = Motion.reduced(context);
+    final r = widget.songRef;
     final owned = r.owned;
     final key =
         '${r.artist.toLowerCase()}\x00${r.album.toLowerCase()}';
@@ -1173,10 +1187,23 @@ class _MetaCard extends ConsumerWidget {
     final labelAsync = ref.watch(albumLabelProvider(key));
     final countAsync =
         owned != null ? ref.watch(playCountProvider(owned.id)) : null;
+    final tagsAsync = (owned != null && owned.path.isNotEmpty)
+        ? ref.watch(tagFieldsProvider(owned.path))
+        : null;
+    final fields = tagsAsync?.value;
+
+    final fileYear = _yearOf(fields);
+    final fileGenre = fields?[kGenre];
+    final fileLabel = fields?[kLabel];
+    final fileIsrc = fields?[kIsrc];
+
     final rows = <List<String>>[
       ['Artist', r.artist],
       if (r.album.isNotEmpty) ['Album', r.album],
-      if (r.year > 0) ['Year', '${r.year}'],
+      if (fileYear != null)
+        ['Year', fileYear]
+      else if (r.year > 0)
+        ['Year', '${r.year}'],
       if (r.durationMs > 0)
         [
           'Length',
@@ -1197,8 +1224,39 @@ class _MetaCard extends ConsumerWidget {
       ] else ...[
         if (r.providerId.isNotEmpty) ['Source', r.providerId],
       ],
-      if (r.isrc.isNotEmpty) ['ISRC', r.isrc],
+      if (fileGenre != null) ['Genre', fileGenre],
+      if (fileIsrc != null)
+        ['ISRC', fileIsrc]
+      else if (r.isrc.isNotEmpty)
+        ['ISRC', r.isrc],
     ];
+
+    // Everything the file carries that the card above does not already
+    // state. Title/artist/album are the page's own subject; date, genre,
+    // label and ISRC live in the card; totals fold into Track/Disc.
+    final tagRows = <List<String>>[];
+    if (fields != null) {
+      for (final k in tagFieldOrder.keys) {
+        if (k == kTitle ||
+            k == kArtist ||
+            k == kAlbum ||
+            k == kDate ||
+            k == kGenre ||
+            k == kLabel ||
+            k == kIsrc ||
+            k == kTrackTotal ||
+            k == kDiscTotal) {
+          continue;
+        }
+        final v = k == kTrack
+            ? fields.numbered(kTrack, kTrackTotal)
+            : k == kDisc
+                ? fields.numbered(kDisc, kDiscTotal)
+                : fields[k];
+        if (v == null || v.isEmpty) continue;
+        tagRows.add([tagFieldOrder[k]!, v]);
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1229,7 +1287,7 @@ class _MetaCard extends ConsumerWidget {
               genresAsync.when(
                 loading: () => const SizedBox.shrink(),
                 error: (_, _) => const SizedBox.shrink(),
-                data: (genres) => genres.isEmpty
+                data: (genres) => (genres.isEmpty || fileGenre != null)
                     ? const SizedBox.shrink()
                     : Column(
                         children: [
@@ -1242,7 +1300,9 @@ class _MetaCard extends ConsumerWidget {
               labelAsync.when(
                 loading: () => const SizedBox.shrink(),
                 error: (_, _) => const SizedBox.shrink(),
-                data: (label) => label == null || label.isEmpty
+                data: (label) => (label == null ||
+                        label.isEmpty ||
+                        fileLabel != null)
                     ? const SizedBox.shrink()
                     : Column(
                         children: [
@@ -1251,6 +1311,10 @@ class _MetaCard extends ConsumerWidget {
                         ],
                       ),
               ),
+              if (fileLabel != null) ...[
+                const _FactDivider(),
+                _factRow('Label', '\u2117 $fileLabel'),
+              ],
               if (countAsync != null)
                 countAsync.when(
                   loading: () => const SizedBox.shrink(),
@@ -1267,8 +1331,79 @@ class _MetaCard extends ConsumerWidget {
             ],
           ),
         ),
+        // The file's remaining tags, folded away until asked for: a
+        // long raw list should not push the card around.
+        if (tagRows.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => setState(() => _tagsOpen = !_tagsOpen),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Text(
+                  'Tags',
+                  style: const TextStyle(
+                    fontFamily: 'ArchSerif',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${tagRows.length}',
+                  style: const TextStyle(color: inkDim, fontSize: 14),
+                ),
+                const Spacer(),
+                AnimatedRotation(
+                  turns: _tagsOpen ? 0.5 : 0,
+                  duration: reduce ? Duration.zero : Motion.stateChange,
+                  curve: Motion.arrival,
+                  child: const Icon(
+                    CupertinoIcons.chevron_down,
+                    size: 18,
+                    color: inkDim,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          AnimatedCrossFade(
+            duration: reduce ? Duration.zero : Motion.overlay,
+            crossFadeState: _tagsOpen
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: paperRaised,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              child: Column(
+                children: [
+                  for (var i = 0; i < tagRows.length; i++) ...[
+                    if (i > 0) const _FactDivider(),
+                    _factRow(tagRows[i][0], tagRows[i][1]),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  /// Year from a tag date ("2001", "2001-05-15", "2001.05.15").
+  static String? _yearOf(TagFields? t) {
+    final date = t?[kDate];
+    if (date == null) return null;
+    final m = RegExp(r'(\d{4})').firstMatch(date);
+    return m?.group(1);
   }
 
   static Widget _factRow(String k, String v) {
