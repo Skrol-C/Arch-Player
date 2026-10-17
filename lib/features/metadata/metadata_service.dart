@@ -1556,11 +1556,93 @@ class MetadataService {
   }
 
   /// MusicBrainz lane: dates and track numbers for catalogue releases
-  /// the streaming providers never got. Both requests ride the 1req/s
-  /// gate, so this lane can be slow — which is why it only runs when
-  /// the fast lanes left a hole.
+  /// the streaming providers never got. Release-first when the album
+  /// is known — the release carrying that album name is the one whose
+  /// numbers and date belong on the tag — with a recording search as
+  /// the fallback for records MusicBrainz has no album for. Every
+  /// request rides the 1req/s gate, which is why this lane only runs
+  /// when the fast lanes left a hole.
   Future<TrackFacts> _mbTrackLane(
       String title, String artist, String album) async {
+    if (album.trim().isNotEmpty) {
+      final byRelease = await _mbReleaseLane(title, artist, album);
+      if (byRelease.track.isNotEmpty || byRelease.date.isNotEmpty) {
+        return byRelease;
+      }
+    }
+    return _mbRecordingLane(title, artist);
+  }
+
+  /// The album-first route: find the release with this album name,
+  /// then read its tracklist for the position. A recording search
+  /// cannot tell a single from the album it was folded into later —
+  /// verified: IM YEAT is a 2025-07-18 single AND track 6 of the
+  /// DANGEROUS SUMMER EP (2025-08-01), so the recording route alone
+  /// reports the wrong date and no number at all.
+  Future<TrackFacts> _mbReleaseLane(
+      String title, String artist, String album) async {
+    final q = 'release:"${album.replaceAll('"', '')}"'
+        ' AND artist:"${artist.replaceAll('"', '')}"';
+    final search = await _viaMbGate(() => http.get(
+          Uri.parse('$_mbBase/release/?query='
+              '${Uri.encodeQueryComponent(q)}&fmt=json&limit=5'),
+          headers: {'User-Agent': _userAgent},
+        ));
+    if (search.statusCode != 200) return const TrackFacts();
+    final hits =
+        ((jsonDecode(search.body) as Map)['releases'] as List? ?? []).cast<Map>();
+    Map? rel;
+    for (final r in hits) {
+      if (!_sameAlbum(album, (r['title'] as String?) ?? '')) continue;
+      final names = ((r['artist-credit'] as List?) ?? [])
+          .map((c) => ((c as Map)['name'] as String?) ?? '')
+          .join(', ');
+      if (names.isNotEmpty && !_sameArtist(artist, names)) continue;
+      rel = r;
+      break;
+    }
+    final id = rel?['id'] as String?;
+    final relDate = (rel?['date'] as String?) ?? '';
+    if (id == null) return const TrackFacts();
+    final look = await _viaMbGate(() => http.get(
+          Uri.parse('$_mbBase/release/$id?inc=recordings+tags&fmt=json'),
+          headers: {'User-Agent': _userAgent},
+        ));
+    if (look.statusCode != 200) return TrackFacts(date: relDate);
+    final m = jsonDecode(look.body) as Map;
+    // Track numbers hang off media[].tracks — PLURAL. The singular
+    // `track` key is empty in the current API shape and silently cost
+    // every number and total MusicBrainz could have supplied.
+    var track = '';
+    var trackTotal = '';
+    var disc = '';
+    for (final md in ((m['media'] as List?) ?? [])) {
+      final mm = md as Map;
+      for (final t in ((mm['tracks'] ?? mm['track']) as List? ?? const [])) {
+        final tm = t as Map;
+        if (normTitle((tm['title'] as String?) ?? '') != normTitle(title)) {
+          continue;
+        }
+        track = _numAny(tm['number']);
+        trackTotal = _numAny(mm['track-count']);
+        disc = _numAny(mm['position']);
+        break;
+      }
+      if (track.isNotEmpty) break;
+    }
+    return TrackFacts(
+      track: track,
+      trackTotal: trackTotal,
+      disc: disc,
+      date: (m['date'] as String?) ?? relDate,
+      genre: _mbGenreOf(m),
+    );
+  }
+
+  /// The fallback route: MusicBrainz has no album by that name (or
+  /// none was given), so take the recording's own first date and
+  /// whatever release entry carries a position for it.
+  Future<TrackFacts> _mbRecordingLane(String title, String artist) async {
     final q = 'recording:"${title.replaceAll('"', '')}"'
         ' AND artist:"${artist.replaceAll('"', '')}"';
     final search = await _viaMbGate(() => http.get(
@@ -1590,16 +1672,13 @@ class MetadataService {
         ));
     if (look.statusCode != 200) return const TrackFacts();
     final m = jsonDecode(look.body) as Map;
-    // Track numbers live under releases[].media[].track[].number, as
-    // strings, alongside the medium's position (the disc) and its
-    // track-count (the total).
     var track = '';
     var trackTotal = '';
     var disc = '';
-    for (final rel in (m['releases'] as List?) ?? []) {
-      for (final md in ((rel as Map)['media'] as List?) ?? []) {
+    for (final rel in ((m['releases'] as List?) ?? [])) {
+      for (final md in (((rel as Map)['media'] as List?) ?? [])) {
         final mm = md as Map;
-        for (final t in (mm['track'] as List?) ?? []) {
+        for (final t in ((mm['tracks'] ?? mm['track']) as List? ?? const [])) {
           final tm = t as Map;
           if (normTitle((tm['title'] as String?) ?? '') != normTitle(title)) {
             continue;
@@ -1613,18 +1692,20 @@ class MetadataService {
       }
       if (track.isNotEmpty) break;
     }
-    // Genres arrive as folksonomy tags with weights: heaviest first.
-    final tags = ((m['tags'] as List?) ?? []).toList()
-      ..sort((a, b) => _tagWeight(b).compareTo(_tagWeight(a)));
-    final genre =
-        tags.isEmpty ? '' : ((tags.first as Map)['name'] as String?) ?? '';
     return TrackFacts(
       track: track,
       trackTotal: trackTotal,
       disc: disc,
       date: (m['first-release-date'] as String?) ?? '',
-      genre: genre,
+      genre: _mbGenreOf(m),
     );
+  }
+
+  /// Genres arrive as folksonomy tags with weights: heaviest first.
+  static String _mbGenreOf(Map m) {
+    final tags = ((m['tags'] as List?) ?? []).toList()
+      ..sort((a, b) => _tagWeight(b).compareTo(_tagWeight(a)));
+    return tags.isEmpty ? '' : ((tags.first as Map)['name'] as String?) ?? '';
   }
 
   static int _tagWeight(Object? tag) {
