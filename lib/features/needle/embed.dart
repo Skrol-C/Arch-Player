@@ -110,9 +110,12 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
         }
       }
     } else if (ext == 'm4a' || ext == 'mp4' || ext == 'm4b') {
-      // Music videos arrive as .m4a with an h264 stream; take the
-      // audio only. The m4a (ipod) muxer cannot hold h264 at all.
-      opts.addAll(['-map', '0:a']);
+      // No unconditional `-map 0:a` here. An mp4 cover is an
+      // attached_pic VIDEO stream, so mapping audio alone silently
+      // strips the artwork from a lyrics-only retag (verified: a
+      // 300x300 mjpeg cover survives `-c copy` but dies the moment
+      // `-map 0:a` is present). Music videos are handled by the
+      // audio-only retry after a failed run instead.
       tag('title', meta.title);
       tag('artist', meta.artist);
       tag('album', meta.album);
@@ -167,7 +170,7 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
           ]);
         } else if (ext == 'm4a' || ext == 'mp4' || ext == 'm4b') {
           opts.addAll([
-            '-map', '1:0',
+            '-map', '0:a', '-map', '1:0',
             '-c:a', 'copy', '-c:v', 'mjpeg', '-q:v', _coverQ, '-vf', _coverVf,
             '-disposition:v', 'attached_pic',
           ]);
@@ -211,10 +214,16 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
     final base =
         dot > sep + 1 ? stagedPath.substring(0, dot) : stagedPath;
     final out = '${base}_tagged.$ext';
-    List<String> buildArgv({String? forceFormat}) {
+    List<String> buildArgv({String? forceFormat, bool audioOnly = false}) {
       final a = <String>[
         '-y', '-v', 'error',
         ...inputs,
+        // Audio-only is the music-video fallback: providers hand back
+        // an MP4 with an h264 stream named `.m4a`, and the ipod muxer
+        // cannot hold h264 at all. Never the default — an attached_pic
+        // cover is a video stream too, and mapping audio alone drops
+        // the artwork.
+        if (audioOnly && coverPath == null) ...['-map', '0:a'],
         ...opts,
         if (coverPath == null) ...['-c', 'copy'],
       ];
@@ -240,6 +249,18 @@ Future<String> embedPullMeta(String stagedPath, PullMeta meta,
     }
 
     var (code, log) = await runTag(buildArgv());
+    if (!ReturnCode.isSuccess(code) &&
+        (ext == 'm4a' || ext == 'mp4' || ext == 'm4b') &&
+        !log.contains('Could not find tag for codec')) {
+      // A real video stream (music video named .m4a) fails the ipod
+      // muxer. Retry once with audio only — the behaviour the old
+      // unconditional `-map 0:a` gave, now applied only when needed.
+      // A codec-tag failure is a different disease (see below), so it
+      // skips this pass and goes straight to the mp4 muxer.
+      ArchLog.i('embed',
+          'tag command failed for .$ext, retrying audio-only: ${_clip(log)}');
+      (code, log) = await runTag(buildArgv(audioOnly: true));
+    }
     if (!ReturnCode.isSuccess(code) &&
         (ext == 'm4a' || ext == 'mp4' || ext == 'm4b') &&
         log.contains('Could not find tag for codec')) {
