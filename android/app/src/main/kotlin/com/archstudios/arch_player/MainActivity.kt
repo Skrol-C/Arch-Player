@@ -37,6 +37,28 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     // project's androidx.activity version (verified by compiling).
     private val consentRequestCode = 4711
     private var pendingConsent: MethodChannel.Result? = null
+    private val manageMediaRequestCode = 4712
+    private var pendingManageUris: List<Uri>? = null
+
+    // One-time media-management upgrade (API 31+): a single grant
+    // silences every future per-file write dialog. canManageMedia is
+    // a silent check, so an upgrade already granted (or a past denial
+    // recorded below) never shows UI again. Asked once ever; denial
+    // falls back to the per-file flow, unchanged.
+    private fun manageMediaSettled(): Boolean = runCatching {
+        if (Build.VERSION.SDK_INT >= 31 &&
+            MediaStore.canManageMedia(this)
+        ) {
+            return true
+        }
+        getSharedPreferences("arch", MODE_PRIVATE)
+            .getBoolean("manage_media_asked", false)
+    }.getOrDefault(true)
+
+    private fun markManageMediaAsked() = runCatching {
+        getSharedPreferences("arch", MODE_PRIVATE).edit()
+            .putBoolean("manage_media_asked", true).apply()
+    }
 
     // Playback channel at HIGH importance, created BEFORE audio_service
     // posts anything: first creation wins, and the package default is
@@ -116,6 +138,21 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
             val pending = pendingConsent
             pendingConsent = null
             pending?.success(resultCode == Activity.RESULT_OK)
+            return
+        }
+        if (requestCode == manageMediaRequestCode) {
+            // Upgrade answered (granted or not): asked once ever, then
+            // run the pending per-file request — silent from here on
+            // when granted, its own dialog when denied.
+            val uris = pendingManageUris
+            val pending = pendingConsent
+            pendingManageUris = null
+            pendingConsent = null
+            if (uris != null && pending != null) {
+                launchWriteRequest(uris, pending)
+            } else {
+                pending?.success(false)
+            }
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
@@ -388,9 +425,18 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         }.getOrDefault(false)
         if (!ok) return false
         if (path.isNotEmpty()) {
+            // Wait for the rescan to land: Dart invalidates the library
+            // the moment this returns, and a fire-and-forget scan would
+            // lose that race every time — the hero would keep showing
+            // the pre-fix row until the next launch. Runs on the io
+            // executor, never the main thread. Timeout keeps a dead
+            // scanner from wedging the retag: bytes already landed.
             runCatching {
+                val done = java.util.concurrent.CountDownLatch(1)
                 android.media.MediaScannerConnection.scanFile(
-                    this, arrayOf(path), null, null)
+                    this, arrayOf(path), null
+                ) { _, _ -> done.countDown() }
+                done.await(8, java.util.concurrent.TimeUnit.SECONDS)
             }
         }
         return true
@@ -398,7 +444,9 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
 
     /// MediaStore write consent for items we do not own. Exactly one
     /// request may be in flight: a second would strand the first
-    /// caller's result.
+    /// caller's result. On API 31+ the first consent ever is the
+    /// manage-media upgrade instead of a per-file dialog — one grant,
+    /// then every later write request auto-approves silently.
     private fun requestWriteAccess(
         uris: List<String>,
         result: MethodChannel.Result,
@@ -407,8 +455,34 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
             result.success(false)
             return
         }
+        val list = uris.map { Uri.parse(it) }
+        if (Build.VERSION.SDK_INT >= 31 && !manageMediaSettled()) {
+            runCatching {
+                val intent = android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_MANAGE_MEDIA,
+                )
+                pendingConsent = result
+                pendingManageUris = list
+                markManageMediaAsked()
+                startActivityForResult(intent, manageMediaRequestCode)
+            }.onFailure {
+                android.util.Log.w("ArchLib", "manage media failed: ${it.message}")
+                pendingConsent = null
+                pendingManageUris = null
+                launchWriteRequest(list, result)
+            }
+            return
+        }
+        launchWriteRequest(list, result)
+    }
+
+    /// The per-file write request, launched directly or chained after
+    /// the manage-media upgrade (silent when the upgrade was granted).
+    private fun launchWriteRequest(
+        list: List<Uri>,
+        result: MethodChannel.Result,
+    ) {
         runCatching {
-            val list = uris.map { Uri.parse(it) }
             val pi = MediaStore.createWriteRequest(contentResolver, list)
             pendingConsent = result
             startIntentSenderForResult(

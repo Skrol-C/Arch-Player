@@ -9,8 +9,6 @@ import 'data/folder_store.dart';
 import 'data/history_store.dart';
 import 'data/library_repository.dart';
 
-enum LibraryTab { songs, albums, artists }
-
 enum SortOrder { title, artist, recent }
 
 enum ViewMode { grid, list }
@@ -93,7 +91,6 @@ class FollowedNotifier extends StateNotifier<Set<String>> {
   }
 }
 
-final libraryTabProvider = StateProvider<LibraryTab>((ref) => LibraryTab.songs);
 final libraryQueryProvider = StateProvider<String>((ref) => '');
 final librarySortProvider = StateProvider<SortOrder>((ref) => SortOrder.title);
 final libraryViewProvider = StateProvider<ViewMode>((ref) => ViewMode.grid);
@@ -312,7 +309,7 @@ final recentlyAddedProvider = Provider<List<Song>>((ref) {
   final songs = ref.watch(songsProvider).value ?? [];
   final dated = songs.where((s) => s.addedSecs > 0).toList()
     ..sort((a, b) => b.addedSecs.compareTo(a.addedSecs));
-  return dated.take(12).toList();
+  return dated.take(25).toList();
 });
 
 /// Recently played, newest first. Empty until anything plays.

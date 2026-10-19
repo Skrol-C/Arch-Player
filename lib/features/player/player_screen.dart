@@ -13,9 +13,10 @@ import '../../core/glass.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../doctor/doctor_sheet.dart';
 import '../library/artist_page.dart';
 import '../library/library_providers.dart';
-import '../library/library_screen.dart' show AlbumPage;
+import '../library/album_page.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../lyrics/lyrics_view.dart';
 import 'audio_handler.dart';
@@ -1513,14 +1514,7 @@ Future<void> _openPlayerMenu(
         const MenuAction(
           icon: CupertinoIcons.bandage,
           label: 'Song Doctor',
-          subtitle: 'Coming soon',
           value: 'doctor',
-        ),
-        const MenuAction(
-          icon: CupertinoIcons.text_bubble,
-          label: 'Lyric Finder',
-          subtitle: 'Coming soon',
-          value: 'lyrics',
         ),
         const MenuAction(
           icon: CupertinoIcons.info_circle,
@@ -1541,6 +1535,16 @@ Future<void> _openPlayerMenu(
   );
   if (!context.mounted) return;
   switch (value) {
+    case 'doctor':
+      // Through the song page: it owns the file facts the Doctor
+      // reads, and stays underneath when the sheet closes.
+      final owned = ownedSongFor(ref, song.title, song.artist);
+      final songRef = owned != null
+          ? SongRef.owned(owned)
+          : playerTitleRef(ref, song);
+      SongPage.open(context, songRef);
+      await showDoctorSheet(context, songRef, initialPage: 0);
+      break;
     case 'album':
       if (album != null) {
         Navigator.of(context)

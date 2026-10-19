@@ -21,7 +21,7 @@ import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'library_providers.dart';
-import 'library_screen.dart' show AlbumPage;
+import 'album_page.dart' show AlbumPage;
 import 'release_gallery.dart';
 import 'song_row.dart';
 import '../shell/dock.dart';
@@ -696,10 +696,11 @@ class _FeaturedRelease extends ConsumerWidget {
       yearText = year > 0 ? '$year' : '${o.songs.length} songs';
       title = o.title;
       cover = FileArtImage(
-          path: o.songs.first.path,
-          albumId: o.songs.first.albumId,
-          size: 64,
-          radius: 12);
+        path: o.songs.first.path,
+        albumId: o.songs.first.albumId,
+        size: 64,
+        radius: 12,
+      );
       open = () {
         HapticFeedback.selectionClick();
         Navigator.of(context)
@@ -1157,7 +1158,10 @@ class _PopularState extends ConsumerState<_Popular> {
   /// provider. Verify challenges open the sheet in context, then
   /// the same pull retries.
   Future<void> _pull(
-      WidgetRef ref, BuildContext context, TopTrack track) async {
+    WidgetRef ref,
+    BuildContext context,
+    TopTrack track,
+  ) async {
     final downloaders = [
       for (final p in ref.read(installedExtensionsProvider))
         if (p.enabled && p.roles.contains('download')) p,
@@ -1165,8 +1169,7 @@ class _PopularState extends ConsumerState<_Popular> {
     if (downloaders.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('No download providers enabled')),
+        const SnackBar(content: Text('No download providers enabled')),
       );
       return;
     }
@@ -1191,8 +1194,7 @@ class _PopularState extends ConsumerState<_Popular> {
         final inlineUrl = e.message.startsWith('auth_url=')
             ? e.message.substring('auth_url='.length)
             : '';
-        final url = await SessionGrant.resolveAuthUrl(
-            provider.id, inlineUrl);
+        final url = await SessionGrant.resolveAuthUrl(provider.id, inlineUrl);
         if (!context.mounted) return;
         if (url == null || url.isEmpty) return;
         final granted = await handleVerifyRequired(
@@ -1206,9 +1208,12 @@ class _PopularState extends ConsumerState<_Popular> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(e.code == 'unavailable'
+          content: Text(
+            e.code == 'unavailable'
                 ? 'Not available from ${provider.displayName}'
-                : 'Download failed. Try again.')),
+                : 'Download failed. Try again.',
+          ),
+        ),
       );
       ArchLog.w('needle', 'artist pull failed: ${e.code}');
     }

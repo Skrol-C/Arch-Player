@@ -15,7 +15,7 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/artist_page.dart';
 import '../library/library_providers.dart';
-import '../library/library_screen.dart' show AlbumPage;
+import '../library/album_page.dart' show AlbumPage;
 import '../needle/calling.dart';
 import '../needle/extension.dart';
 import '../needle/extensions.dart';

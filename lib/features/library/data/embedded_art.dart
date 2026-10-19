@@ -97,8 +97,7 @@ EmbeddedArt? readEmbeddedArt(String path) {
       ArchLog.i('art', 'cover read: none in $how $path');
       return null;
     }
-    ArchLog.i('art',
-        'cover read: ${art.bytes.length}B ${art.mime} from $how');
+    ArchLog.i('art', 'cover read: ${art.bytes.length}B ${art.mime} from $how');
     return art;
   } catch (e) {
     ArchLog.w('art', 'cover read failed ($e) $path');
@@ -152,8 +151,7 @@ EmbeddedArt? _id3Picture(String path) {
         if (id == 'APIC' || id == 'PIC') {
           final payload = raf.readSync(size);
           if (payload.length < size) return null;
-          return _id3PicturePayload(
-              Uint8List.fromList(payload), ver == 2);
+          return _id3PicturePayload(Uint8List.fromList(payload), ver == 2);
         }
         pos += hdrLen + size;
       }
@@ -424,8 +422,9 @@ EmbeddedArt? _mp4Covr(RandomAccessFile raf, int start, int end) {
 
 // ------------------------------------------------------------ helpers
 
-int _be32(Uint8List b, int i) =>
-    i + 4 > b.length ? 0 : ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
+int _be32(Uint8List b, int i) => i + 4 > b.length
+    ? 0
+    : ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
 
 int _be64(Uint8List b) {
   if (b.length < 8) return 0;
@@ -455,7 +454,10 @@ int _indexOfZero(Uint8List b, int from) {
 int _indexOfImageMagic(Uint8List b, int from) {
   for (var i = from; i + 3 < b.length; i++) {
     if (b[i] == 0xFF && b[i + 1] == 0xD8 && b[i + 2] == 0xFF) return i;
-    if (b[i] == 0x89 && b[i + 1] == 0x50 && b[i + 2] == 0x4E && b[i + 3] == 0x47) {
+    if (b[i] == 0x89 &&
+        b[i + 1] == 0x50 &&
+        b[i + 2] == 0x4E &&
+        b[i + 3] == 0x47) {
       return i;
     }
   }

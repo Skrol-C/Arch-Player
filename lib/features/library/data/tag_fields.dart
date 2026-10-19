@@ -175,8 +175,7 @@ Map<String, String> _vorbisFields(String path) {
 }
 
 /// "3/12" splits into number and total; a bare number stays put.
-void _splitNumbered(
-    Map<String, String> out, String key, String totalKey) {
+void _splitNumbered(Map<String, String> out, String key, String totalKey) {
   final v = out[key];
   if (v == null || !v.contains('/')) return;
   final parts = v.split('/');
@@ -187,32 +186,32 @@ void _splitNumbered(
 }
 
 String? _vorbisKey(String key) => switch (key) {
-      'TITLE' => kTitle,
-      'ARTIST' || 'PERFORMER' => kArtist,
-      'ALBUMARTIST' || 'ALBUM ARTIST' || 'ENSEMBLE' => kAlbumArtist,
-      'ALBUM' => kAlbum,
-      'TRACKNUMBER' || 'TRACK' => kTrack,
-      'TRACKTOTAL' || 'TOTALTRACKS' => kTrackTotal,
-      'DISCNUMBER' || 'DISC' => kDisc,
-      'DISCTOTAL' || 'TOTALDISCS' => kDiscTotal,
-      'DATE' || 'YEAR' => kDate,
-      'GENRE' => kGenre,
-      'COMPOSER' => kComposer,
-      'LYRICIST' || 'TEXT' => kLyricist,
-      'ISRC' => kIsrc,
-      'LABEL' || 'PUBLISHER' || 'ORGANIZATION' => kLabel,
-      'CATALOGNUMBER' || 'CATALOG' => kCatalogNumber,
-      'BARCODE' => kBarcode,
-      'COPYRIGHT' => kCopyright,
-      'BPM' => kBpm,
-      'KEY' || 'INITIALKEY' => kKey,
-      'LANGUAGE' => kLanguage,
-      'COMMENT' || 'DESCRIPTION' => kComment,
-      'ENCODER' || 'ENCODEDBY' || 'ENCODERSETTINGS' => kEncoder,
-      'COMPILATION' => kCompilation,
-      'RELEASETYPE' || 'MUSICBRAINZ_ALBUMTYPE' => kReleaseType,
-      _ => null,
-    };
+  'TITLE' => kTitle,
+  'ARTIST' || 'PERFORMER' => kArtist,
+  'ALBUMARTIST' || 'ALBUM ARTIST' || 'ENSEMBLE' => kAlbumArtist,
+  'ALBUM' => kAlbum,
+  'TRACKNUMBER' || 'TRACK' => kTrack,
+  'TRACKTOTAL' || 'TOTALTRACKS' => kTrackTotal,
+  'DISCNUMBER' || 'DISC' => kDisc,
+  'DISCTOTAL' || 'TOTALDISCS' => kDiscTotal,
+  'DATE' || 'YEAR' => kDate,
+  'GENRE' => kGenre,
+  'COMPOSER' => kComposer,
+  'LYRICIST' || 'TEXT' => kLyricist,
+  'ISRC' => kIsrc,
+  'LABEL' || 'PUBLISHER' || 'ORGANIZATION' => kLabel,
+  'CATALOGNUMBER' || 'CATALOG' => kCatalogNumber,
+  'BARCODE' => kBarcode,
+  'COPYRIGHT' => kCopyright,
+  'BPM' => kBpm,
+  'KEY' || 'INITIALKEY' => kKey,
+  'LANGUAGE' => kLanguage,
+  'COMMENT' || 'DESCRIPTION' => kComment,
+  'ENCODER' || 'ENCODEDBY' || 'ENCODERSETTINGS' => kEncoder,
+  'COMPILATION' => kCompilation,
+  'RELEASETYPE' || 'MUSICBRAINZ_ALBUMTYPE' => kReleaseType,
+  _ => null,
+};
 
 // ---------------------------------------------------------------- ID3
 
@@ -355,22 +354,22 @@ void _addNumbered(Map<String, String> out, String key, String raw) {
 }
 
 String? _txxxKey(String desc) => switch (desc.trim().toUpperCase()) {
-      'CATALOGNUMBER' || 'CATALOG NUMBER' || 'CATALOG' => kCatalogNumber,
-      'BARCODE' || 'UPC' || 'EAN' => kBarcode,
-      'ISRC' => kIsrc,
-      'LABEL' || 'PUBLISHER' => kLabel,
-      'BPM' => kBpm,
-      'KEY' || 'INITIALKEY' => kKey,
-      'LYRICIST' => kLyricist,
-      'COMPOSER' => kComposer,
-      // ffmpeg's ID3v2 writer puts these in TXXX with lowercase
-      // descriptors and writes no COMM frame at all.
-      'COMMENT' || 'DESCRIPTION' => kComment,
-      'LANGUAGE' => kLanguage,
-      'ALBUMARTIST' => kAlbumArtist,
-      'RELEASETYPE' => kReleaseType,
-      _ => null,
-    };
+  'CATALOGNUMBER' || 'CATALOG NUMBER' || 'CATALOG' => kCatalogNumber,
+  'BARCODE' || 'UPC' || 'EAN' => kBarcode,
+  'ISRC' => kIsrc,
+  'LABEL' || 'PUBLISHER' => kLabel,
+  'BPM' => kBpm,
+  'KEY' || 'INITIALKEY' => kKey,
+  'LYRICIST' => kLyricist,
+  'COMPOSER' => kComposer,
+  // ffmpeg's ID3v2 writer puts these in TXXX with lowercase
+  // descriptors and writes no COMM frame at all.
+  'COMMENT' || 'DESCRIPTION' => kComment,
+  'LANGUAGE' => kLanguage,
+  'ALBUMARTIST' => kAlbumArtist,
+  'RELEASETYPE' => kReleaseType,
+  _ => null,
+};
 
 /// TXXX: encoding, description (nul), value.
 (String, String)? _txxx(Uint8List data) {
@@ -535,7 +534,9 @@ Map<String, String> _mp4Fields(String path) {
         final size = _be32(head, 0);
         final type = String.fromCharCodes(head.sublist(4, 8));
         if (size < 8) break;
-        if (type == 'trkn' || type == 'disk' || type == 'tmpo' ||
+        if (type == 'trkn' ||
+            type == 'disk' ||
+            type == 'tmpo' ||
             _mp4Keys.containsKey(type) ||
             type == '----' ||
             type == 'gnre') {
@@ -559,8 +560,7 @@ void _mp4Entry(Map<String, String> out, String type, Uint8List body) {
   if (payload == null || payload.isEmpty) return;
   switch (type) {
     case 'trkn':
-      _addNumbered(out, kTrack,
-          '${_be16(payload, 2)}/${_be16(payload, 4)}');
+      _addNumbered(out, kTrack, '${_be16(payload, 2)}/${_be16(payload, 4)}');
     case 'disk':
       _addNumbered(out, kDisc, '${_be16(payload, 2)}/${_be16(payload, 4)}');
     case 'tmpo':
@@ -610,10 +610,12 @@ String? _freeformName(Uint8List body) {
     final type = String.fromCharCodes(body.sublist(pos + 4, pos + 8));
     if (size < 8 || pos + size > body.length) break;
     if (type == 'name' && size > 12) {
-      name = utf8.decode(
-        Uint8List.sublistView(body, pos + 12, pos + size),
-        allowMalformed: true,
-      ).trim();
+      name = utf8
+          .decode(
+            Uint8List.sublistView(body, pos + 12, pos + size),
+            allowMalformed: true,
+          )
+          .trim();
     }
     pos += size;
   }

@@ -16,10 +16,10 @@ import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 
-enum Destination { library, search, needle, settings }
+enum Destination { home, library, search, needle }
 
 final destinationProvider = StateProvider<Destination>(
-  (ref) => Destination.library,
+  (ref) => Destination.home,
 );
 
 /// Scroll-collapse state: true = pill split into lobes with the compact
@@ -27,45 +27,97 @@ final destinationProvider = StateProvider<Destination>(
 /// or destination change. Player-open hides everything regardless.
 final pillCollapsedProvider = StateProvider<bool>((ref) => false);
 
-const _labels = ['Library', 'Search', 'Needle', 'Settings'];
+/// Where the library search bar sits. Three stops, not two:
+/// `hidden` deep in a list, `peek` as a slim row after a downward
+/// swipe mid-list, `open` as the full field at the top of a page.
+/// The last one is the moment: arriving at the top is what expands
+/// the row into the field, so the top never reads as "it was always
+/// there".
+enum SearchStage { hidden, peek, open }
+
+final searchStageProvider = StateProvider<SearchStage>(
+  (ref) => SearchStage.open,
+);
+
+const _labels = ['Home', 'Library', 'Search', 'Needle'];
 const _icons = [
+  Icons.home_rounded,
   Icons.library_music_rounded,
   Icons.search_rounded,
   Icons.download_rounded,
-  Icons.settings_rounded,
 ];
 
 /// Forwards vertical scroll intent to the collapse driver. Wrap every
 /// scroll root that shares the dock (shell body + pushed routes).
+///
+/// Also drives the library search stage. That one is position-honest
+/// rather than page-forced: a page at its top shows the full field, a
+/// page scrolled down keeps it retracted, a downward swipe mid-list
+/// brings back the slim peek row, and returning to the top is what
+/// expands it. `ScrollMetricsNotification` is the hook that catches a
+/// page landing already-at-top (or a list resizing), which the
+/// user-scroll stream alone never reports.
 class DockScrollReporter extends ConsumerWidget {
   final Widget child;
   const DockScrollReporter({super.key, required this.child});
 
+  void _stage(WidgetRef ref, SearchStage next) {
+    final s = ref.read(searchStageProvider.notifier);
+    if (s.state == next) return;
+    ArchLog.i('nav', 'search ${s.state.name} -> ${next.name}');
+    s.state = next;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return NotificationListener<UserScrollNotification>(
+    return NotificationListener<ScrollMetricsNotification>(
       onNotification: (n) {
         if (n.metrics.axis != Axis.vertical) return false;
-        final collapsed = ref.read(pillCollapsedProvider.notifier);
-        // Sustained downward intent collapses; any upward motion
-        // expands. Small gate (~80px) so flings and drags both count.
-        if (n.direction == ScrollDirection.forward && n.metrics.pixels > 80) {
-          if (!collapsed.state) {
-            ArchLog.i('nav', 'pill collapse (scroll down)');
-            collapsed.state = true;
-          }
-        } else if (n.direction == ScrollDirection.reverse) {
-          if (collapsed.state) {
-            ArchLog.i('nav', 'pill expand (scroll up)');
-            collapsed.state = false;
-          }
+        if (n.metrics.pixels <= _searchAtTop) {
+          _stage(ref, SearchStage.open);
         }
         return false;
       },
-      child: child,
+      child: NotificationListener<UserScrollNotification>(
+        onNotification: (n) {
+          if (n.metrics.axis != Axis.vertical) return false;
+          final collapsed = ref.read(pillCollapsedProvider.notifier);
+          // Sustained downward intent collapses; any upward motion
+          // expands. Small gate (~80px) so flings and drags both count.
+          if (n.direction == ScrollDirection.forward && n.metrics.pixels > 80) {
+            if (!collapsed.state) {
+              ArchLog.i('nav', 'pill collapse (scroll down)');
+              collapsed.state = true;
+            }
+          } else if (n.direction == ScrollDirection.reverse) {
+            if (collapsed.state) {
+              ArchLog.i('nav', 'pill expand (scroll up)');
+              collapsed.state = false;
+            }
+          }
+          // Search stage, same stream so it can never desync from the
+          // scroll it belongs to. At the top = full field; diving in =
+          // gone; a downward swipe mid-list = slim peek row.
+          final px = n.metrics.pixels;
+          if (px <= _searchAtTop) {
+            _stage(ref, SearchStage.open);
+          } else if (n.direction == ScrollDirection.reverse && px > 80) {
+            _stage(ref, SearchStage.hidden);
+          } else if (n.direction == ScrollDirection.forward) {
+            if (ref.read(searchStageProvider) == SearchStage.hidden) {
+              _stage(ref, SearchStage.peek);
+            }
+          }
+          return false;
+        },
+        child: child,
+      ),
     );
   }
 }
+
+/// Search sits at the top of a page within this many pixels.
+const double _searchAtTop = 40;
 
 /// The bottom unit, everywhere: full mini + full pill at rest, lobes +
 /// compact mini split on scroll. One animation driver - the pieces move
@@ -77,6 +129,13 @@ class NowPlayingDock extends ConsumerWidget {
   static const double pillWidth = 340;
   static const double miniWidth = 280;
   static const double compactWidth = 148;
+
+  /// Four tabs fit the classic width; the cap still guards narrow
+  /// screens with large text.
+  static const double _pillMaxWidth = 340;
+  static double pillWidthOf(BuildContext context) {
+    return (MediaQuery.sizeOf(context).width - 32).clamp(300.0, _pillMaxWidth);
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -136,7 +195,7 @@ class NowPlayingDock extends ConsumerWidget {
                 // internals throw infinite-height on every frame. 76 fits
                 // its natural height with room for text scaling.
                 SizedBox(
-                  width: pillWidth,
+                  width: NowPlayingDock.pillWidthOf(context),
                   height: 76,
                   child: Stack(
                     alignment: Alignment.center,
@@ -193,8 +252,12 @@ class _FullPill extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dest = ref.watch(destinationProvider);
-    final pending = ref.watch(downloadQueueProvider).where((j) =>
-        j.state == QueueState.queued || j.state == QueueState.active).length;
+    final pending = ref
+        .watch(downloadQueueProvider)
+        .where(
+          (j) => j.state == QueueState.queued || j.state == QueueState.active,
+        )
+        .length;
     final glow = ref.watch(needleGlowProvider);
     final bar = LiquidGlassTabBar.withImpeller(
       items: [
@@ -203,7 +266,7 @@ class _FullPill extends ConsumerWidget {
       ],
       selectedIndex: dest.index,
       onChanged: (i) => NowPlayingDock._go(ref, context, Destination.values[i]),
-      width: NowPlayingDock.pillWidth,
+      width: NowPlayingDock.pillWidthOf(context),
       margin: EdgeInsets.zero,
       itemStyle: const LiquidGlassTabItemStyle(
         selectedColor: archPink,
@@ -226,19 +289,19 @@ class _FullPill extends ConsumerWidget {
       ),
     );
     // Queue badge + landing glow: above the Needle tab
-    // (index 2 of 4), never the pill corner. Fractional offset
+    // (index 3 of 4), never the pill corner. Fractional offset
     // survives width changes.
     if (pending == 0 && !glow) return bar;
+    final pillW = NowPlayingDock.pillWidthOf(context);
     return Stack(
       clipBehavior: Clip.none,
       children: [
         bar,
         Positioned(
-          left: NowPlayingDock.pillWidth * 0.625,
+          left: pillW * 0.625,
           top: -8,
           child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 7, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
             decoration: BoxDecoration(
               color: archPink,
               borderRadius: BorderRadius.circular(12),
@@ -404,7 +467,8 @@ class _CompactMini extends ConsumerWidget {
                           path: song.path,
                           albumId: song.albumId,
                           size: 38,
-                          radius: 10)
+                          radius: 10,
+                        )
                       : Container(
                           decoration: BoxDecoration(
                             color: paperRaised,

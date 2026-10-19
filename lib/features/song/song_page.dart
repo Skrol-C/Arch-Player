@@ -25,7 +25,7 @@ import '../needle/enrich.dart';
 import '../search/provider_marks.dart';
 import '../library/artist_page.dart';
 import '../library/library_providers.dart';
-import '../library/library_screen.dart' show AlbumPage;
+import '../library/album_page.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../metadata/cover_measure.dart';
 import '../metadata/lyrics_providers.dart';
@@ -254,8 +254,8 @@ class _SongPageState extends ConsumerState<SongPage> {
     }
   }
 
-  /// Song menu: Doctor opens the repair sheet, Finder the lyric
-  /// sheet (same sheet, second page).
+  /// Song menu: Doctor lives here; the Lyric Finder is the sheet's
+  /// second page, no separate entry.
   Future<void> _openMenu(BuildContext context, WidgetRef ref) async {
     final value = await showTrackMenu(
       context: context,
@@ -266,19 +266,12 @@ class _SongPageState extends ConsumerState<SongPage> {
             label: 'Song Doctor',
             value: 'doctor',
           ),
-          MenuAction(
-            icon: CupertinoIcons.text_bubble,
-            label: 'Lyric Finder',
-            value: 'lyrics',
-          ),
         ],
       ],
     );
     if (!context.mounted) return;
     if (value == 'doctor') {
       await showDoctorSheet(context, _r, initialPage: 0);
-    } else if (value == 'lyrics') {
-      await showDoctorSheet(context, _r, initialPage: 1);
     }
   }
 
@@ -518,7 +511,7 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
   /// MediaStore substitutes "Unknown ..." placeholders for missing
   /// tags; searching for those words would only waste three lanes.
   String _clean(String v, String placeholder) =>
-      v == placeholder ? '' : v;
+      v == placeholder || isUnknownSlot(v) ? '' : v;
 
   Future<void> _fetch() async {
     final song = widget.song;

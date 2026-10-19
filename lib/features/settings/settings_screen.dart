@@ -1,14 +1,18 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../needle/download_page.dart';
 import '../needle/extensions_page.dart';
 import '../needle/repo_page.dart';
+import '../shell/dock.dart';
 import 'log_screen.dart';
 import 'needle_teaser.dart';
 
@@ -20,8 +24,28 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ArchLog.i('nav', 'settings open');
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 72, 20, 160),
+    return Scaffold(
+      backgroundColor: paper,
+      appBar: AppBar(
+        backgroundColor: paper,
+        foregroundColor: ink,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        titleSpacing: 4,
+        title: LiquidGlassLens(
+          style: ArchGlass.circle(radius: 24),
+          child: IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon:
+                const Icon(CupertinoIcons.chevron_left, color: ink),
+          ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 160),
       children: [
         FocalEntrance(
           child: Text(
@@ -120,6 +144,10 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ],
+    ),
+          const NowPlayingDock(),
+        ],
+      ),
     );
   }
 }

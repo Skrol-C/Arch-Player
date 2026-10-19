@@ -61,12 +61,15 @@ class MediaWrites {
 
   /// Ask the OS for write access to [uris]. One prompt covers them all.
   static Future<bool> requestWriteAccess(List<String> uris) async {
-    final wanted = [for (final u in uris) if (u.isNotEmpty) u];
+    final wanted = [
+      for (final u in uris)
+        if (u.isNotEmpty) u,
+    ];
     if (wanted.isEmpty) return false;
     try {
-      return await _channel.invokeMethod<bool>(
-            'requestWriteAccess', {'uris': wanted},
-          ) ??
+      return await _channel.invokeMethod<bool>('requestWriteAccess', {
+            'uris': wanted,
+          }) ??
           false;
     } catch (e) {
       ArchLog.w('write', 'consent request failed: $e');

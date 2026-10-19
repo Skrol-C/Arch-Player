@@ -5,7 +5,7 @@ import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import 'library_providers.dart';
-import 'library_screen.dart' show AlbumPage;
+import 'album_page.dart' show AlbumPage;
 import 'song_row.dart';
 import '../shell/dock.dart';
 

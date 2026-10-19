@@ -78,6 +78,34 @@ abstract final class ArchGlass {
     ),
   );
 
+  /// Menu V2: the optical recipe. PARKED alongside
+  /// `showMorphMenu` in features/shell/morph_menu.dart - kept for the
+  /// day the morph entrance comes back, not referenced anywhere.
+  /// Snell's-law bend instead of the legacy distortion field, radial
+  /// specular sweep, saturated optical rim. Built for a morph
+  /// entrance: the band grows with the surface while it bulges out
+  /// of its anchor, so refraction never swallows a small frame
+  /// mid-animation.
+  static LiquidGlassStyle menuV2({double radius = 28}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1.2,
+      lightMode: LiquidGlassLightMode.radial,
+      borderType: const OpticalBorder(borderSaturation: 1.6, lightSpread: 0.7),
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x66FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+    ),
+    refraction: const LiquidGlassRefraction(
+      refractionType: OpticalRefraction(
+        refraction: 1.5,
+        refractionWidth: 28,
+        depth: 0.24,
+      ),
+    ),
+  );
+
   /// Sheets: SpotiFLAC-mornye grammar in our skin (MIT): white
   /// veil ~0.46, tight blur, strong rim bend. Frost reads dirty
   /// over busy art; the veil + bend carry readability instead.
@@ -132,10 +160,7 @@ abstract final class ArchGlass {
         color: Color(0x66FFFFFF),
         blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
       ),
-      refraction: LiquidGlassRefraction(
-        distortion: 0.13,
-        distortionWidth: 14,
-      ),
+      refraction: LiquidGlassRefraction(distortion: 0.13, distortionWidth: 14),
     );
   }
 }

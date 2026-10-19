@@ -4,13 +4,13 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
+import '../home/home_screen.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart';
 import '../needle/needle_hub.dart';
 import '../search/search_page.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
-import '../settings/settings_screen.dart';
 import 'dock.dart';
 
 /// App shell: destination content + the shared dock. Scroll intent is
@@ -41,6 +41,9 @@ class Shell extends ConsumerWidget {
           fit: StackFit.expand,
           children: [
             switch (dest) {
+              Destination.home => const HomeScreen(
+                key: ValueKey('dest-home'),
+              ),
               Destination.library => const LibraryScreen(
                 key: ValueKey('dest-library'),
               ),
@@ -49,9 +52,6 @@ class Shell extends ConsumerWidget {
               ),
               Destination.needle => const NeedleHubPage(
                 key: ValueKey('dest-needle'),
-              ),
-              Destination.settings => const SettingsScreen(
-                key: ValueKey('dest-settings'),
               ),
             },
             const NowPlayingDock(),

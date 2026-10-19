@@ -34,6 +34,13 @@ class PullMeta {
   /// Canonical release type from MusicBrainz (Album / Single / EP /
   /// Compilation / Live), not the provider's guess.
   final String releaseType;
+  /// True when the identity lane supplied something beyond the
+  /// query (adopted album, corrected spelling). False = the
+  /// title/artist/album below echo the caller's query.
+  final bool identityResolved;
+  /// Apple and Deezer disagreed on the album — adopting either is
+  /// a guess, so callers must not write identity fields.
+  final bool identityConflict;
 
   const PullMeta({
     required this.title,
@@ -58,6 +65,8 @@ class PullMeta {
     this.catalogNumber = '',
     this.barcode = '',
     this.releaseType = '',
+    this.identityResolved = false,
+    this.identityConflict = false,
   });
 }
 
@@ -77,8 +86,44 @@ Future<PullMeta> gatherPullMeta({
   int durationSecs = 0,
   bool includeLyrics = true,
   bool includeCover = true,
+  // Doctor-only: resolve canonical title/artist/album from the
+  // catalogues before running lanes, so a thin file (empty album,
+  // casing drift) queries with the real identity instead of its
+  // own tags. Pulls leave this off: the search hit is already
+  // canonical and resolving would cost requests for no gain.
+  bool resolveIdentity = false,
 }) async {
   final svc = MetadataService();
+  var effTitle = title;
+  var effArtist = artist;
+  var effAlbum = album;
+  var identityResolved = false;
+  var identityConflict = false;
+  if (resolveIdentity) {
+    try {
+      final res = await svc.resolveTrackIdentity(
+        title: title,
+        artist: artist,
+        album: album,
+        durationSecs: durationSecs,
+        isrc: isrc,
+      );
+      identityConflict = res.conflict;
+      final id = res.identity;
+      if (id != null) {
+        if (id.title.trim().isNotEmpty) effTitle = id.title;
+        if (id.artist.trim().isNotEmpty) effArtist = id.artist;
+        if (id.album.trim().isNotEmpty) effAlbum = id.album;
+        identityResolved = true;
+        ArchLog.i('meta',
+            'identity adopted: "$title - $artist [$album]" -> "$effTitle - $effArtist [$effAlbum]"');
+      } else if (res.conflict) {
+        ArchLog.i('meta', 'identity conflict: keeping query, no adopt');
+      }
+    } catch (e) {
+      ArchLog.w('meta', 'identity resolve failed: $e');
+    }
+  }
   List<AlbumCredit> credits = const [];
   List<String> genres = const [];
   var label = '';
@@ -89,25 +134,25 @@ Future<PullMeta> gatherPullMeta({
   String cover = artUrl;
   try {
     final results = await Future.wait([
-      svc.creditsFor(artist: artist, album: album),
-      svc.genresFor(artist: artist, album: album),
+      svc.creditsFor(artist: effArtist, album: effAlbum),
+      svc.genresFor(artist: effArtist, album: effAlbum),
       // Label + catalogue number + barcode + release type, all off one
       // release search (the lane labelFor would otherwise repeat).
-      svc.releaseFactsFor(artist: artist, album: album),
+      svc.releaseFactsFor(artist: effArtist, album: effAlbum),
       svc.trackFactsFor(
-          artist: artist, album: album, title: title, durationSecs: durationSecs),
+          artist: effArtist, album: effAlbum, title: effTitle, durationSecs: durationSecs),
       includeLyrics
           ? _lyricsLadder(
               svc,
-              artist: artist,
-              title: title,
-              album: album,
+              artist: effArtist,
+              title: effTitle,
+              album: effAlbum,
               durationSecs: durationSecs,
             )
           : Future.value(const LyricDoc()),
       includeCover
           ? _hiResCover(svc,
-              artist: artist, album: album, title: title, fallback: artUrl)
+              artist: effArtist, album: effAlbum, title: effTitle, fallback: artUrl)
           : Future.value(artUrl),
     ]);
     credits = results[0] as List<AlbumCredit>;
@@ -125,9 +170,9 @@ Future<PullMeta> gatherPullMeta({
     genres = [trackFacts.genre];
   }
   return PullMeta(
-    title: title,
-    artist: artist,
-    album: album,
+    title: effTitle,
+    artist: effArtist,
+    album: effAlbum,
     genres: genres,
     label: label,
     // The search hit's ISRC usually beats a provider lookup; keep it
@@ -149,6 +194,8 @@ Future<PullMeta> gatherPullMeta({
     catalogNumber: facts.catalogNumber,
     barcode: facts.barcode,
     releaseType: releaseType,
+    identityResolved: identityResolved,
+    identityConflict: identityConflict,
   );
 }
 

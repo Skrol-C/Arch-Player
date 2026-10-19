@@ -181,6 +181,10 @@ class _DoctorPage extends ConsumerStatefulWidget {
 class _DoctorPageState extends ConsumerState<_DoctorPage> {
   final Set<String> _selected = {};
   PullMeta? _gathered;
+  // Present-but-wrong identity fields (key -> canonical), computed at
+  // gather time from the same meta the preview shows. Apply writes
+  // these alongside the selected fills; Auto takes title/artist.
+  Map<String, String> _corrections = {};
   bool _working = false;
   bool _applying = false;
   bool _autoWorking = false;
@@ -193,13 +197,16 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
   SongRef get _r => widget.songRef;
   Song? get _owned => _r.owned;
 
-  /// Effective identity: file tags win, then the library row (unless
-  /// it is the repo's own "Unknown" placeholder), then the manual
-  /// identification step.
+  /// Effective identity: the manual identification step wins (fresh
+  /// user intent beats a stale tag), then file tags, then the library
+  /// row. MediaStore `"<unknown>"` and any placeholder read as empty
+  /// — they are holes, never a query.
   String _eff(String? tag, String row, String unknown, String? manual) {
-    if (tag != null && tag.isNotEmpty) return tag;
-    if (manual != null && manual.isNotEmpty) return manual;
-    if (row.isNotEmpty && row != unknown) return row;
+    if (manual != null && manual.isNotEmpty && !isUnknownSlot(manual)) {
+      return manual;
+    }
+    if (tag != null && tag.isNotEmpty && !isUnknownSlot(tag)) return tag;
+    if (row.isNotEmpty && row != unknown && !isUnknownSlot(row)) return row;
     return '';
   }
 
@@ -341,10 +348,9 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
     final album = fields[kAlbum] ?? _r.album;
     final needsId = title.isEmpty || artist.isEmpty;
     final missingKeys =
-        _fillable.where((k) => _display(fields, k) == null).toList();
-    final presentKeys = tagFieldOrder.keys
-        .where((k) => _display(fields, k) != null)
-        .toList();
+        _fillable.where((k) => _slot(fields, k) == null).toList();
+    final presentKeys =
+        tagFieldOrder.keys.where((k) => _slot(fields, k) != null).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -392,6 +398,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
                         setState(() {
                           _selected.addAll(missingKeys);
                           _gathered = null;
+                          _corrections = {};
                         });
                       },
                 child: const Text('Select all'),
@@ -404,6 +411,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
                         setState(() {
                           _selected.clear();
                           _gathered = null;
+                          _corrections = {};
                         });
                       },
                 child: const Text('Clear'),
@@ -543,6 +551,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
               _selected.remove(key);
             }
             _gathered = null;
+                          _corrections = {};
           });
         },
       ),
@@ -578,6 +587,15 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
     if (key == kTrack) return fields.numbered(kTrack, kTrackTotal);
     if (key == kDisc) return fields.numbered(kDisc, kDiscTotal);
     return fields[key];
+  }
+
+  /// Slot value with placeholders read as holes: a literal `"<unknown>"`
+  /// atom fossilized by an old echo-write is missing, not data. Drives
+  /// the missing/present split; raw display stays verbatim.
+  String? _slot(TagFields fields, String key) {
+    final v = _display(fields, key);
+    if (v == null || isUnknownSlot(v)) return null;
+    return v;
   }
 
   /// "Artist - Title" out of a filename, minus track numbers and the
@@ -662,6 +680,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
       _working = true;
       _status = null;
       _gathered = null;
+                          _corrections = {};
     });
     try {
       final meta = await gatherPullMeta(
@@ -672,13 +691,19 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
         durationSecs: song.duration.inSeconds,
         includeLyrics: false,
         includeCover: false,
+        resolveIdentity: true,
       );
       if (!mounted) return;
       setState(() {
         _working = false;
         _gathered = meta;
+        _corrections = _correctionsFor(fields, meta);
+        _status = meta.identityConflict
+            ? 'Multiple albums found — pick manually.'
+            : null;
       });
-      ArchLog.i('doctor', 'fill: gathered for $title - $artist');
+      ArchLog.i('doctor', 'fill: gathered for $title - $artist'
+          '${meta.identityResolved ? ' (identity -> ${meta.title} - ${meta.artist} [${meta.album}])' : ''}');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -693,9 +718,21 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
     final meta = _gathered!;
     final rows = <List<String>>[];
     for (final key in _selected) {
+      // Conflict: either album could be wrong, so identity fields
+      // propose nothing rather than a guess.
+      if (meta.identityConflict &&
+          (key == kTitle || key == kArtist || key == kAlbum)) {
+        continue;
+      }
       final proposal = _proposalFor(key, meta);
-      if (proposal.isEmpty) continue;
+      if (proposal.isEmpty || isUnknownSlot(proposal)) continue;
       rows.add([tagFieldOrder[key]!, _display(fields, key) ?? 'N/A', proposal]);
+    }
+    // Title the file carries but the catalogues correct, e.g.
+    // "Usimamane - Cheque" -> "Cheque". Shown with the fills, applied
+    // by the same button.
+    for (final e in _corrections.entries) {
+      rows.add([tagFieldOrder[e.key]!, _display(fields, e.key) ?? 'N/A', e.value]);
     }
     return Container(
       width: double.infinity,
@@ -739,6 +776,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
                     ? null
                     : () => setState(() {
                           _gathered = null;
+                          _corrections = {};
                           _selected.clear();
                         }),
                 child: const Text('Start over'),
@@ -791,6 +829,29 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
         ),
       ],
     );
+  }
+
+  /// Present-but-wrong identity fields: the file names something and
+  /// the catalogues verify another. Only when identity resolved
+  /// cleanly — a miss or conflict proposes nothing.
+  Map<String, String> _correctionsFor(TagFields fields, PullMeta meta,
+      {bool includeAlbum = true}) {
+    if (!meta.identityResolved || meta.identityConflict) return const {};
+    final out = <String, String>{};
+    void consider(String key, String canon) {
+      if (canon.trim().isEmpty || isUnknownSlot(canon)) return;
+      final fileVal = _display(fields, key);
+      // Missing is the fill path, not a correction.
+      if (fileVal == null || isUnknownSlot(fileVal)) return;
+      if (fileVal.trim().toLowerCase() != canon.trim().toLowerCase()) {
+        out[key] = canon;
+      }
+    }
+
+    consider(kTitle, meta.title);
+    consider(kArtist, meta.artist);
+    if (includeAlbum) consider(kAlbum, meta.album);
+    return out;
   }
 
   String _proposalFor(String key, PullMeta meta) {
@@ -931,13 +992,14 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
       _autoWorking = true;
       _status = null;
       _gathered = null;
+                          _corrections = {};
     });
     HapticFeedback.mediumImpact();
     String? tempIn;
     String? tagged;
     try {
       final missing =
-          _fillable.where((k) => _display(fields, k) == null).toList();
+          _fillable.where((k) => _slot(fields, k) == null).toList();
       final svc = ref.read(metadataServiceProvider);
       final metaFuture = gatherPullMeta(
         title: title,
@@ -947,22 +1009,42 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
         durationSecs: song.duration.inSeconds,
         includeLyrics: false,
         includeCover: false,
+        resolveIdentity: true,
       );
       final coverNeededFuture = _coverNeedsWork(song);
       final meta = await metaFuture;
       final coverNeeded = await coverNeededFuture;
       if (!mounted) return;
+      if (meta.identityConflict) {
+        setState(() {
+          _autoWorking = false;
+          _status = 'Multiple albums found — the file was left alone.';
+        });
+        return;
+      }
       final wins = <String, String>{};
       for (final key in missing) {
+        if (meta.identityConflict &&
+            (key == kTitle || key == kArtist || key == kAlbum)) {
+          continue;
+        }
         final v = _proposalFor(key, meta);
-        if (v.isNotEmpty) wins[key] = v;
+        // Placeholders are holes, never writes: nothing "<unknown>"
+        // goes back into a file.
+        if (v.isNotEmpty && !isUnknownSlot(v)) wins[key] = v;
       }
+      // Present-but-wrong title/artist ride along: Auto promises the
+      // fix, and the snackbar reports the count. Album stays
+      // manual-only when present — it moves library grouping.
+      wins.addAll(_correctionsFor(fields, meta, includeAlbum: false));
       String? coverUrl;
       if (coverNeeded) {
+        // Resolved identity, not the raw file tags: the adopted
+        // album is what tells the cover lane which release to fetch.
         final cands = await svc.coverCandidatesFor(
-          artist: artist,
-          album: album,
-          title: title,
+          artist: meta.artist.isNotEmpty ? meta.artist : artist,
+          album: meta.album.isNotEmpty ? meta.album : album,
+          title: meta.title.isNotEmpty ? meta.title : title,
         );
         if (mounted) coverUrl = await _bestCoverUrl(cands);
       }
@@ -993,7 +1075,8 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
         path: song.path,
       );
       ArchLog.i('doctor',
-          'auto "${song.title}": ${outcome.name} (${wins.length} tags${coverUrl != null ? ' + cover' : ''})');
+          'auto "${song.title}": ${outcome.name} (${wins.length} tags${coverUrl != null ? ' + cover' : ''})'
+          '${meta.identityResolved ? ' identity->[${meta.album}]' : ''}');
       if (!mounted) return;
       switch (outcome) {
         case WriteOutcome.ok:
@@ -1052,7 +1135,8 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
     });
     HapticFeedback.mediumImpact();
     final meta = _gathered!;
-    final sparse = _sparseMeta(meta, _selected);
+    final sparse =
+        _sparseMeta(meta, {..._selected, ..._corrections.keys});
     String? tempIn;
     String? tagged;
     try {
@@ -1079,6 +1163,7 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
           setState(() {
             _applying = false;
             _gathered = null;
+                          _corrections = {};
             _selected.clear();
             _status = null;
           });
@@ -1529,11 +1614,11 @@ class _FinderPageState extends ConsumerState<_FinderPage> {
     return n;
   }
 
-  /// Save the pick so the player shows it. Cache always; and when the
-  /// file already carries embedded lyrics, an LRCLib pick is also
-  /// written into the file — otherwise the choice would hide behind
-  /// the embedded tags forever. PaxSenIX picks stay cache-only, per
-  /// their terms.
+  /// Save the pick so the player shows it. The cache entry is marked
+  /// as an explicit pick, so the provider serves it before the file's
+  /// own tags. LRCLib picks also embed into the file — the file is
+  /// the durable home, the cache the fast path. PaxSenIX picks stay
+  /// cache-only, per their terms.
   Future<void> _use(LyricDoc doc) async {
     final song = _r.owned;
     if (song == null) return;
@@ -1544,17 +1629,11 @@ class _FinderPageState extends ConsumerState<_FinderPage> {
     HapticFeedback.mediumImpact();
     try {
       final svc = ref.read(metadataServiceProvider);
-      await svc.saveLyrics(song.id, doc);
+      await svc.saveLyrics(song.id, doc, picked: true);
       var embedded = false;
       if (doc.source == LyricSource.lrclib &&
           (doc.hasSynced || doc.hasPlain)) {
-        try {
-          final emb = await compute(readEmbeddedLyrics, song.path);
-          embedded = emb.hasSynced || emb.hasPlain;
-        } catch (_) {}
-      }
-      if (embedded) {
-        await _retagLyrics(song, doc);
+        embedded = await _retagLyrics(song, doc);
       }
       ref.invalidate(lyricsDocProvider(song.id));
       ArchLog.i('doctor',
@@ -1578,8 +1657,9 @@ class _FinderPageState extends ConsumerState<_FinderPage> {
   }
 
   /// Lyrics-only retag: every tag field stays empty so the file's own
-  /// metadata is untouched and only the lyric lines move.
-  Future<void> _retagLyrics(Song song, LyricDoc doc) async {
+  /// metadata is untouched and only the lyric lines move. True when
+  /// the bytes landed.
+  Future<bool> _retagLyrics(Song song, LyricDoc doc) async {
     String? tempIn;
     String? tagged;
     try {
@@ -1592,7 +1672,7 @@ class _FinderPageState extends ConsumerState<_FinderPage> {
         tempIn,
         PullMeta(title: '', artist: '', album: '', lyrics: doc),
       );
-      if (tagged == tempIn) return;
+      if (tagged == tempIn) return false;
       final outcome = await MediaWrites.retagWithConsent(
         uri: song.uri.toString(),
         srcPath: tagged,
@@ -1602,6 +1682,7 @@ class _FinderPageState extends ConsumerState<_FinderPage> {
       if (outcome == WriteOutcome.failed && mounted) {
         setState(() => _status = 'Saved to cache, but the file kept its old lyrics.');
       }
+      return outcome == WriteOutcome.ok;
     } finally {
       for (final p in [tempIn, tagged]) {
         if (p == null) continue;

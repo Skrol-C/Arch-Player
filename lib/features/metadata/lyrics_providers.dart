@@ -7,7 +7,10 @@ import '../library/library_providers.dart';
 import '../lyrics/tag_lyrics.dart';
 import 'metadata_providers.dart';
 
-/// Lyric resolution, one order: embedded tags -> LRCLib -> none.
+/// Lyric resolution, one order: explicit Finder pick -> embedded
+/// tags -> LRCLib network. A pick wins over the file (otherwise a
+/// cache-only PaxSenIX choice would hide behind stale embedded
+/// lines forever); the file wins over the network.
 /// Keyed by song id; the doc carries its own source for honest UI.
 final lyricsDocProvider = FutureProvider.family<LyricDoc, int>((
   ref,
@@ -22,6 +25,14 @@ final lyricsDocProvider = FutureProvider.family<LyricDoc, int>((
     }
   }
   if (song == null) return const LyricDoc();
+  try {
+    final pick =
+        await ref.watch(metadataServiceProvider).pickedLyrics(song.id);
+    if (pick != null &&
+        (pick.hasSynced || pick.hasPlain || pick.instrumental)) {
+      return pick;
+    }
+  } catch (_) {}
   if (song.path.isNotEmpty) {
     final embedded = readEmbeddedLyrics(song.path);
     if (embedded.hasSynced || embedded.hasPlain) return embedded;

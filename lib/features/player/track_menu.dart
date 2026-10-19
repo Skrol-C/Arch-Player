@@ -14,9 +14,9 @@ import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
-import '../library/artist_page.dart';
+import '../library/album_page.dart' show AlbumPage;
+import '../library/artist_hub_page.dart';
 import '../library/library_providers.dart';
-import '../library/library_screen.dart' show AlbumPage;
 import '../library/song_row.dart' show fmtDuration;
 import '../song/song_page.dart';
 import 'morph_icon.dart';
@@ -460,7 +460,7 @@ Future<void> showSongMenu(
       }
       break;
     case 'artist':
-      ArtistPage.openIfAbsent(context, song.artist);
+      ArtistHubPage.openIfAbsent(context, song.artist);
       break;
     case 'share':
       SharePlus.instance.share(
@@ -509,7 +509,7 @@ Future<void> showTrackNavMenu(
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => AlbumPage(album: ownedAlbum)));
   } else if (value == 'artist') {
-    ArtistPage.openIfAbsent(context, song.artist);
+    ArtistHubPage.openIfAbsent(context, song.artist);
   }
 }
 

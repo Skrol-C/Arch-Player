@@ -1,10 +1,15 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
+import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
 import 'data/art_previews.dart';
@@ -103,16 +108,16 @@ class _FileArtImageState extends State<FileArtImage> {
   @override
   void initState() {
     super.initState();
-    _future =
-        widget.path.isEmpty ? null : ArtPreviews.previewFor(widget.path);
+    _future = widget.path.isEmpty ? null : ArtPreviews.previewFor(widget.path);
   }
 
   @override
   void didUpdateWidget(covariant FileArtImage old) {
     super.didUpdateWidget(old);
     if (old.path != widget.path) {
-      _future =
-          widget.path.isEmpty ? null : ArtPreviews.previewFor(widget.path);
+      _future = widget.path.isEmpty
+          ? null
+          : ArtPreviews.previewFor(widget.path);
     }
   }
 
@@ -137,8 +142,8 @@ class _FileArtImageState extends State<FileArtImage> {
           cacheWidth: widget.detail
               ? 1400
               : widget.fill
-                  ? 700
-                  : (widget.size * 3).round().clamp(200, 700),
+              ? 700
+              : (widget.size * 3).round().clamp(200, 700),
           errorBuilder: (_, _, _) => fb,
         );
         final body = ClipRRect(
@@ -292,12 +297,17 @@ class SongRow extends StatelessWidget {
   final bool isCurrent;
   final VoidCallback onTap;
 
+  /// Trailing `...`. Null hides it (contexts where a menu has no
+  /// home), otherwise the caller opens the house song menu.
+  final VoidCallback? onMore;
+
   const SongRow({
     super.key,
     required this.song,
     this.art,
     required this.isCurrent,
     required this.onTap,
+    this.onMore,
   });
 
   @override
@@ -306,9 +316,10 @@ class SongRow extends StatelessWidget {
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       leading: SizedBox(
-          width: 52,
-          height: 52,
-          child: art ?? FileArtImage(path: song.path, albumId: song.albumId)),
+        width: 52,
+        height: 52,
+        child: art ?? FileArtImage(path: song.path, albumId: song.albumId),
+      ),
       title: Text(
         song.title,
         maxLines: 1,
@@ -322,56 +333,103 @@ class SongRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (isCurrent) const NowBars(),
+          if (isCurrent) NowBars(song: song),
           const SizedBox(width: 8),
           Text(
             fmtDuration(song.duration),
             style: const TextStyle(color: inkDim),
           ),
+          if (onMore != null)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onMore!();
+              },
+              child: const SizedBox(
+                width: 40,
+                height: 52,
+                child: Icon(CupertinoIcons.ellipsis, color: inkDim, size: 18),
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
-/// Mini playing indicator. Zero-motion = bug, even here.
+/// Fake playing indicator, smooth edition: five bars driven like a
+/// VU meter — each bar re-rolls its target on its own staggered
+/// clock, snaps up fast and falls slow. Incommensurate timings mean
+/// the pattern never visibly loops, so it reads as music instead of
+/// a wave. Reduced motion parks it mid-pose.
 class NowBars extends StatefulWidget {
-  const NowBars({super.key});
+  final Song? song;
+  const NowBars({super.key, this.song});
 
   @override
   State<NowBars> createState() => _NowBarsState();
 }
 
 class _NowBarsState extends State<NowBars> with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
+  static const _bars = 5;
+  late final Ticker _ticker;
+  final _rand = math.Random();
+  final _value = List<double>.filled(_bars, 0.2);
+  final _target = List<double>.filled(_bars, 0.2);
+  final _retargetAt = List<Duration>.filled(_bars, Duration.zero);
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..repeat(reverse: true);
+    _ticker = createTicker(_onTick);
+    _ticker.start();
   }
 
   @override
   void dispose() {
-    _c.dispose();
+    _ticker.dispose();
     super.dispose();
+  }
+
+  void _onTick(Duration elapsed) {
+    if (!mounted) return;
+    if (Motion.reduced(context)) {
+      for (var i = 0; i < _bars; i++) {
+        _value[i] += (0.3 - _value[i]) * 0.2;
+      }
+    } else {
+      for (var i = 0; i < _bars; i++) {
+        if (elapsed >= _retargetAt[i]) {
+          // Biased low with occasional peaks, like real dynamics.
+          final r = _rand.nextDouble();
+          _target[i] = 0.05 + 0.95 * r * r;
+          _retargetAt[i] =
+              elapsed +
+              Duration(milliseconds: 120 + (_rand.nextDouble() * 380).round());
+        }
+        final v = _value[i];
+        final t = _target[i];
+        _value[i] = v + (t - v) * (t > v ? 0.5 : 0.12);
+      }
+    }
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (_, _) => Row(
+    // Fixed frame: bar heights dance inside it, the widget's own
+    // box never moves — no bounce in the surrounding row.
+    return SizedBox(
+      height: 16,
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < _bars; i++)
             Container(
               width: 3,
-              height: 4 + 12 * (((_c.value + i * 0.33) % 1.0)),
-              margin: const EdgeInsets.only(right: 2),
+              height: 4 + 12 * _value[i].clamp(0.0, 1.0),
+              margin: EdgeInsets.only(right: i == _bars - 1 ? 0 : 2),
               decoration: BoxDecoration(
                 color: archPink,
                 borderRadius: BorderRadius.circular(2),

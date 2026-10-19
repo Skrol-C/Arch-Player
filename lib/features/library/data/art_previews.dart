@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+
 import '../../../core/log.dart';
 import 'embedded_art.dart';
 
@@ -105,7 +106,8 @@ abstract final class ArtPreviews {
     try {
       final dir = await _dir();
       final prefix = '${_version}_${_hash(path)}_';
-      await for (final e in dir.list()) {        if (e is! File) continue;
+      await for (final e in dir.list()) {
+        if (e is! File) continue;
         final name = e.path.split('/').last;
         if (!name.startsWith(prefix)) continue;
         try {
@@ -185,10 +187,13 @@ abstract final class ArtPreviews {
   }
 
   static Future<bool> _sidecarOk(
-      Directory dir, String key, String path, int? mtime) async {
+    Directory dir,
+    String key,
+    String path,
+    int? mtime,
+  ) async {
     try {
-      final raw =
-          await File('${dir.path}/$key.jpg.source').readAsString();
+      final raw = await File('${dir.path}/$key.jpg.source').readAsString();
       final m = jsonDecode(raw) as Map;
       if ((m['path'] as String?) != path) return false;
       final sm = (m['mtime'] as num?)?.toInt();
@@ -201,7 +206,11 @@ abstract final class ArtPreviews {
   }
 
   static Future<void> _writeSidecar(
-      Directory dir, String key, String path, int? mtime) async {
+    Directory dir,
+    String key,
+    String path,
+    int? mtime,
+  ) async {
     try {
       await File('${dir.path}/$key.jpg.source')
           .writeAsString(jsonEncode({'path': path, 'mtime': mtime}));
@@ -233,11 +242,9 @@ abstract final class ArtPreviews {
       final mtimes = <String, DateTime>{};
       for (final f in files) {
         try {
-          mtimes[f.path] =
-              (await f.stat()).modified;
+          mtimes[f.path] = (await f.stat()).modified;
         } catch (_) {
-          mtimes[f.path] =
-              DateTime.fromMillisecondsSinceEpoch(0);
+          mtimes[f.path] = DateTime.fromMillisecondsSinceEpoch(0);
         }
       }
       files.sort((a, b) => mtimes[a.path]!.compareTo(mtimes[b.path]!));

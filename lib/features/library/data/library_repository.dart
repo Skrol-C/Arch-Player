@@ -29,9 +29,9 @@ class ChannelLibrary implements LibraryRepository {
           Song(
             id: (m['id'] as num?)?.toInt() ?? 0,
             uri: Uri.parse((m['uri'] as String?) ?? ''),
-            title: title.isEmpty ? 'Unknown title' : title,
-            artist: artist.isEmpty ? 'Unknown artist' : artist,
-            album: album.isEmpty ? 'Unknown album' : album,
+            title: isUnknownSlot(title) ? 'Unknown title' : title,
+            artist: isUnknownSlot(artist) ? 'Unknown artist' : artist,
+            album: isUnknownSlot(album) ? 'Unknown album' : album,
             albumId: (m['albumId'] as num?)?.toInt() ?? 0,
             duration: Duration(
               milliseconds: (m['durationMs'] as num?)?.toInt() ?? 0,
@@ -64,9 +64,7 @@ class ChannelLibrary implements LibraryRepository {
   /// lands on its own time; callers re-query after a short delay.
   Future<bool> scanFile(String path) async {
     try {
-      return await _channel.invokeMethod<bool>(
-            'scanFile', {'path': path},
-          ) ??
+      return await _channel.invokeMethod<bool>('scanFile', {'path': path}) ??
           false;
     } catch (e) {
       ArchLog.w('scan', 'scanFile failed: $e');

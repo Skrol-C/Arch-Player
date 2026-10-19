@@ -107,6 +107,33 @@ class TrackFacts {
       ].where((v) => v.isNotEmpty).length;
 }
 
+/// Canonical track identity from the streaming catalogues: the
+/// spellings the providers carry, not the file's tags. The Doctor
+/// adopts these for thin files (empty album, casing drift) instead
+/// of echoing the query back as the proposal.
+class TrackIdentity {
+  final String title;
+  final String artist;
+  final String album;
+  const TrackIdentity({
+    this.title = '',
+    this.artist = '',
+    this.album = '',
+  });
+
+  bool get isEmpty =>
+      title.isEmpty && artist.isEmpty && album.isEmpty;
+}
+
+/// Identity resolution outcome. `conflict` means Apple and Deezer
+/// each verified the query but named different albums — adopting
+/// either would be a guess, so callers must leave the file alone.
+class IdentityResolution {
+  final TrackIdentity? identity;
+  final bool conflict;
+  const IdentityResolution({this.identity, this.conflict = false});
+}
+
 class MetadataService {
   static const _mbBase = 'https://musicbrainz.org/ws/2';
   static const _dzBase = 'https://api.deezer.com';
@@ -399,8 +426,21 @@ class MetadataService {
   /// Persist a Finder pick so the player shows it. Cache only — the
   /// file itself is untouched (rewriting embedded lyrics is a
   /// Doctor-apply concern, and PaxSenIX lines never embed anyway).
-  Future<void> saveLyrics(int songId, LyricDoc doc) =>
-      _writeLyricCache(songId, doc);
+  Future<void> saveLyrics(int songId, LyricDoc doc,
+          {bool picked = false}) =>
+      _writeLyricCache(songId, doc, picked: picked);
+
+  /// Explicit Finder pick, if one was saved. Served before embedded
+  /// tags by the provider; null when the cache holds only a network
+  /// fetch (or nothing).
+  Future<LyricDoc?> pickedLyrics(int songId) async {
+    try {
+      final doc = await _readLyricCache(songId);
+      return (doc != null && doc.picked) ? doc : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Remote (unowned) lyrics: same ladder, network-only, never
   /// cached - there is no song id to key on.
@@ -425,10 +465,7 @@ class MetadataService {
     required String album,
     required int durationSecs,
   }) async {
-    final cleanAlbum =
-        album.isNotEmpty && album.toLowerCase() != 'unknown album'
-        ? album
-        : null;
+    final cleanAlbum = !isUnknownSlot(album) ? album : null;
     final strippedTitle = _stripFeat(title);
     final rungs = <Map<String, String>>[
       {
@@ -616,6 +653,7 @@ class MetadataService {
         syncedLrc: synced,
         source: _sourceOf(m['source']),
         instrumental: m['instrumental'] == true,
+        picked: m['picked'] == true,
         wordTimings: m['words'] as String?,
       );
     } catch (_) {
@@ -623,7 +661,8 @@ class MetadataService {
     }
   }
 
-  Future<void> _writeLyricCache(int songId, LyricDoc doc) async {
+  Future<void> _writeLyricCache(int songId, LyricDoc doc,
+      {bool picked = false}) async {
     try {
       // No doc worth keeping (and not instrumental) = don't cache air.
       if (!doc.hasSynced && !doc.hasPlain && !doc.instrumental) return;
@@ -639,6 +678,9 @@ class MetadataService {
           // The source rides along so a saved PaxSenIX pick still
           // reads "external" instead of being relabelled LRCLib.
           'source': doc.source.name,
+          // Explicit pick vs network fetch. Old files predate the
+          // key and read as unpicked — same as before.
+          'picked': picked,
         }),
       );
       // Bounded: lyrics are small but infinite tracks aren't. Oldest
@@ -1791,8 +1833,10 @@ class MetadataService {
     // Travis Scott"); Apple ranks that query badly enough that the
     // real hit never appears, and one miss costs five fields at once
     // (verified: BULLY/3.FATHER returned 15 unrelated songs raw, and
-    // the album's own track once cleaned).
-    final qTitle = _searchTitle(title);
+    // the album's own track once cleaned). Titles also arrive with
+    // the artist crammed in front ("Usimamane - Cheque") — strip
+    // that first or nothing verifies.
+    final qTitle = _searchTitle(stripArtistPrefix(title, artist));
     final qArtist = _primaryArtist(artist);
     if (qTitle.isEmpty) return const TrackFacts();
     var facts = const TrackFacts();
@@ -1820,6 +1864,146 @@ class MetadataService {
     ArchLog.i('meta', 'track facts: ${facts.filled}/11 fields'
         '${facts.isComplete ? '' : ' (incomplete)'}');
     return facts;
+  }
+
+  /// Canonical identity for one track: what the catalogues call it.
+  /// Reuses the verified track hits (same title + artist + duration
+  /// gates as the facts lanes) and keeps their canonical spellings
+  /// instead of discarding them. Agreement-first: both hits naming
+  /// different albums is a conflict (no adopt); one hit, or two
+  /// agreeing, adopts Apple spellings with the Deezer album as
+  /// fallback. ISRC breaks ties toward the matching hit. Returns
+  /// null identity when nothing verified — callers keep the query.
+  Future<IdentityResolution> resolveTrackIdentity({
+    required String title,
+    required String artist,
+    String album = '',
+    int durationSecs = 0,
+    String isrc = '',
+  }) async {
+    final qTitle = _searchTitle(stripArtistPrefix(title, artist));
+    final qArtist = _primaryArtist(artist);
+    if (qTitle.isEmpty || qArtist.isEmpty) {
+      ArchLog.i('meta',
+          'identity skip: empty query title="$title" artist="$artist"');
+      return const IdentityResolution();
+    }
+    Map? apple;
+    Map? dz;
+    try {
+      final parallel = await Future.wait([
+        _appleTrackHit(qTitle, qArtist, album, durationSecs),
+        _dzTrackHit(qTitle, qArtist, album, durationSecs),
+      ]);
+      apple = parallel[0];
+      dz = parallel[1];
+    } catch (e) {
+      ArchLog.w('meta', 'identity error: $e');
+      return const IdentityResolution();
+    }
+    // Strict album match killed both lanes: the claimed album is
+    // likely wrong (stale MediaStore row, wrong tag), not proof the
+    // track is unknown. Retry album-agnostic so a bad album can't
+    // veto the real identity — duration + artist gates still hold.
+    if (apple == null && dz == null && album.trim().isNotEmpty) {
+      try {
+        final parallel = await Future.wait([
+          _appleTrackHit(qTitle, qArtist, '', durationSecs),
+          _dzTrackHit(qTitle, qArtist, '', durationSecs),
+        ]);
+        apple = parallel[0];
+        dz = parallel[1];
+      } catch (_) {}
+    }
+    if (apple == null && dz == null) {
+      ArchLog.i('meta',
+          'identity miss: "$title - $artist [$album]" (dur=${durationSecs}s)');
+      return const IdentityResolution();
+    }
+    final aTitle = ((apple?['trackName'] as String?) ?? '').trim();
+    final aArtist = ((apple?['artistName'] as String?) ?? '').trim();
+    final aAlbum = ((apple?['collectionName'] as String?) ?? '').trim();
+    final dzM = dz?['album'] as Map?;
+    final dTitle = ((dz?['title'] as String?) ?? '').trim();
+    final dArtist =
+        (((dz?['artist'] as Map?) ?? {})['name'] as String? ?? '').trim();
+    final dAlbum = ((dzM?['title'] as String?) ?? '').trim();
+    final dIsrc = ((dz?['isrc'] as String?) ?? '').trim();
+    // ISRC tiebreak: the input ISRC names the exact recording.
+    if (isrc.trim().isNotEmpty && apple != null && dz != null) {
+      final want = isrc.trim().toLowerCase();
+      final dzMatch = dIsrc.toLowerCase() == want;
+      if (dzMatch && aAlbum.isNotEmpty && dAlbum.isNotEmpty) {
+        if (!_sameAlbum(aAlbum, dAlbum)) {
+          ArchLog.i('meta',
+              'identity conflict (isrc picks deezer): apple=$aAlbum deezer=$dAlbum');
+          return const IdentityResolution(conflict: true);
+        }
+      }
+      if (dzMatch) {
+        return IdentityResolution(
+          identity: TrackIdentity(
+            title: dTitle.isNotEmpty ? dTitle : aTitle,
+            artist: dArtist.isNotEmpty ? dArtist : aArtist,
+            album: dAlbum.isNotEmpty ? dAlbum : aAlbum,
+          ),
+        );
+      }
+    }
+    if (apple != null && dz != null) {
+      if (aAlbum.isNotEmpty &&
+          dAlbum.isNotEmpty &&
+          !_sameAlbum(aAlbum, dAlbum)) {
+        ArchLog.i(
+            'meta', 'identity conflict: apple=$aAlbum deezer=$dAlbum');
+        return const IdentityResolution(conflict: true);
+      }
+      final id = TrackIdentity(
+        title: aTitle.isNotEmpty ? aTitle : dTitle,
+        artist: aArtist.isNotEmpty ? aArtist : dArtist,
+        album: aAlbum.isNotEmpty ? aAlbum : dAlbum,
+      );
+      if (_identityAdds(title, artist, album, id)) {
+        return IdentityResolution(identity: id);
+      }
+      ArchLog.i('meta',
+          'identity same-as-query: "$title - $artist [$album]" (apple=$aAlbum deezer=$dAlbum)');
+      return const IdentityResolution();
+    }
+    final single = apple != null
+        ? TrackIdentity(title: aTitle, artist: aArtist, album: aAlbum)
+        : TrackIdentity(title: dTitle, artist: dArtist, album: dAlbum);
+    if (_identityAdds(title, artist, album, single)) {
+      return IdentityResolution(identity: single);
+    }
+    ArchLog.i('meta',
+        'identity same-as-query (single): "$title - $artist [$album]"');
+    return const IdentityResolution();
+  }
+
+  /// True when the resolved identity tells the caller anything new:
+  /// a filled hole or a different spelling. Identical (modulo case
+  /// and padding) is an echo, not a fix.
+  static bool _identityAdds(
+      String title, String artist, String album, TrackIdentity id) {
+    var adds = false;
+    if (id.title.trim().isNotEmpty &&
+        id.title.trim().toLowerCase() != title.trim().toLowerCase()) {
+      adds = true;
+    }
+    if (id.artist.trim().isNotEmpty &&
+        id.artist.trim().toLowerCase() != artist.trim().toLowerCase()) {
+      adds = true;
+    }
+    if (id.album.trim().isNotEmpty) {
+      if (album.trim().isEmpty) {
+        adds = true;
+      } else if (id.album.trim().toLowerCase() !=
+          album.trim().toLowerCase()) {
+        adds = true;
+      }
+    }
+    return adds;
   }
 
   /// One dead lane degrades its fields, never the pull.
@@ -2207,35 +2391,51 @@ class MetadataService {
     return terms;
   }
 
-  /// The Deezer hit for a track, verified the same way.
+  /// The Deezer hit for a track, verified the same way. Qualified
+  /// field syntax first; when it blanks (verified: track:/artist:
+  /// misses Cheque/Usimamane while a plain search surfaces it),
+  /// retry with a plain "$title $artist" term. Either way every hit
+  /// still passes the title + artist + album + duration gates, so a
+  /// broader term can never win a wrong track.
   Future<Map?> _dzTrackHit(
       String title, String artist, String album, int durationSecs) async {
-    final q = 'track:"${title.replaceAll('"', '')}"'
+    final qualified = 'track:"${title.replaceAll('"', '')}"'
         ' artist:"${artist.replaceAll('"', '')}"';
-    final res = await http
-        .get(Uri.parse(
-            '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
-        .timeout(const Duration(seconds: 15));
-    if (res.statusCode != 200) return null;
-    final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
-    for (final t in list) {
-      final m = t as Map;
-      final am = m['artist'] as Map?;
-      if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
-      if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
-        continue;
-      }
-      if (durationSecs > 0) {
-        final hitSecs = (m['duration'] as num?)?.toInt() ?? 0;
-        if (!_durOk(durationSecs, hitSecs)) continue;
-      }
-      final alb = m['album'] as Map?;
-      if (album.trim().isNotEmpty &&
-          !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
-        continue;
-      }
-      return m;
+    for (final q in [qualified, '$title $artist']) {
+      final hit = await _dzTrackQuery(q, title, artist, album, durationSecs);
+      if (hit != null) return hit;
     }
+    return null;
+  }
+
+  Future<Map?> _dzTrackQuery(String q, String title, String artist,
+      String album, int durationSecs) async {
+    try {
+      final res = await http
+          .get(Uri.parse(
+              '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return null;
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      for (final t in list) {
+        final m = t as Map;
+        final am = m['artist'] as Map?;
+        if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
+        if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+          continue;
+        }
+        if (durationSecs > 0) {
+          final hitSecs = (m['duration'] as num?)?.toInt() ?? 0;
+          if (!_durOk(durationSecs, hitSecs)) continue;
+        }
+        final alb = m['album'] as Map?;
+        if (album.trim().isNotEmpty &&
+            !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
+          continue;
+        }
+        return m;
+      }
+    } catch (_) {}
     return null;
   }
 
@@ -2441,25 +2641,39 @@ class MetadataService {
     }
   }
 
+  /// Album id off a qualified artist+album query, with the same
+  /// plain-term fallback as the track lane: the qualifiers blank on
+  /// records a plain search surfaces, and the _closeEnough gates
+  /// below hold either way.
   Future<int> _dzAlbumId(String artist, String album) async {
-    final q =
+    final qualified =
         'artist:"${artist.replaceAll('"', '')}" album:"${album.replaceAll('"', '')}"';
-    final search = Uri.parse(
-      '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=5',
-    );
-    final res = await http
-        .get(search)
-        .timeout(const Duration(seconds: 15));
-    if (res.statusCode != 200) return 0;
-    final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
-    for (final a in list) {
-      final m = a as Map;
-      final am = m['artist'] as Map?;
-      if (_closeEnough(album, (m['title'] as String?) ?? '') &&
-          _closeEnough(artist, (am?['name'] as String?) ?? '')) {
-        return (m['id'] as num?)?.toInt() ?? 0;
-      }
+    for (final q in [qualified, '$artist $album']) {
+      final id = await _dzAlbumQuery(q, artist, album);
+      if (id != 0) return id;
     }
+    return 0;
+  }
+
+  Future<int> _dzAlbumQuery(String q, String artist, String album) async {
+    try {
+      final search = Uri.parse(
+        '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=5',
+      );
+      final res = await http
+          .get(search)
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return 0;
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      for (final a in list) {
+        final m = a as Map;
+        final am = m['artist'] as Map?;
+        if (_closeEnough(album, (m['title'] as String?) ?? '') &&
+            _closeEnough(artist, (am?['name'] as String?) ?? '')) {
+          return (m['id'] as num?)?.toInt() ?? 0;
+        }
+      }
+    } catch (_) {}
     return 0;
   }
 
