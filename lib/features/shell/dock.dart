@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -119,6 +121,24 @@ class DockScrollReporter extends ConsumerWidget {
 /// Search sits at the top of a page within this many pixels.
 const double _searchAtTop = 40;
 
+/// Gravity fall for the resting mini on collapse: accelerates down for
+/// the first stretch, kisses the pill with a small rebound, gone by
+/// the landing. Opacity holds through the fall, then drops.
+({double y, double opacity}) _miniFall(double t) {
+  if (t <= 0) return (y: 0.0, opacity: 1.0);
+  if (t >= 1) return (y: 56.0, opacity: 0.0);
+  double y;
+  if (t < 0.7) {
+    final k = t / 0.7;
+    y = 56 * k * k;
+  } else {
+    final k = (t - 0.7) / 0.3;
+    y = 56 - math.sin(k * math.pi) * 8 * (1 - k);
+  }
+  final opacity = 1 - ((t - 0.45) / 0.55).clamp(0.0, 1.0);
+  return (y: y, opacity: opacity);
+}
+
 /// The bottom unit, everywhere: full mini + full pill at rest, lobes +
 /// compact mini split on scroll. One animation driver - the pieces move
 /// as one body, never on separate timings. Mounts in Shell and on every
@@ -128,13 +148,18 @@ class NowPlayingDock extends ConsumerWidget {
 
   static const double pillWidth = 340;
   static const double miniWidth = 280;
-  static const double compactWidth = 148;
 
-  /// Four tabs fit the classic width; the cap still guards narrow
-  /// screens with large text.
+  /// Adaptive measured width: full-bleed minus margins, capped for
+  /// tablets, floored so four tabs never demand more than fits (the
+  /// old 300 floor overflowed 320-wide screens). Labels shrink a
+  /// point under large text instead of pushing the pill offscreen.
   static const double _pillMaxWidth = 340;
   static double pillWidthOf(BuildContext context) {
-    return (MediaQuery.sizeOf(context).width - 32).clamp(300.0, _pillMaxWidth);
+    return (MediaQuery.sizeOf(context).width - 32).clamp(272.0, _pillMaxWidth);
+  }
+
+  static double tabLabelSize(BuildContext context) {
+    return MediaQuery.textScalerOf(context).scale(1.0) > 1.15 ? 9 : 10;
   }
 
   @override
@@ -173,19 +198,24 @@ class NowPlayingDock extends ConsumerWidget {
                   // still hit-tests. Guards flip at the halfway mark.
                   IgnorePointer(
                     ignoring: t > 0.5,
-                    child: Opacity(
-                      opacity: 1 - t,
-                      child: Transform.translate(
-                        offset: Offset(0, -10 * t),
-                        child: SizedBox(
-                          width: miniWidth,
-                          // Remounts replay the entrance; track changes reuse
-                          // the mounted bar silently.
-                          child: t > 0.9
-                              ? const SizedBox.shrink()
-                              : const FocalEntrance(child: MiniPlayer()),
-                        ),
-                      ),
+                    child: Builder(
+                      builder: (context) {
+                        final fall = _miniFall(t);
+                        return Opacity(
+                          opacity: fall.opacity,
+                          child: Transform.translate(
+                            offset: Offset(0, fall.y),
+                            child: SizedBox(
+                              width: miniWidth,
+                              // Remounts replay the entrance; track changes reuse
+                              // the mounted bar silently.
+                              child: t > 0.9
+                                  ? const SizedBox.shrink()
+                                  : const FocalEntrance(child: MiniPlayer()),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 if (miniVisible) SizedBox(height: (1 - t) * 12),
@@ -245,13 +275,57 @@ class NowPlayingDock extends ConsumerWidget {
 }
 
 /// The compact 280 pill: tighter than V1, icons first. The resting
-/// state of the dock.
-class _FullPill extends ConsumerWidget {
+/// state of the dock. Destination changes land with a squash-stretch
+/// pulse — the traveling indicator's exclamation point.
+class _FullPill extends ConsumerStatefulWidget {
   const _FullPill();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FullPill> createState() => _FullPillState();
+}
+
+class _FullPillState extends ConsumerState<_FullPill>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+  int? _lastDest;
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Widget _pulse(Widget child) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, kid) {
+        final k = math.sin((_c.value * math.pi).clamp(0.0, 1.0));
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.diagonal3Values(1 + 0.045 * k, 1 - 0.045 * k, 1),
+          child: kid,
+        );
+      },
+      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dest = ref.watch(destinationProvider);
+    if (_lastDest != null && _lastDest != dest.index) {
+      _lastDest = dest.index;
+      if (!Motion.reduced(context)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _c.forward(from: 0);
+        });
+      }
+    } else {
+      _lastDest ??= dest.index;
+    }
     final pending = ref
         .watch(downloadQueueProvider)
         .where(
@@ -268,12 +342,12 @@ class _FullPill extends ConsumerWidget {
       onChanged: (i) => NowPlayingDock._go(ref, context, Destination.values[i]),
       width: NowPlayingDock.pillWidthOf(context),
       margin: EdgeInsets.zero,
-      itemStyle: const LiquidGlassTabItemStyle(
+      itemStyle: LiquidGlassTabItemStyle(
         selectedColor: archPink,
-        unselectedColor: Color(0x990B0B0D),
+        unselectedColor: const Color(0x990B0B0D),
         iconSize: 22,
         underGlassIconSize: 28,
-        labelFontSize: 10,
+        labelFontSize: NowPlayingDock.tabLabelSize(context),
       ),
       pillStyle: const LiquidGlassTabPillStyle(
         // The physics pill: squash-and-stretch travel, draggable,
@@ -291,41 +365,43 @@ class _FullPill extends ConsumerWidget {
     // Queue badge + landing glow: above the Needle tab
     // (index 3 of 4), never the pill corner. Fractional offset
     // survives width changes.
-    if (pending == 0 && !glow) return bar;
+    if (pending == 0 && !glow) return _pulse(bar);
     final pillW = NowPlayingDock.pillWidthOf(context);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        bar,
-        Positioned(
-          left: pillW * 0.625,
-          top: -8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(
-              color: archPink,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: glow
-                  ? [
-                      BoxShadow(
-                        color: archPink.withValues(alpha: 0.55),
-                        blurRadius: 10,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Text(
-              pending > 0 ? '$pending' : 'new',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
+    return _pulse(
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          bar,
+          Positioned(
+            left: pillW * 0.625,
+            top: -8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: archPink,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: glow
+                    ? [
+                        BoxShadow(
+                          color: archPink.withValues(alpha: 0.55),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                pending > 0 ? '$pending' : 'new',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -373,38 +449,58 @@ class _SplitTravelState extends ConsumerState<_SplitTravel> {
       _left = _Lobe(
         icon: _icons[dest.index],
         color: archPink,
+        tooltip: _labels[dest.index],
         onTap: () => ref.read(pillCollapsedProvider.notifier).state = false,
       );
       _middle = widget.miniVisible ? const _CompactMini() : null;
       _right = _Lobe(
-        icon: CupertinoIcons.ellipsis,
-        color: inkDim,
-        onTap: () => ref.read(pillCollapsedProvider.notifier).state = false,
+        icon: CupertinoIcons.search,
+        color: dest == Destination.search ? archPink : ink,
+        tooltip: 'Search',
+        onTap: () => NowPlayingDock._go(ref, context, Destination.search),
       );
       _destIndex = dest.index;
       _miniVisible = widget.miniVisible;
     }
     final t = widget.t;
     if (t < 0.02) return const SizedBox.shrink();
+    // Full pill width: with the mini the cluster stays centered (same
+    // part-travel as ever); without it the lobes take opposite ends
+    // and fade-scale in place instead of crossing the whole pill.
+    final pop = Curves.easeOutBack.transform(t.clamp(0.0, 1.0));
     return Opacity(
       opacity: t,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Transform.translate(
-            offset: Offset((1 - t) * _SplitTravel._part, 0),
-            child: _left!,
-          ),
-          const SizedBox(width: 8),
-          if (_middle != null) ...[
-            Transform.scale(scale: 0.75 + 0.25 * t, child: _middle!),
-            const SizedBox(width: 8),
-          ],
-          Transform.translate(
-            offset: Offset(-(1 - t) * _SplitTravel._part, 0),
-            child: _right!,
-          ),
-        ],
+      child: SizedBox(
+        width: NowPlayingDock.pillWidthOf(context),
+        child: _middle == null
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Transform.scale(scale: 0.8 + 0.2 * t, child: _left!),
+                  Transform.scale(scale: 0.8 + 0.2 * t, child: _right!),
+                ],
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Transform.translate(
+                    offset: Offset((1 - t) * _SplitTravel._part, 0),
+                    child: _left!,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Transform.scale(
+                      scale: 0.75 + 0.25 * pop,
+                      child: _middle!,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Transform.translate(
+                    offset: Offset(-(1 - t) * _SplitTravel._part, 0),
+                    child: _right!,
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -414,8 +510,14 @@ class _Lobe extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final String? tooltip;
 
-  const _Lobe({required this.icon, required this.color, required this.onTap});
+  const _Lobe({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.tooltip,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -427,6 +529,7 @@ class _Lobe extends StatelessWidget {
         child: IconButton(
           iconSize: 24,
           color: color,
+          tooltip: tooltip,
           onPressed: onTap,
           icon: Icon(icon),
         ),
@@ -435,8 +538,9 @@ class _Lobe extends StatelessWidget {
   }
 }
 
-/// The mini folded small: art + pause, nothing else. Width fixed so the
-/// split row holds its shape across track changes.
+/// Compact middle of the split pill: art + scrolling title/artist +
+/// pause. Flexible width — the split row grants it whatever the lobes
+/// leave, so it adapts to narrow screens instead of overflowing them.
 class _CompactMini extends ConsumerWidget {
   const _CompactMini();
 
@@ -447,11 +551,11 @@ class _CompactMini extends ConsumerWidget {
     if (song == null) return const SizedBox.shrink();
     final handler = ref.read(audioHandlerProvider);
     return LiquidGlassLens(
-      style: ArchGlass.circle(radius: 26),
+      style: ArchGlass.capsule(radius: 26),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => ref.read(playerOpenProvider.notifier).state = true,
         child: Container(
-          width: NowPlayingDock.compactWidth,
           height: 52,
           padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Row(
@@ -482,12 +586,35 @@ class _CompactMini extends ConsumerWidget {
                         ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MarqueeText(
+                      text: song.title,
+                      style: TextStyle(
+                        color: playing ? archPink : ink,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: inkDim, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
               SizedBox(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 child: IconButton(
-                  iconSize: 26,
+                  iconSize: 24,
                   color: ink,
                   onPressed: () => playGuarded(
                     context,

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -54,8 +55,15 @@ class ArchAudioHandler extends BaseAudioHandler {
   bool _busy = false;
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
 
+  int _playGen = 0;
+  int _skipGen = 0;
+
   ArchAudioHandler() {
     _player.playbackEventStream.map(_toPlaybackState).pipe(playbackState);
+    // Notification icons mirror engine state (shuffle/repeat), not
+    // just playback events: re-publish on those flips.
+    _player.shuffleModeEnabledStream.listen((_) => _republish());
+    _player.loopModeStream.listen((_) => _republish());
     // The notification only rebuilds on control flips and metadata sets —
     // never on index change alone. So every index change re-sets the
     // media item explicitly: taps, auto-advance, next/prev, lock intents.
@@ -76,6 +84,16 @@ class ArchAudioHandler extends BaseAudioHandler {
       }
     });
     unawaited(_configureSession());
+  }
+
+  /// Re-publish the current state (notification icon refresh). Reads
+  /// the live event so nothing else has to be threaded through.
+  void _republish() {
+    try {
+      playbackState.add(_toPlaybackState(_player.playbackEvent));
+    } catch (e) {
+      ArchLog.w('player', 'republish failed: $e');
+    }
   }
 
   /// Last-known art file per media id: every mediaItem assignment
@@ -100,19 +118,20 @@ class ArchAudioHandler extends BaseAudioHandler {
     } else {
       final known = _artFiles[item.id];
       if (known != null && known.isNotEmpty) {
-        item = item.copyWith(
-          extras: {...?extras, 'artCacheFile': known},
-        );
+        item = item.copyWith(extras: {...?extras, 'artCacheFile': known});
       }
     }
     mediaItem.value = item;
   }
+
   /// Explicit audio session (their wheel, our policy): media usage,
   /// full gain (calls and nav still interrupt — never music-over-calls),
-  /// and pause-with-state on every interruption start instead of silent
-  /// ducking. A paused player with visible controls beats mystery-quiet.
+  /// and OS ducking for transient pings (notification sounds dip the
+  /// volume instead of stopping the music). Full pause only for real
+  /// takeovers. Auto-resume is foreground-gated: never surprise-resume
+  /// while the user is inside another app.
   /// Every event logs — focus issues are diagnosable forever after this.
-  bool _duckPaused = false;
+  bool _pausedForInterruption = false;
 
   Future<void> _configureSession() async {
     try {
@@ -124,22 +143,45 @@ class ArchAudioHandler extends BaseAudioHandler {
             usage: AndroidAudioUsage.media,
           ),
           androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-          androidWillPauseWhenDucked: true,
+          // False = the OS dips our volume itself on duckable
+          // transients (notification pings). True used to park the
+          // whole track for every ping — that was the full pause.
+          androidWillPauseWhenDucked: false,
         ),
       );
       session.interruptionEventStream.listen((e) async {
         ArchLog.i('player', 'interruption begin=${e.begin} type=${e.type}');
         try {
           if (!e.begin) {
-            if (_duckPaused) {
-              _duckPaused = false;
-              await _player.play();
-              ArchLog.i('player', 'resumed after interruption');
+            if (_pausedForInterruption) {
+              _pausedForInterruption = false;
+              // Resume only if we're the foreground app. An app like
+              // TikTok abandons focus every time it pauses a video —
+              // resuming unconditionally is what kept pulling music
+              // back while the user was still inside it.
+              final foregrounded =
+                  WidgetsBinding.instance.lifecycleState ==
+                  AppLifecycleState.resumed;
+              if (foregrounded && !_player.playing) {
+                await _player.play();
+                ArchLog.i('player', 'resumed after interruption');
+              } else if (!foregrounded) {
+                ArchLog.i(
+                  'player',
+                  'interruption ended in background - staying paused',
+                );
+              }
             }
             return;
           }
+          // Duckable transient (notification ping, nav prompt): the OS
+          // handles the dip — keep playing, touch nothing.
+          if (e.type == AudioInterruptionType.duck) {
+            ArchLog.i('player', 'ducking under transient');
+            return;
+          }
           if (_player.playing) {
-            _duckPaused = true;
+            _pausedForInterruption = true;
             await _player.pause();
           }
         } catch (err) {
@@ -172,6 +214,11 @@ class ArchAudioHandler extends BaseAudioHandler {
     return _queueController!.stream;
   }
 
+  /// Engine truth for notification-initiated flips: the providers
+  /// converge off these same streams the notification icons read.
+  Stream<bool> get shuffleModeEnabledStream => _player.shuffleModeEnabledStream;
+  Stream<LoopMode> get loopModeStream => _player.loopModeStream;
+
   void _emitQueue(List<MediaItem> items) {
     queue.value = items;
     if (_queueController?.hasListener ?? false) {
@@ -192,10 +239,10 @@ class ArchAudioHandler extends BaseAudioHandler {
     );
   }
 
-  /// Atomic tap: stop current, load new, play. Debounced, single-flight,
-  /// bounded. Throws on failure so callers surface it - never silent.
-  /// Every decision is logged: the next "it didn't switch" report
-  /// diagnoses from one tap's lines instead of a week of guesses.
+  /// Atomic tap: newest wins, superseded calls bail silently, failure
+  /// is verified before it surfaces. Every decision is logged: the
+  /// next "it didn't switch" report diagnoses from one tap's lines
+  /// instead of a week of guesses.
   Future<void> playSong(Song song, List<Song> context) async {
     final now = DateTime.now();
     if (now.difference(_lastTap).inMilliseconds < 400) {
@@ -203,33 +250,41 @@ class ArchAudioHandler extends BaseAudioHandler {
       return;
     }
     _lastTap = now;
+    // Newest tap wins: an in-flight older call bails at its next
+    // checkpoint instead of landing late and reading as an auto-skip.
+    final gen = ++_playGen;
     final watch = Stopwatch()..start();
-    // Single-flight, but never a life sentence: a wedged predecessor
-    // used to park every later tap forever with zero evidence.
+    // If the engine is held by an older call, nudge it loose first
+    // (stop aborts a pending load), then wait briefly for release.
+    // Never pile a second setAudioSources onto a live one.
+    if (_busy) {
+      ArchLog.i('player', 'tap preempt id=${song.id}');
+      unawaited(
+        _player.stop().timeout(const Duration(seconds: 2)).catchError((_) {}),
+      );
+    }
     var waited = 0;
-    while (_busy && waited < 50) {
+    while (_busy && waited < 30) {
       await Future.delayed(const Duration(milliseconds: 100));
       waited++;
     }
+    if (gen != _playGen) return;
     if (_busy) {
       ArchLog.w(
         'player',
-        'busy-wait capped id=${song.id} waited=${watch.elapsedMilliseconds}ms - resetting',
-      );
-      _busy = false;
-    } else if (waited > 0) {
-      ArchLog.i(
-        'player',
-        'busy-waited id=${song.id} waited=${watch.elapsedMilliseconds}ms',
+        'tap engine still held id=${song.id} waited=${watch.elapsedMilliseconds}ms - taking over',
       );
     }
     _busy = true;
+    // Rollback target: the UI commits optimistically below; on failure
+    // it goes back to this instead of stranding on a silent song.
+    final prevItem = mediaItem.value;
+    final index = context.indexWhere((s) => s.id == song.id);
     try {
       ArchLog.i(
         'player',
         'play id=${song.id} title=${song.title} scheme=${song.uri.scheme}',
       );
-      final index = context.indexWhere((s) => s.id == song.id);
       if (index < 0) {
         ArchLog.w('player', 'tap song missing from context id=${song.id}');
         return;
@@ -244,6 +299,7 @@ class ArchAudioHandler extends BaseAudioHandler {
           context,
           startIndex: index,
         ).timeout(const Duration(seconds: 20));
+        if (gen != _playGen) return;
         ArchLog.i(
           'player',
           'queue rebuilt id=${song.id} n=${context.length} in=${watch.elapsedMilliseconds}ms',
@@ -252,6 +308,7 @@ class ArchAudioHandler extends BaseAudioHandler {
         await _player
             .seek(Duration.zero, index: index)
             .timeout(const Duration(seconds: 10));
+        if (gen != _playGen) return;
         ArchLog.i(
           'player',
           'same-queue seek id=${song.id} index=$index in=${watch.elapsedMilliseconds}ms',
@@ -261,6 +318,24 @@ class ArchAudioHandler extends BaseAudioHandler {
       // notification frame is already correct — never one stale behind.
       _setItem(song.toMediaItem());
       await _player.play().timeout(const Duration(seconds: 10));
+      if (gen != _playGen) return;
+      // Audibility gate: seek resolving is not playback — with lazy
+      // sources the engine can sit silent for seconds, then fall
+      // through to the neighbor. Confirm the index actually sounds;
+      // on failure pause the fall-through, roll the UI back, surface.
+      final landed = await _awaitAudible(index, gen);
+      if (!landed) {
+        if (gen != _playGen) return;
+        ArchLog.w(
+          'player',
+          'tap inaudible id=${song.id} index=$index actual=${_player.currentIndex}',
+        );
+        try {
+          await _player.pause();
+        } catch (_) {}
+        if (prevItem != null) _setItem(prevItem);
+        throw StateError('tap inaudible id=${song.id}');
+      }
       ArchLog.i(
         'player',
         'playing id=${song.id} in=${watch.elapsedMilliseconds}ms',
@@ -269,9 +344,39 @@ class ArchAudioHandler extends BaseAudioHandler {
       // with a file-backed cover once resolved. Triple-guarded so a
       // slow fetch can never paint stale art over a newer track.
       unawaited(_attachArtFile(song));
+    } catch (e) {
+      // Superseded: silent by design, the newer tap owns the UI now.
+      if (gen != _playGen) return;
+      // Late success beats the error: if the engine actually sounds
+      // the requested index, a toast would be a lie. Log and swallow.
+      if (_player.playing && _player.currentIndex == index) {
+        ArchLog.i('player', 'tap late success id=${song.id} after $e');
+        unawaited(_attachArtFile(song));
+        return;
+      }
+      rethrow;
     } finally {
-      _busy = false;
+      if (gen == _playGen) _busy = false;
     }
+  }
+
+  /// True once the engine audibly holds [index]. Fails fast the
+  /// moment the index drifts elsewhere (fall-through), times out
+  /// otherwise. Never throws: the caller decides.
+  Future<bool> _awaitAudible(int index, int gen) async {
+    for (var i = 0; i < 40; i++) {
+      if (gen != _playGen) return false;
+      final current = _player.currentIndex;
+      // Index moved under us: the engine fell through to a neighbor.
+      if (current != null && current != index) return false;
+      if (_player.playing &&
+          _player.processingState == ProcessingState.ready &&
+          current == index) {
+        return true;
+      }
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+    return _player.playing && _player.currentIndex == index;
   }
 
   Future<void> _attachArtFile(Song song) async {
@@ -286,9 +391,11 @@ class ArchAudioHandler extends BaseAudioHandler {
             .timeout(const Duration(seconds: 8));
         if (preview != null && preview.isNotEmpty) {
           if (mediaItem.value?.id != id) return;
-          _setItem(mediaItem.value!.copyWith(
-            extras: {...?mediaItem.value!.extras, 'artCacheFile': preview},
-          ));
+          _setItem(
+            mediaItem.value!.copyWith(
+              extras: {...?mediaItem.value!.extras, 'artCacheFile': preview},
+            ),
+          );
           ArchLog.i('player', 'notif art preview id=${song.id}');
           return;
         }
@@ -304,9 +411,9 @@ class ArchAudioHandler extends BaseAudioHandler {
       if (file == null || mediaItem.value?.id != id) return;
       final current = mediaItem.value;
       if (current == null) return;
-      _setItem(current.copyWith(
-        extras: {...?current.extras, 'artCacheFile': file},
-      ));
+      _setItem(
+        current.copyWith(extras: {...?current.extras, 'artCacheFile': file}),
+      );
       ArchLog.i('player', 'notif art attached id=${song.id}');
     } catch (_) {}
   }
@@ -353,8 +460,7 @@ class ArchAudioHandler extends BaseAudioHandler {
         extras: {
           'songId': previewId,
           'albumId': 0,
-          if (coverUrl != null && coverUrl.isNotEmpty)
-            'coverUrl': coverUrl,
+          if (coverUrl != null && coverUrl.isNotEmpty) 'coverUrl': coverUrl,
         },
       );
       _songs = [];
@@ -371,13 +477,15 @@ class ArchAudioHandler extends BaseAudioHandler {
       if (coverUrl != null && coverUrl.isNotEmpty) {
         final artFile = await NotifArt.cacheCover(coverUrl);
         if (artFile != null && mediaItem.value?.id == item.id) {
-          _setItem(item.copyWith(
-            extras: {
-              ...?item.extras,
-              'artCacheFile': artFile,
-              'coverUrl': coverUrl,
-            },
-          ));
+          _setItem(
+            item.copyWith(
+              extras: {
+                ...?item.extras,
+                'artCacheFile': artFile,
+                'coverUrl': coverUrl,
+              },
+            ),
+          );
         }
       }
     } finally {
@@ -394,11 +502,81 @@ class ArchAudioHandler extends BaseAudioHandler {
   @override
   Future<void> seek(Duration position) => _player.seek(position);
 
-  @override
-  Future<void> skipToNext() => _player.seekToNext();
+  /// Manual skip, optimistic: the target commits to the UI in-frame
+  /// (deterministic order only — shuffle order lives inside the
+  /// engine and is never guessed), then the engine follows. Supersede
+  /// token shared with taps: a second skip retargets instead of
+  /// racing. Fully logged: intent, expectation, landing.
+  Future<void> _skip(int dir) async {
+    final n = _songs.length;
+    if (n == 0) return;
+    final gen = ++_skipGen;
+    final from = _player.currentIndex;
+    int? expect;
+    final deterministic =
+        !_player.shuffleModeEnabled &&
+        _player.loopMode != LoopMode.one &&
+        from != null;
+    if (deterministic) {
+      var t = from + dir;
+      if (_player.loopMode == LoopMode.all) {
+        t = (t + n) % n;
+      } else {
+        t = t.clamp(0, n - 1);
+      }
+      expect = t;
+      if (t >= 0 && t < queue.value.length) _setItem(queue.value[t]);
+    }
+    final watch = Stopwatch()..start();
+    ArchLog.i(
+      'player',
+      'skip ${dir > 0 ? 'next' : 'prev'} from=$from expect=$expect',
+    );
+    if (dir > 0) {
+      await _player.seekToNext();
+    } else {
+      await _player.seekToPrevious();
+    }
+    if (gen != _skipGen) {
+      ArchLog.i('player', 'skip superseded');
+      return;
+    }
+    ArchLog.i(
+      'player',
+      'skip landed index=${_player.currentIndex} in=${watch.elapsedMilliseconds}ms',
+    );
+  }
 
   @override
-  Future<void> skipToPrevious() => _player.seekToPrevious();
+  Future<void> skipToNext() => _skip(1);
+
+  @override
+  Future<void> skipToPrevious() => _skip(-1);
+
+  /// The song a manual skip in [dir] would land on (-1 = next, 1 =
+  /// previous), or null past the end with loop off. Follows the
+  /// engine's shuffle order when shuffling — the carousel peek must
+  /// show the truth, never a guess. Null-safe by construction: empty
+  /// queue, unknown index and order gaps all read as "no neighbor".
+  Song? neighborSong(int dir) {
+    if (_songs.isEmpty) return null;
+    final cur = _player.currentIndex;
+    if (cur == null || cur < 0 || cur >= _songs.length) return null;
+    final List<int> order;
+    if (_player.shuffleModeEnabled && _player.shuffleIndices.isNotEmpty) {
+      order = _player.shuffleIndices;
+    } else {
+      order = List<int>.generate(_songs.length, (i) => i);
+    }
+    final pos = order.indexOf(cur);
+    if (pos < 0) return null;
+    final p = pos + dir;
+    if (p < 0 || p >= order.length) {
+      if (_player.loopMode != LoopMode.all) return null;
+      return _songs[order[(p + order.length) % order.length]];
+    }
+    return _songs[order[p]];
+  }
 
   /// Shuffle + repeat land here (providers own the state, prefs own the
   /// memory). Applied to the live player and logged like everything.
@@ -493,14 +671,33 @@ class ArchAudioHandler extends BaseAudioHandler {
   Future<void> stop() => _player.stop();
 
   PlaybackState _toPlaybackState(PlaybackEvent event) {
+    final shuffle = _player.shuffleModeEnabled;
     return PlaybackState(
       controls: [
+        MediaControl.custom(
+          androidIcon: shuffle
+              ? 'drawable/ic_notif_shuffle_on'
+              : 'drawable/ic_notif_shuffle_off',
+          label: 'Shuffle',
+          name: 'notif_shuffle',
+        ),
         MediaControl.skipToPrevious,
         if (_player.playing) MediaControl.pause else MediaControl.play,
         MediaControl.skipToNext,
-        MediaControl.stop,
+        MediaControl.custom(
+          androidIcon: switch (_player.loopMode) {
+            LoopMode.all => 'drawable/ic_notif_repeat_all',
+            LoopMode.one => 'drawable/ic_notif_repeat_one',
+            _ => 'drawable/ic_notif_repeat_off',
+          },
+          label: 'Repeat',
+          name: 'notif_repeat',
+        ),
       ],
-      androidCompactActionIndices: const [0, 1, 2],
+      androidCompactActionIndices: const [1, 2, 3],
+      // SEEK is what makes the notification seekbar scrubbable.
+      // Without it Android shows progress display-only.
+      systemActions: const {MediaAction.seek},
       processingState: switch (_player.processingState) {
         ProcessingState.idle => AudioProcessingState.idle,
         ProcessingState.loading => AudioProcessingState.loading,
@@ -514,6 +711,28 @@ class ArchAudioHandler extends BaseAudioHandler {
       speed: _player.speed,
       queueIndex: event.currentIndex,
     );
+  }
+
+  /// Notification shuffle/repeat land here. Engine flips first, then
+  /// the loop/shuffle streams re-publish state (icons) and the
+  /// providers sync prefs off those same streams — one truth.
+  @override
+  Future<dynamic> customAction(
+    String name, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    switch (name) {
+      case 'notif_shuffle':
+        final v = !_player.shuffleModeEnabled;
+        await setShuffleEnabled(v);
+        _republish();
+        ArchLog.i('player', 'notif shuffle=$v');
+      case 'notif_repeat':
+        final v = LoopMode.values[(_player.loopMode.index + 1) % 3];
+        await setLoopMode(v);
+        _republish();
+        ArchLog.i('player', 'notif loop=$v');
+    }
   }
 }
 

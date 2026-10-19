@@ -139,6 +139,18 @@ class ShuffleNotifier extends Notifier<bool> {
   @override
   bool build() {
     _sync();
+    // Notification-initiated flips arrive engine-first: converge state
+    // and prefs off the same stream the notification icons read, so
+    // the three can never disagree. Echoes of our own toggles no-op.
+    final sub = ref.read(audioHandlerProvider).shuffleModeEnabledStream.listen((
+      v,
+    ) async {
+      if (v == state) return;
+      state = v;
+      (await SharedPreferences.getInstance()).setBool('arch.shuffle', v);
+      ArchLog.i('player', 'shuffle external sync=$v');
+    });
+    ref.onDispose(sub.cancel);
     return false;
   }
 
@@ -163,6 +175,14 @@ class LoopNotifier extends Notifier<LoopMode> {
   @override
   LoopMode build() {
     _sync();
+    // Same engine-first convergence as shuffle above.
+    final sub = ref.read(audioHandlerProvider).loopModeStream.listen((v) async {
+      if (v == state) return;
+      state = v;
+      (await SharedPreferences.getInstance()).setInt('arch.loop', v.index);
+      ArchLog.i('player', 'loop external sync=$v');
+    });
+    ref.onDispose(sub.cancel);
     return LoopMode.off;
   }
 

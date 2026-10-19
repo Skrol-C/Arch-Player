@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -135,7 +136,6 @@ class _Stage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final panel = ref.watch(playerPanelProvider);
     final compact = panel != PlayerPanel.none;
-    final playing = ref.watch(playingProvider).value ?? false;
     final artSize = math.min(MediaQuery.widthOf(context) - 64, 360.0);
     // Hoisted layers: built once per build and reused as identical
     // instances on every animation tick, so ticks only recompute the
@@ -179,7 +179,7 @@ class _Stage extends ConsumerWidget {
             Opacity(
               opacity: 1 - t,
               child: Transform.scale(
-                scale: (1 - 0.08 * t) * (playing ? 1.0 : 0.94),
+                scale: 1 - 0.08 * t,
                 child: t > 0.98 ? const SizedBox.shrink() : heroLayer,
               ),
             ),
@@ -253,12 +253,7 @@ class _CompactHeader extends ConsumerWidget {
               key: ValueKey(song.albumId),
               width: 72,
               height: 72,
-              child: CurrentArt(
-                song: song,
-                size: 72,
-                radius: 14,
-                iconSize: 32,
-              ),
+              child: CurrentArt(song: song, size: 72, radius: 14, iconSize: 32),
             ),
           ),
           const SizedBox(width: 12),
@@ -462,6 +457,74 @@ class _TopBar extends StatelessWidget {
 /// (panels own their own gestures - no arena fights). Vertical drags
 /// dismiss or expand lyrics; horizontal flings change tracks with a
 /// directional handoff.
+/// Pause squash & stretch: the cover dips small when playback
+/// stops and blooms past resting on resume, settling with one
+/// spring overshoot. Uniform scale throughout — the cover never
+/// deforms, the motion carries the life. Art only, titles stay put.
+class _PauseSquash extends StatefulWidget {
+  final bool playing;
+  final Widget child;
+
+  const _PauseSquash({required this.playing, required this.child});
+
+  @override
+  State<_PauseSquash> createState() => _PauseSquashState();
+}
+
+class _PauseSquashState extends State<_PauseSquash>
+    with SingleTickerProviderStateMixin {
+  static const _spring = SpringDescription(
+    mass: 1,
+    stiffness: 220,
+    damping: 12,
+  );
+
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.stateChange,
+    value: 1,
+  );
+
+  @override
+  void didUpdateWidget(covariant _PauseSquash old) {
+    super.didUpdateWidget(old);
+    if (old.playing == widget.playing) return;
+    if (Motion.reduced(context)) {
+      _c.value = widget.playing ? 1.0 : 0.0;
+      return;
+    }
+    _c.animateWith(
+      SpringSimulation(
+        _spring,
+        _c.value,
+        widget.playing ? 1.0 : 0.0,
+        _c.velocity.clamp(-1.5, 1.5),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final v = _c.value.clamp(-0.3, 1.3);
+        // 1 = full-size playing, 0 = settled paused, past 0/1 =
+        // spring overshoot (bloom on the way back up).
+        final s = 1 - 0.06 * (1 - v);
+        return Transform.scale(scale: s, child: child);
+      },
+      child: widget.child,
+    );
+  }
+}
+
 class _DragHero extends ConsumerStatefulWidget {
   final Song song;
   final double artSize;
@@ -472,7 +535,11 @@ class _DragHero extends ConsumerStatefulWidget {
 }
 
 class _DragHeroState extends ConsumerState<_DragHero>
-    with SingleTickerProviderStateMixin {
+        // Two drivers live here (vertical snap + carousel settle), so the
+        // multi-ticker mixin: single-ticker throws on the second controller
+        // and takes the whole drag surface down with it.
+        with
+        TickerProviderStateMixin {
   late final AnimationController _snap;
   Animation<double>? _returning;
   double _dragY = 0;
@@ -480,6 +547,95 @@ class _DragHeroState extends ConsumerState<_DragHero>
   /// Last horizontal fling direction: the track-change handoff slides
   /// toward it, so swipes read directionally instead of crossfading.
   double _swipeDir = 0;
+
+  /// Carousel drag: 1:1 finger travel on the art, committed at
+  /// lift-off. Anything past touch slop fires; anything less springs
+  /// back as a tap. No mid-drag threshold, nothing to feel.
+  /// Touch slop: small enough to be unfelt, big enough that a tap
+  /// with jitter never skips a track.
+  static const double _commitSlop = 24;
+  double _dragX = 0;
+
+  /// Carousel glide driver: one controller, two moves. Release
+  /// below threshold springs home (overshoot for life); the landing
+  /// glides home under the crossfade. Separate controller from the
+  /// vertical snap so the two axes never fight.
+  /// Convention matches the handler: +1 = next (drag left), -1 =
+  /// previous (drag right).
+  late final AnimationController _settleX;
+  double _settleFrom = 0;
+  double _settleTo = 0;
+  Curve _settleCurve = Curves.easeOutCubic;
+
+  /// Song id whose handoff skips the canned slide: the finger already
+  /// put the art where it belongs, so the switcher only crossfades.
+  /// Stale ids never match again, so no reset bookkeeping needed.
+  int? _slidelessForId;
+
+  /// Settles [_dragX] to [to]. Retarget-safe: a new glide restarts
+  /// from the live value, so a landing that arrives mid-throw just
+  /// bends the motion home instead of jumping.
+  void _glide({
+    required double to,
+    required Duration duration,
+    required Curve curve,
+  }) {
+    _settleX.stop();
+    _settleFrom = _dragX;
+    _settleTo = to;
+    _settleCurve = curve;
+    if ((_settleTo - _settleFrom).abs() < 0.5) {
+      if (_dragX != to) setState(() => _dragX = to);
+      return;
+    }
+    _settleX.duration = duration;
+    _settleX.forward(from: 0);
+  }
+
+  /// Fire a track-change skip from a swipe: drag left = next (+1),
+  /// drag right = previous (-1). Fires once, at lift-off — nothing
+  /// happens mid-drag, so there is no threshold to feel. The frame
+  /// holds the release offset; the song change (or a timeout) brings
+  /// it home under the crossfade.
+  void _fireSwipe(int dir) {
+    if (_panelUp) return;
+    final handler = ref.read(audioHandlerProvider);
+    final neighbor = handler.neighborSong(dir);
+    if (neighbor == null) {
+      // Past the end with loop off: resistant nudge, spring back.
+      HapticFeedback.lightImpact();
+      setState(() => _dragX = _dragX * 0.25);
+      _glide(
+        to: 0,
+        duration: Motion.reduced(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 220),
+        curve: Curves.easeOutBack,
+      );
+      return;
+    }
+    _slidelessForId = neighbor.id;
+    HapticFeedback.mediumImpact();
+    setState(() => _swipeDir = dir.toDouble());
+    playGuarded(
+      context,
+      () => dir > 0 ? handler.skipToNext() : handler.skipToPrevious(),
+    );
+    // Engine roundtrip is usually instant; on a cold load the frame
+    // would sit displaced for seconds, so bring it home and let the
+    // crossfade do the reveal when it lands.
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted && _dragX != 0) {
+        _glide(
+          to: 0,
+          duration: Motion.reduced(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -493,11 +649,37 @@ class _DragHeroState extends ConsumerState<_DragHero>
         setState(() => _dragY = _returning!.value);
       }
     });
+    _settleX = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _settleX.addListener(() {
+      if (!mounted) return;
+      final t = _settleCurve.transform(_settleX.value);
+      setState(() => _dragX = _settleFrom + (_settleTo - _settleFrom) * t);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _DragHero old) {
+    super.didUpdateWidget(old);
+    // The skip landed: bend whatever the frame is doing home under
+    // the crossfade instead of snapping.
+    if (old.song.id != widget.song.id && _dragX != 0) {
+      _glide(
+        to: 0,
+        duration: Motion.reduced(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   @override
   void dispose() {
     _snap.dispose();
+    _settleX.dispose();
     super.dispose();
   }
 
@@ -511,10 +693,57 @@ class _DragHeroState extends ConsumerState<_DragHero>
 
   bool get _panelUp => ref.read(playerPanelProvider) != PlayerPanel.none;
 
+  /// The art box shared by the current art and the carousel peek:
+  /// identical geometry so the handoff swaps pixels, not layouts.
+  Widget _artBox(Song s, {Key? key}) {
+    return Container(
+      key: key,
+      width: widget.artSize,
+      height: widget.artSize,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 32,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: CurrentArt(
+          song: s,
+          size: 0,
+          radius: 0,
+          iconSize: 96,
+          fill: true,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final song = widget.song;
     final isPreview = song.folderKey == 'preview' || song.id < 0;
+    final playing = ref.watch(playingProvider).value ?? false;
+    // Carousel peek: the song a swipe would land on, revealed
+    // proportionally while the finger is down. peekDir is the drag
+    // sign (left = -1); the handler counts skips the other way
+    // (+1 = next), hence the negation — the old code read the
+    // neighbor backwards and showed the wrong cover.
+    // Stays put through the thrown post-fire frame and only leaves
+    // once the frame settles home — otherwise the incoming art would
+    // wink out at the exact moment it matters.
+    final peekDir = _dragX < 0
+        ? -1
+        : _dragX > 0
+        ? 1
+        : 0;
+    final Song? peek = peekDir != 0
+        ? ref.read(audioHandlerProvider).neighborSong(-peekDir)
+        : null;
     return GestureDetector(
       onVerticalDragUpdate: (d) {
         if (Motion.reduced(context) || _panelUp) return;
@@ -539,20 +768,54 @@ class _DragHeroState extends ConsumerState<_DragHero>
           _springBack();
         }
       },
-      // Swipe sideways: track change. The arena disambiguates against
+      // Swipe sideways: carousel. The arena disambiguates against
       // the vertical drags above - one gesture wins, never both.
+      // Full commit: the finger owns the frame for the whole gesture
+      // and lift-off decides — past slop fires, less springs back.
+      // Skip convention matches the handler: drag left = next (+1).
+      onHorizontalDragUpdate: (d) {
+        if (_panelUp || Motion.reduced(context)) return;
+        final handler = ref.read(audioHandlerProvider);
+        final next = _dragX + d.delta.dx;
+        // Past the end with loop off there is no neighbor: resist,
+        // capped so a long boundary drag can't park the frame far out.
+        final skipDir = next < 0 ? 1 : -1;
+        if (handler.neighborSong(skipDir) == null) {
+          setState(
+            () => _dragX = (_dragX + d.delta.dx * 0.25).clamp(-48.0, 48.0),
+          );
+          return;
+        }
+        setState(() => _dragX = next);
+      },
+      onHorizontalDragCancel: () {
+        if (_dragX != 0) {
+          _glide(
+            to: 0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutBack,
+          );
+        }
+      },
       onHorizontalDragEnd: (d) {
         if (_panelUp) return;
-        final v = d.primaryVelocity ?? 0;
-        final handler = ref.read(audioHandlerProvider);
-        if (v < -500) {
-          HapticFeedback.mediumImpact();
-          setState(() => _swipeDir = -1);
-          playGuarded(context, () => handler.skipToNext());
-        } else if (v > 500) {
-          HapticFeedback.mediumImpact();
-          setState(() => _swipeDir = 1);
-          playGuarded(context, () => handler.skipToPrevious());
+        if (_dragX < -_commitSlop) {
+          _fireSwipe(1);
+        } else if (_dragX > _commitSlop) {
+          _fireSwipe(-1);
+        } else {
+          final v = d.primaryVelocity ?? 0;
+          if (v < -500) {
+            _fireSwipe(1);
+          } else if (v > 500) {
+            _fireSwipe(-1);
+          } else if (_dragX != 0) {
+            _glide(
+              to: 0,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutBack,
+            );
+          }
         }
       },
       child: Transform.translate(
@@ -572,62 +835,94 @@ class _DragHeroState extends ConsumerState<_DragHero>
               children: [
                 // Art floats above the titles on its own: one constant,
                 // titles stay grounded. Nests inside the drag-follow
-                // above, unaffected by it.
+                // above, unaffected by it. Carousel frame: the layout
+                // footprint stays exactly artSize (titles don't move)
+                // while paint may extend 48px out — the clip lives at
+                // that padded boundary, so the shadow never gets cut
+                // and the peek art enters from just off-frame.
                 Transform.translate(
                   offset: const Offset(0, -20),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 450),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    // Directional handoff: incoming art slides in from the
-                    // swipe side; programmatic changes fade-settle in place.
-                    transitionBuilder: (child, anim) {
-                      if (Motion.reduced(context)) {
-                        return FadeTransition(opacity: anim, child: child);
-                      }
-                      return FadeTransition(
-                        opacity: anim,
-                        child: SlideTransition(
-                          position: anim.drive(
-                            Tween(
-                              begin: Offset(0.35 * _swipeDir, 0.04),
-                              end: Offset.zero,
-                            ).chain(CurveTween(curve: Motion.arrival)),
-                          ),
-                          child: ScaleTransition(
-                            scale: anim.drive(
-                              Tween(
-                                begin: 0.96,
-                                end: 1.0,
-                              ).chain(CurveTween(curve: Motion.arrival)),
-                            ),
-                            child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      key: ValueKey(song.albumId),
+                  child: _PauseSquash(
+                    playing: playing,
+                    child: SizedBox(
                       width: widget.artSize,
                       height: widget.artSize,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x1A000000),
-                            blurRadius: 32,
-                            offset: Offset(0, 12),
+                      child: OverflowBox(
+                        maxWidth: widget.artSize + 96,
+                        maxHeight: widget.artSize + 96,
+                        child: ClipRect(
+                          child: SizedBox(
+                            width: widget.artSize + 96,
+                            height: widget.artSize + 96,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (peek != null)
+                                  Transform.translate(
+                                    offset: Offset(
+                                      _dragX - peekDir * (widget.artSize + 24),
+                                      0,
+                                    ),
+                                    child: _artBox(peek),
+                                  ),
+                                Transform.translate(
+                                  offset: Offset(_dragX, 0),
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 300),
+                                    switchInCurve: Curves.easeOutCubic,
+                                    switchOutCurve: Curves.easeInCubic,
+                                    // Directional handoff: incoming art snaps in
+                                    // from the swipe side; programmatic changes
+                                    // fade-settle in place. Gesture landings skip
+                                    // the slide — the finger already placed it.
+                                    // Short and level — the travel reads as the
+                                    // swipe's momentum, not a floaty entrance.
+                                    transitionBuilder: (child, anim) {
+                                      if (Motion.reduced(context)) {
+                                        return FadeTransition(
+                                          opacity: anim,
+                                          child: child,
+                                        );
+                                      }
+                                      final slide = song.id == _slidelessForId
+                                          ? 0.0
+                                          : 0.16 * _swipeDir;
+                                      return FadeTransition(
+                                        opacity: anim,
+                                        child: SlideTransition(
+                                          position: anim.drive(
+                                            Tween(
+                                              begin: Offset(slide, 0),
+                                              end: Offset.zero,
+                                            ).chain(
+                                              CurveTween(curve: Motion.arrival),
+                                            ),
+                                          ),
+                                          child: ScaleTransition(
+                                            scale: anim.drive(
+                                              Tween(
+                                                begin: 0.94,
+                                                end: 1.0,
+                                              ).chain(
+                                                CurveTween(
+                                                  curve: Motion.arrival,
+                                                ),
+                                              ),
+                                            ),
+                                            child: child,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: _artBox(
+                                      song,
+                                      key: ValueKey(song.albumId),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: CurrentArt(
-                          song: song,
-                          size: 0,
-                          radius: 0,
-                          iconSize: 96,
-                          fill: true,
                         ),
                       ),
                     ),
@@ -656,71 +951,80 @@ class _DragHeroState extends ConsumerState<_DragHero>
                       ),
                     ),
                   ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 350),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, anim) {
-                    if (Motion.reduced(context)) {
-                      return FadeTransition(opacity: anim, child: child);
-                    }
-                    return FadeTransition(
-                      opacity: anim,
-                      child: SlideTransition(
-                        position: anim.drive(
-                          Tween(
-                            begin: Offset(0.25 * _swipeDir, 0.15),
-                            end: Offset.zero,
-                          ).chain(CurveTween(curve: Motion.arrival)),
+                Opacity(
+                  // Titles bow out while the carousel is mid-drag and
+                  // land fresh with the new song — never dragged along.
+                  opacity: (1 - (_dragX.abs() / 110).clamp(0.0, 1.0) * 0.9)
+                      .clamp(0.0, 1.0),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) {
+                      if (Motion.reduced(context)) {
+                        return FadeTransition(opacity: anim, child: child);
+                      }
+                      final slide = song.id == _slidelessForId
+                          ? 0.0
+                          : 0.12 * _swipeDir;
+                      return FadeTransition(
+                        opacity: anim,
+                        child: SlideTransition(
+                          position: anim.drive(
+                            Tween(
+                              begin: Offset(slide, 0),
+                              end: Offset.zero,
+                            ).chain(CurveTween(curve: Motion.arrival)),
+                          ),
+                          child: child,
                         ),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: GestureDetector(
-                    key: ValueKey(song.id),
-                    onTap: () =>
-                        SongPage.open(context, playerTitleRef(ref, song)),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: artistVoiceOf(song.artist),
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: voiceSpacing(
-                                artistVoiceOf(song.artist),
+                      );
+                    },
+                    child: GestureDetector(
+                      key: ValueKey(song.id),
+                      onTap: () =>
+                          SongPage.open(context, playerTitleRef(ref, song)),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontFamily: artistVoiceOf(song.artist),
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: voiceSpacing(
+                                  artistVoiceOf(song.artist),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  song.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: inkDim),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: inkDim),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              FormatChip(path: song.path),
-                            ],
+                                const SizedBox(width: 8),
+                                FormatChip(path: song.path),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -936,10 +1240,12 @@ class _Transport extends ConsumerWidget {
           IconButton(
             iconSize: 44,
             color: ink,
-            onPressed: loading
-                ? null
-                : () => playGuarded(context, () => handler.skipToPrevious()),
-            icon: const Icon(CupertinoIcons.backward_end_fill),
+            onPressed: () =>
+                playGuarded(context, () => handler.skipToPrevious()),
+            icon: MorphIcon(
+              iconKey: 'prev',
+              child: const Icon(CupertinoIcons.backward_fill),
+            ),
           ),
           IconButton(
             iconSize: 58,
@@ -960,10 +1266,11 @@ class _Transport extends ConsumerWidget {
           IconButton(
             iconSize: 44,
             color: ink,
-            onPressed: loading
-                ? null
-                : () => playGuarded(context, () => handler.skipToNext()),
-            icon: const Icon(CupertinoIcons.forward_end_fill),
+            onPressed: () => playGuarded(context, () => handler.skipToNext()),
+            icon: MorphIcon(
+              iconKey: 'next',
+              child: const Icon(CupertinoIcons.forward_fill),
+            ),
           ),
           IconButton(
             iconSize: 26,

@@ -66,7 +66,7 @@ class MiniPlayer extends ConsumerWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _Marquee(
+                            MarqueeText(
                               text: song.title,
                               style: TextStyle(
                                 color: playing ? archPink : ink,
@@ -174,17 +174,17 @@ class _GlassCircle extends StatelessWidget {
 /// Long titles scroll instead of dying in ellipsis: settle, glide to
 /// the end, settle, glide home - two cycles, then rest. Reduced-motion
 /// gets plain ellipsis; short titles never move at all.
-class _Marquee extends StatefulWidget {
+class MarqueeText extends StatefulWidget {
   final String text;
   final TextStyle? style;
 
-  const _Marquee({required this.text, this.style});
+  const MarqueeText({super.key, required this.text, this.style});
 
   @override
-  State<_Marquee> createState() => _MarqueeState();
+  State<MarqueeText> createState() => _MarqueeTextState();
 }
 
-class _MarqueeState extends State<_Marquee> {
+class _MarqueeTextState extends State<MarqueeText> {
   final _scroller = ScrollController();
   int _gen = 0;
 
@@ -195,7 +195,7 @@ class _MarqueeState extends State<_Marquee> {
   }
 
   @override
-  void didUpdateWidget(_Marquee old) {
+  void didUpdateWidget(MarqueeText old) {
     super.didUpdateWidget(old);
     if (old.text != widget.text) {
       if (_scroller.hasClients) _scroller.jumpTo(0);

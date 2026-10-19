@@ -23,7 +23,7 @@ abstract final class ArchLog {
         await _file!.rename(spare.path);
       }
       _ready = true;
-      await _write('I', 'log', 'arch.log ready');
+      _write('I', 'log', 'arch.log ready');
     } catch (_) {
       _ready = false;
     }
@@ -34,13 +34,21 @@ abstract final class ArchLog {
   static void e(String tag, Object err, [StackTrace? stack]) =>
       _write('E', tag, '$err${stack == null ? '' : '\n$stack'}');
 
-  static Future<void> _write(String level, String tag, String msg) async {
-    final line = '${DateTime.now().toIso8601String()} $level/$tag: $msg';
+  /// Serialized tail: concurrent async appends used to interleave
+  /// mid-line (spliced timestamps, eaten lines), which made the
+  /// player fall-through nearly undiagnosable. Every write now
+  /// queues behind the last, always newline-terminated.
+  static Future<void> _tail = Future.value();
+
+  static void _write(String level, String tag, String msg) {
+    final line = '${DateTime.now().toIso8601String()} $level/$tag: $msg\n';
     debugPrint(line);
     if (!_ready) return;
-    try {
-      await _file!.writeAsString('$line\n', mode: FileMode.append, flush: true);
-    } catch (_) {}
+    _tail = _tail.then((_) async {
+      try {
+        await _file!.writeAsString(line, mode: FileMode.append, flush: true);
+      } catch (_) {}
+    });
   }
 
   /// Absolute path for adb pull instructions. Null until init.
