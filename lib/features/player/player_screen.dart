@@ -1318,7 +1318,7 @@ class _UtilityRow extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _GlassAction(
+          _UtilityAction(
             icon: MorphIcon(
               iconKey: panel == PlayerPanel.queue,
               child: const Icon(CupertinoIcons.list_bullet),
@@ -1327,17 +1327,17 @@ class _UtilityRow extends ConsumerWidget {
             selected: panel == PlayerPanel.queue,
             onTap: () => _togglePanel(ref, PlayerPanel.queue),
           ),
-          const SizedBox(width: 28),
+          const SizedBox(width: 40),
           // Arch Hub placeholder: the systems' entry (Adaptive, Motion,
           // ARCH-FM). Inert until the hub lands — present, not wired.
-          const _GlassAction(
+          const _UtilityAction(
             icon: Icon(Icons.blur_circular),
             tooltip: 'Arch Hub',
             selected: false,
             onTap: null,
           ),
-          const SizedBox(width: 28),
-          _GlassAction(
+          const SizedBox(width: 40),
+          _UtilityAction(
             icon: MorphIcon(
               iconKey: panel == PlayerPanel.lyrics,
               child: const Icon(CupertinoIcons.quote_bubble_fill),
@@ -1352,13 +1352,15 @@ class _UtilityRow extends ConsumerWidget {
   }
 }
 
-class _GlassAction extends StatelessWidget {
+/// Utility-row action, deliberately lens-less: three bare glyphs with
+/// wide gaps. Selection punch stays (glyph springs with the state).
+class _UtilityAction extends StatelessWidget {
   final Widget icon;
   final String tooltip;
   final VoidCallback? onTap;
   final bool selected;
 
-  const _GlassAction({
+  const _UtilityAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
@@ -1367,30 +1369,27 @@ class _GlassAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LiquidGlassLens(
-      style: ArchGlass.circle(radius: 28),
-      child: SizedBox(
-        width: 56,
-        height: 56,
-        child: IconButton(
-          iconSize: 26,
-          color: selected ? archPink : ink,
-          tooltip: tooltip,
-          onPressed: onTap == null
-              ? null
-              : () {
-                  HapticFeedback.selectionClick();
-                  onTap!();
-                },
-          // Selection punch: the glyph springs with the state.
-          icon: AnimatedScale(
-            scale: selected ? 1.15 : 1.0,
-            duration: Motion.reduced(context)
-                ? Duration.zero
-                : Motion.stateChange,
-            curve: Curves.easeOutBack,
-            child: icon,
-          ),
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: IconButton(
+        iconSize: 26,
+        color: selected ? archPink : ink,
+        tooltip: tooltip,
+        onPressed: onTap == null
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                onTap!();
+              },
+        // Selection punch: the glyph springs with the state.
+        icon: AnimatedScale(
+          scale: selected ? 1.15 : 1.0,
+          duration: Motion.reduced(context)
+              ? Duration.zero
+              : Motion.stateChange,
+          curve: Curves.easeOutBack,
+          child: icon,
         ),
       ),
     );
