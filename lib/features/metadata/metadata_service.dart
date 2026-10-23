@@ -2199,27 +2199,52 @@ class MetadataService {
         unawaited(_saveMusicalDisk());
       }
     }
-    // On-device DSP fallback (Mornye-ported beat grid): covers tracks
-    // no database knows. Confidence-gated; misses stay silent and
+    // On-device DSP fallback (Mornye-ported beat grid + hand-rolled
+    // chroma key): covers tracks no database knows. One decode feeds
+    // both analyzers. Confidence-gated; misses stay silent and
     // uncached so a later retry can still land.
-    if (netBpm == null && path.isNotEmpty) {
+    if ((netBpm == null || netKey.isEmpty) && path.isNotEmpty) {
       try {
-        final grid = await analyzeFile(path);
-        if (grid != null && grid.confidence >= 0.55 && grid.bpm > 0) {
-          netBpm = grid.bpm;
-          netSrc = 'dsp';
-          _musicalDisk[cacheKey] = {
-            'bpm': netBpm,
-            'key': netKey,
-            'openKey': netOpen,
-            'src': netSrc,
-          };
-          unawaited(_saveMusicalDisk());
-          ArchLog.i(
-            'meta',
-            'musical dsp: $artist - $title '
-            'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)}',
-          );
+        final bytes = await decodeMono11k(path);
+        if (bytes != null) {
+          var grew = false;
+          if (netBpm == null) {
+            final grid = await analyzeGrid(bytes);
+            if (grid.confidence >= 0.55 && grid.bpm > 0) {
+              netBpm = grid.bpm;
+              netSrc = 'dsp';
+              grew = true;
+              ArchLog.i(
+                'meta',
+                'musical dsp tempo: $artist - $title '
+                'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)}',
+              );
+            }
+          }
+          if (netKey.isEmpty) {
+            final detected = await analyzeKey(bytes);
+            if (detected != null) {
+              netKey = detected.name;
+              netOpen = detected.openKey;
+              netSrc = netSrc.isEmpty ? 'dsp' : '$netSrc+dsp';
+              grew = true;
+              ArchLog.i(
+                'meta',
+                'musical dsp key: $artist - $title '
+                'key=${detected.name} open=${detected.openKey} '
+                'strength=${detected.strength.toStringAsFixed(2)}',
+              );
+            }
+          }
+          if (grew) {
+            _musicalDisk[cacheKey] = {
+              'bpm': netBpm,
+              'key': netKey,
+              'openKey': netOpen,
+              'src': netSrc,
+            };
+            unawaited(_saveMusicalDisk());
+          }
         }
       } catch (_) {}
     }
