@@ -1,11 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../library/data/tag_fields.dart';
 import '../library/library_providers.dart';
 import '../lyrics/tag_lyrics.dart';
+import '../needle/extensions.dart';
+import '../needle/needle_store.dart';
+import '../needle/sandbox.dart' show NeedleException;
 import 'metadata_service.dart';
 
 final metadataServiceProvider = Provider<MetadataService>(
@@ -46,9 +50,15 @@ final artistBioProvider = FutureProvider.family<String?, String>((
 });
 
 final artistReleasesProvider =
-    FutureProvider.family<List<ReleaseGroup>, String>((ref, artistName) {
-      return ref.watch(metadataServiceProvider).releasesFor(artistName);
-    });
+    FutureProvider.family<List<ReleaseGroup>, String>((ref, artistName) async {
+  final svc = ref.watch(metadataServiceProvider);
+  final mb = await svc.releasesFor(artistName);
+  if (mb.isNotEmpty) return mb;
+  // MusicBrainz drew a blank: Deezer artist albums keep the
+  // discography (and its hubs) alive. Types come from Deezer's
+  // own record_type, never guessed.
+  return svc.dzReleasesFor(artistName);
+});
 
 /// True artist wordmark (fanart.tv HD ClearLogo), when one exists.
 /// Null = the hero falls back to our display-font voice.
@@ -59,12 +69,179 @@ final artistLogoProvider = FutureProvider.family<String?, String>((
   return ref.watch(metadataServiceProvider).logoFor(artistName);
 });
 
+/// Audience size with an honest label and a market trend arrow.
+/// `monthly` is true only when the number actually IS monthly
+/// listeners (Spotify lane). Last.fm totals read "listeners",
+/// Deezer reads "fans" — never dressed up.
+class ArtistListeners {
+  final int count;
+  final bool monthly;
+  final String label;
+
+  /// 1 = up since last sighting, -1 = down, 0 = flat or first seen.
+  final int trend;
+
+  const ArtistListeners({
+    required this.count,
+    required this.monthly,
+    required this.label,
+    this.trend = 0,
+  });
+}
+
+String _countShort(int n) {
+  if (n >= 1000000) {
+    final v = n / 1000000;
+    return '${v >= 100 ? v.round() : v.toStringAsFixed(1)}M';
+  }
+  if (n >= 1000) {
+    final v = n / 1000;
+    return '${v >= 100 ? v.round() : v.toStringAsFixed(1)}K';
+  }
+  return '$n';
+}
+
+/// Formatted audience line: "18.2M monthly listeners".
+String formatListeners(ArtistListeners a) =>
+    '${_countShort(a.count)} ${a.label}';
+
+/// Cascading audience: a Spotify-ish extension stat first (the only
+/// lane allowed to say "monthly"), then Deezer fans, then Last.fm
+/// totals. Trend compares against the last sighting stored on
+/// device. Null = nobody knows.
+final artistListenersProvider =
+    FutureProvider.family<ArtistListeners?, String>((ref, artistName) async {
+  final svc = ref.watch(metadataServiceProvider);
+
+  final monthly = await _extMonthlyListeners(ref, artistName);
+  if (monthly != null && monthly > 0) {
+    final trend = await _listenerTrend(artistName, 'monthly', monthly);
+    return ArtistListeners(
+      count: monthly,
+      monthly: true,
+      label: 'monthly listeners',
+      trend: trend,
+    );
+  }
+
+  try {
+    final fans = await svc
+        .dzFansFor(artistName)
+        .timeout(const Duration(seconds: 15));
+    if (fans != null && fans > 0) {
+      final trend = await _listenerTrend(artistName, 'fans', fans);
+      return ArtistListeners(
+        count: fans,
+        monthly: false,
+        label: 'fans',
+        trend: trend,
+      );
+    }
+  } catch (_) {}
+
+  try {
+    final total = await svc
+        .lfmListenersFor(artistName)
+        .timeout(const Duration(seconds: 15));
+    if (total != null && total > 0) {
+      final trend = await _listenerTrend(artistName, 'listeners', total);
+      return ArtistListeners(
+        count: total,
+        monthly: false,
+        label: 'listeners',
+        trend: trend,
+      );
+    }
+  } catch (_) {}
+  return null;
+});
+
+/// Probe installed extensions for an artist-stats entry. The known
+/// download contract has no such function, so this matches by name
+/// (getArtist, artistStats, artistInfo, followers, monthlyListeners)
+/// and parses defensively — a miss is silent, never a crash.
+/// Only extensions with the function get called, never blindly.
+Future<int?> _extMonthlyListeners(Ref ref, String artistName) async {
+  const cands = [
+    'monthlyListeners',
+    'getArtistStats',
+    'artistStats',
+    'getArtist',
+    'artistInfo',
+    'followers',
+  ];
+  final exts = ref.read(installedExtensionsProvider);
+  for (final ext in exts) {
+    if (!ext.enabled) continue;
+    try {
+      final h = await loadExtension(ext.id);
+      final fns = await extensionFunctions(h.handle, timeoutMs: 8000);
+      String? fn;
+      for (final c in cands) {
+        if (fns.contains(c)) {
+          fn = c;
+          break;
+        }
+      }
+      if (fn == null) continue;
+      final out = await callExtensionFn(
+        h.handle,
+        fn,
+        [artistName],
+        timeoutMs: 12000,
+      );
+      final n = _asCount(out['value']);
+      if (n != null && n > 0) {
+        ArchLog.i('meta', 'listeners live ext ${ext.id}: $n');
+        return n;
+      }
+    } on NeedleException catch (_) {
+    } catch (_) {}
+  }
+  return null;
+}
+
+int? _asCount(dynamic v) {
+  if (v is num) return v.toInt();
+  if (v is String) {
+    final n = int.tryParse(v.replaceAll(RegExp(r'[^0-9]'), ''));
+    if (n != null && n > 0) return n;
+  }
+  if (v is Map) {
+    for (final k in ['monthlyListeners', 'listeners', 'followers', 'count']) {
+      final n = _asCount(v[k]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+/// Market trend against the last sighting stored on device. Writes
+/// the new sighting; first sighting reads flat.
+Future<int> _listenerTrend(String artist, String kind, int count) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'arch.listeners.${artist.toLowerCase()}\u0000$kind';
+    final old = prefs.getInt(key);
+    await prefs.setInt(key, count);
+    if (old == null || old == count) return 0;
+    return count > old ? 1 : -1;
+  } catch (_) {
+    return 0;
+  }
+}
+
 /// Chart top tracks, fresh per page open (preview URLs expire).
+/// Deezer first; when Deezer draws a blank, Last.fm's chart fills
+/// in (ranked, no previews — playback resolves those lazily).
 final artistTopProvider = FutureProvider.family<List<TopTrack>, String>((
   ref,
   artistName,
-) {
-  return ref.watch(metadataServiceProvider).topTracks(artistName);
+) async {
+  final svc = ref.watch(metadataServiceProvider);
+  final dz = await svc.topTracks(artistName);
+  if (dz.isNotEmpty) return dz;
+  return svc.lfmTopTracksFor(artistName);
 });
 
 /// Release cover art, resolved lazily per visible item.
@@ -145,6 +322,52 @@ final albumLabelProvider = FutureProvider.family<String?, String>((
   return ref
       .watch(metadataServiceProvider)
       .labelFor(artist: artist, album: album);
+});
+
+/// Release facts (MusicBrainz: label, date, catalog), same key
+/// shape. Drives the credits footer. Empty = unknown, and the
+/// footer omits what it cannot prove.
+final albumFactsProvider = FutureProvider.family<ReleaseFacts, String>((
+  ref,
+  key,
+) {
+  final parts = key.split('\x00');
+  final artist = parts.isNotEmpty ? parts.first : '';
+  final album = parts.length > 1 ? parts[1] : '';
+  return ref
+      .watch(metadataServiceProvider)
+      .releaseFactsFor(artist: artist, album: album);
+});
+
+/// Album blurb (Wikipedia summary, Last.fm wiki fallback), same key
+/// shape. Null = neither source knows it; the page hides the block.
+final albumBlurbProvider = FutureProvider.family<String?, String>((
+  ref,
+  key,
+) {
+  final parts = key.split('\x00');
+  final artist = parts.isNotEmpty ? parts.first : '';
+  final album = parts.length > 1 ? parts[1] : '';
+  return ref
+      .watch(metadataServiceProvider)
+      .albumBlurbFor(artist: artist, album: album);
+});
+
+/// Hi-res album cover URL (Apple 3000px, CAA, fanart, Deezer),
+/// keyed "artist\x00album\x00title" — the title disambiguates
+/// same-named albums. Null = nothing anywhere; callers keep the
+/// embedded art, never a hole.
+final albumHiResCoverProvider = FutureProvider.family<String?, String>((
+  ref,
+  key,
+) {
+  final parts = key.split('\x00');
+  final artist = parts.isNotEmpty ? parts.first : '';
+  final album = parts.length > 1 ? parts[1] : '';
+  final title = parts.length > 2 ? parts[2] : '';
+  return ref
+      .watch(metadataServiceProvider)
+      .hiResCoverFor(artist: artist, album: album, title: title);
 });
 
 /// Remote (unowned) lyrics: same LRCLib ladder, network-only.

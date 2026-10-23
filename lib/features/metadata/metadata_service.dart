@@ -134,6 +134,44 @@ class IdentityResolution {
   const IdentityResolution({this.identity, this.conflict = false});
 }
 
+/// One Deezer album with its verified tracklist, backing the
+/// remote album page (unowned covers resolve to a real place).
+class DzAlbumDetail {
+  final String title;
+  final String artist;
+  final String cover;
+  final String date;
+  final String label;
+  final List<DzAlbumTrack> tracks;
+
+  const DzAlbumDetail({
+    required this.title,
+    required this.artist,
+    this.cover = '',
+    this.date = '',
+    this.label = '',
+    this.tracks = const [],
+  });
+}
+
+class DzAlbumTrack {
+  final int rank;
+  final String title;
+  final String previewUrl;
+  final int durationSecs;
+  final String isrc;
+  final String artist;
+
+  const DzAlbumTrack({
+    required this.rank,
+    required this.title,
+    this.previewUrl = '',
+    this.durationSecs = 0,
+    this.isrc = '',
+    this.artist = '',
+  });
+}
+
 class MetadataService {
   static const _mbBase = 'https://musicbrainz.org/ws/2';
   static const _dzBase = 'https://api.deezer.com';
@@ -174,23 +212,27 @@ class MetadataService {
     );
   }
 
-  /// Portrait: cache first, else Deezer live. Never waits on others.
+  /// Portrait: cache first, else the hi-res race — fanart.tv
+  /// artist thumb (usually 1000px, moderated) preferred, Deezer
+  /// picture_xl as the fast fallback. Both lanes run at once; the
+  /// fanart lane is bounded so a backed-up MusicBrainz gate never
+  /// holds the hero hostage. Background refreshes re-run the race.
   Future<String?> picFor(String artistName) async {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.imageUrl;
     if (cached != null) {
       _refreshField(
         artistName,
-        _dzPic(artistName),
+        _livePic(artistName),
         (m, v) => m.copyWith(imageUrl: v),
       );
       ArchLog.i('meta', 'pic cache hit: $artistName');
       return cached;
     }
     try {
-      final found = await _dzArtist(artistName)
-          .timeout(const Duration(seconds: 15));
-      final live = found?.imageUrl;
+      final live = await _livePic(
+        artistName,
+      ).timeout(const Duration(seconds: 25));
       ArchLog.i(
         'meta',
         'pic live: $artistName (${stopwatch.elapsedMilliseconds}ms)',
@@ -198,32 +240,92 @@ class MetadataService {
       if (live != null) {
         await _mergeCache(artistName, (m) => m.copyWith(imageUrl: live));
       }
-      if (found != null) {
-        await _mergeCache(artistName, (m) => m.copyWith(dzId: found.id));
-      }
       return live;
     } catch (e) {
-      ArchLog.w('meta', 'Deezer pic failed for $artistName: $e');
+      ArchLog.w('meta', 'pic failed for $artistName: $e');
       return null;
     }
   }
 
-  /// Bio: cache first, else Last.fm live. Never waits on others.
+  Future<String?> _livePic(String artistName) async {
+    final fanart = _fanartThumbFor(artistName);
+    final dz = _dzPic(artistName);
+    final first = await Future.wait([fanart, dz]);
+    final thumb = first[0];
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    final pic = first[1];
+    if (pic != null && pic.isNotEmpty) return pic;
+    return null;
+  }
+
+  /// fanart.tv artist thumb: MBID resolve, then the highest-liked
+  /// `artistthumb`. Null when the world has no thumb for this
+  /// artist — the Deezer lane covers those.
+  Future<String?> _fanartThumbFor(String artistName) async {
+    try {
+      final fanartKey = secrets.fanartApiKey;
+      if (fanartKey.isEmpty || fanartKey == 'PASTE_KEY_HERE') return null;
+      final memoKey = 'fanthumb:${artistName.toLowerCase()}';
+      if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+      final mbid = await _viaMbGate(() => _mbSearchArtist(artistName))
+          .timeout(const Duration(seconds: 20));
+      if (mbid == null || mbid.isEmpty) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://webservice.fanart.tv/v3/music/$mbid?api_key=$fanartKey',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final body = jsonDecode(res.body) as Map;
+      final thumbs = (body['artistthumb'] as List?) ?? [];
+      String? best;
+      var bestLikes = -1;
+      for (final t in thumbs) {
+        final m = t as Map;
+        final url = m['url'] as String?;
+        if (url == null || url.isEmpty) continue;
+        final likes = int.tryParse('${m['likes'] ?? 0}') ?? 0;
+        if (likes > bestLikes) {
+          bestLikes = likes;
+          best = url;
+        }
+      }
+      _caaMemo[memoKey] = best;
+      if (best != null) {
+        ArchLog.i('meta', 'pic live fanart: $artistName');
+      }
+      return best;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Bio: cache first, else Wikipedia summary, else Last.fm.
+  /// Display-only, never embedded.
   Future<String?> bioFor(String artistName) async {
     final stopwatch = Stopwatch()..start();
     final cached = (await _readCache(artistName))?.bio;
     if (cached != null) {
       _refreshField(
         artistName,
-        _lfmBio(artistName),
+        _liveBio(artistName),
         (m, v) => m.copyWith(bio: v),
       );
       ArchLog.i('meta', 'bio cache hit: $artistName');
       return cached;
     }
     try {
-      final live = await _lfmBio(artistName)
-          .timeout(const Duration(seconds: 15));
+      final live = await _liveBio(artistName)
+          .timeout(const Duration(seconds: 30));
       ArchLog.i(
         'meta',
         'bio live: $artistName (${stopwatch.elapsedMilliseconds}ms)',
@@ -233,9 +335,117 @@ class MetadataService {
       }
       return live;
     } catch (e) {
-      ArchLog.w('meta', 'Last.fm bio failed for $artistName: $e');
+      ArchLog.w('meta', 'bio failed for $artistName: $e');
       return null;
     }
+  }
+
+  Future<String?> _liveBio(String artistName) async {
+    try {
+      final wiki = await _wikiArtistBio(artistName)
+          .timeout(const Duration(seconds: 12));
+      if (wiki != null && wiki.trim().isNotEmpty) {
+        ArchLog.i('meta', 'bio live wiki: $artistName');
+        return wiki.trim();
+      }
+    } catch (_) {}
+    try {
+      return await _lfmBio(artistName).timeout(const Duration(seconds: 12));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Wikipedia artist summary: direct page first, search fallback.
+  /// Disambiguation pages never surface as prose.
+  Future<String?> _wikiArtistBio(String artistName) async {
+    Future<String?> fetch(String title) async {
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://en.wikipedia.org/api/rest_v1/page/summary/${Uri.encodeComponent(title)}',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body) as Map;
+      final type = body['type'] as String?;
+      if (type == 'disambiguation' || type == 'missing') return null;
+      final extract = (body['extract'] as String?)?.trim() ?? '';
+      return extract.isEmpty ? null : extract;
+    }
+
+    final direct = await fetch(artistName.trim()).catchError((_) => null);
+    if (direct != null) return direct;
+    try {
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://en.wikipedia.org/w/api.php'
+              '?action=query&list=search'
+              '&srsearch=${Uri.encodeQueryComponent('$artistName musician')}'
+              '&format=json&srlimit=5',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final hits =
+          ((jsonDecode(res.body) as Map)['query'] as Map?)?['search'] as List? ??
+              [];
+      for (final h in hits) {
+        final title = (h as Map)['title'] as String?;
+        if (title == null || title.toLowerCase().contains('disambiguation')) {
+          continue;
+        }
+        final got = await fetch(title).catchError((_) => null);
+        if (got != null) return got;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Deezer fan count for the verified artist hit. Honest "fans",
+  /// never dressed up as monthly listeners.
+  Future<int?> dzFansFor(String artistName) async {
+    try {
+      final uri = Uri.parse(
+        '$_dzBase/search/artist?q=${Uri.encodeQueryComponent(artistName)}&limit=5',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      for (final a in list) {
+        final m = a as Map;
+        if (!_closeEnough(artistName, (m['name'] as String?) ?? '')) continue;
+        final fans = (m['nb_fan'] as num?)?.toInt();
+        if (fans != null && fans > 0) return fans;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Last.fm all-time listeners for the artist. Label it "listeners",
+  /// never monthly — that word belongs to Spotify's metric.
+  Future<int?> lfmListenersFor(String artistName) async {
+    try {
+      final key = secrets.lastFmApiKey;
+      if (key.isEmpty || key == 'PASTE_KEY_HERE') return null;
+      final res = await http
+          .get(
+            Uri.parse(
+              '$_lfmBase?method=artist.getinfo&artist=${Uri.encodeQueryComponent(artistName)}&api_key=$key&format=json&autocorrect=1',
+            ),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final stats =
+          ((jsonDecode(res.body) as Map)['artist'] as Map?)?['stats'] as Map?;
+      final n = int.tryParse('${stats?['listeners'] ?? ''}');
+      if (n != null && n > 0) return n;
+    } catch (_) {}
+    return null;
   }
 
   /// Discography: cache first, else MusicBrainz live (gated 1 req/s).
@@ -729,7 +939,10 @@ class MetadataService {
             rank: (m['rank'] as num?)?.toInt() ?? (1000000 - rank),
             title: (m['title'] as String?) ?? 'Unknown title',
             albumTitle: (album?['title'] as String?) ?? '',
-            coverUrl:
+            // XL first: this art goes full-screen in the player.
+            // Medium is a 250px blur blown up to 800px.
+            coverUrl: (album?['cover_xl'] as String?) ??
+                (album?['cover_big'] as String?) ??
                 (album?['cover_medium'] as String?) ??
                 (album?['cover'] as String?),
             duration: Duration(seconds: (m['duration'] as num?)?.toInt() ?? 0),
@@ -770,8 +983,11 @@ class MetadataService {
         final m = img as Map;
         if (m['front'] == true) {
           final thumbs = m['thumbnails'] as Map?;
+          // Full original first (often 1500-3000px) — the hubs render
+          // it at 118px but the gallery + cache deserve the real file.
+          // Small-first was serving 250px thumbs blown up.
           final url =
-              (thumbs?['small'] ?? thumbs?['large'] ?? m['image']) as String?;
+              (m['image'] ?? thumbs?['large'] ?? thumbs?['small']) as String?;
           _caaMemo[rgMbid] = url;
           return url;
         }
@@ -834,6 +1050,7 @@ class MetadataService {
             type: _classify(primary, secondary),
             title: (m['title'] as String?) ?? 'Unknown release',
             year: _yearOf(m['first-release-date'] as String?),
+            date: (m['first-release-date'] as String?) ?? '',
             rgMbid: m['id'] as String?,
           ),
         );
@@ -1031,6 +1248,7 @@ class MetadataService {
             artUrl: r['artUrl'] as String?,
             rgMbid: r['rgMbid'] as String?,
             year: (r['year'] as num?)?.toInt(),
+            date: (r['date'] as String?) ?? '',
           );
         }).toList(),
       );
@@ -1059,6 +1277,7 @@ class MetadataService {
                 'title': r.title,
                 'artUrl': r.artUrl,
                 'year': r.year,
+                'date': r.date,
                 'rgMbid': r.rgMbid,
               },
           ],
@@ -1362,8 +1581,8 @@ class MetadataService {
   }
 
   /// Hi-res cover, best first: Apple master (3000px, keyless), Cover
-  /// Art Archive original (often 1500-3000px), Deezer cover_xl
-  /// (1000px). Null = unknown.
+  /// Art Archive original (often 1500-3000px), fanart.tv albumcover
+  /// (moderated HD), Deezer cover_xl (1000px). Null = unknown.
   ///
   /// [title] is not decoration. Album NAMES collide - Weezer has four
   /// self-titled albums and every "Greatest Hits" matches every
@@ -1391,6 +1610,13 @@ class MetadataService {
       }
     } catch (_) {}
     try {
+      final fanart = await _fanartAlbumCover(artist, album);
+      if (fanart != null && fanart.isNotEmpty) {
+        ArchLog.i('meta', 'cover lane fanart: $artist - $album');
+        return fanart;
+      }
+    } catch (_) {}
+    try {
       return await _dzCover(artist, album, title);
     } catch (_) {
       return null;
@@ -1398,22 +1624,25 @@ class MetadataService {
   }
 
   /// One cover candidate per lane, for the song page pencil picker:
-  /// Apple 3000px, CAA original, Deezer (track cover, else album).
-  /// Lanes run in parallel; misses drop out silently. Empty =
-  /// nothing anywhere. `thumb` is the cheap display variant (600px
-  /// Apple swap, CAA 500px thumb); empty means "use the full URL".
+  /// Apple 3000px, CAA original, fanart albumcover, Deezer (track
+  /// cover, else album). Lanes run in parallel; misses drop out
+  /// silently. Empty = nothing anywhere. `thumb` is the cheap display
+  /// variant (600px Apple swap, CAA 500px thumb); empty means "use
+  /// the full URL".
   Future<List<({String label, String url, String thumb})>>
       coverCandidatesFor({
     required String artist,
     required String album,
     required String title,
   }) async {
-    // All three start before the first await: parallel, typed.
+    // All four start before the first await: parallel, typed.
     final appleF = _safeCover(() => _appleCover(artist, album, title));
     final caaF = _safeCover(() => _caaCoverPair(artist, album, title));
+    final fanartF = _safeCover(() => _fanartAlbumCover(artist, album));
     final dzF = _safeCover(() => _dzCover(artist, album, title));
     final apple = await appleF;
     final caa = await caaF;
+    final fanart = await fanartF;
     final dz = await dzF;
     final found = <({String label, String url, String thumb})>[];
     if (apple != null && apple.isNotEmpty) {
@@ -1430,11 +1659,14 @@ class MetadataService {
     if (caa != null && caa.$1.isNotEmpty) {
       found.add((label: 'Cover Art Archive', url: caa.$1, thumb: caa.$2));
     }
+    if (fanart != null && fanart.isNotEmpty) {
+      found.add((label: 'fanart.tv', url: fanart, thumb: ''));
+    }
     if (dz != null && dz.isNotEmpty) {
       found.add((label: 'Deezer', url: dz, thumb: ''));
     }
     ArchLog.i('meta',
-        'cover candidates: ${found.length}/3 for $artist - $title');
+        'cover candidates: ${found.length}/4 for $artist - $title');
     return found;
   }
 
@@ -1454,6 +1686,183 @@ class MetadataService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// fanart.tv albumcover lane: release-group MBID resolve (the
+  /// same MB gate the CAA lane uses), then the albums endpoint.
+  /// Highest-likes cover wins; the community usually uploads 1000px.
+  /// Same key as the artist logo lane, memoized per album.
+  Future<String?> _fanartAlbumCover(String artist, String album) async {
+    final fanartKey = secrets.fanartApiKey;
+    if (fanartKey.isEmpty || fanartKey == 'PASTE_KEY_HERE') return null;
+    if (album.trim().isEmpty) return null;
+    final memoKey =
+        'fantalbum:${artist.toLowerCase()}\u0000${album.toLowerCase()}';
+    if (_caaMemo.containsKey(memoKey)) return _caaMemo[memoKey];
+    try {
+      final rgid = await _mbReleaseGroupForAlbum(album, artist);
+      if (rgid.isEmpty) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://webservice.fanart.tv/v3/music/albums/$rgid?api_key=$fanartKey',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) {
+        _caaMemo[memoKey] = null;
+        return null;
+      }
+      final albums = (jsonDecode(res.body) as Map)['albums'] as Map?;
+      String? best;
+      var bestLikes = -1;
+      if (albums != null) {
+        for (final entry in albums.values) {
+          final covers = (entry as Map)['albumcover'] as List?;
+          if (covers == null) continue;
+          for (final c in covers) {
+            final m = c as Map;
+            final url = m['url'] as String?;
+            if (url == null || url.isEmpty) continue;
+            final likes = int.tryParse('${m['likes'] ?? 0}') ?? 0;
+            if (likes > bestLikes) {
+              bestLikes = likes;
+              best = url;
+            }
+          }
+        }
+      }
+      _caaMemo[memoKey] = best;
+      if (best != null) {
+        ArchLog.i('meta', 'cover lane fanart album: $artist - $album');
+      }
+      return best;
+    } catch (_) {
+      _caaMemo[memoKey] = null;
+      return null;
+    }
+  }
+
+  final Map<String, String?> _blurbMemo = {};
+
+  /// Album blurb, display-only: Wikipedia summary first (generally
+  /// the best-sourced), Last.fm album wiki as fallback. Null when
+  /// neither knows the record — the page hides the block, never
+  /// placeholders. Never embedded.
+  Future<String?> albumBlurbFor({
+    required String artist,
+    required String album,
+  }) async {
+    if (album.trim().isEmpty) return null;
+    final key = '${artist.toLowerCase()}\u0000${album.toLowerCase()}';
+    if (_blurbMemo.containsKey(key)) return _blurbMemo[key];
+    try {
+      final out = await (() async {
+        try {
+          final wiki = await _wikiAlbumBlurb(artist, album)
+              .timeout(const Duration(seconds: 12));
+          if (wiki != null && wiki.trim().isNotEmpty) {
+            ArchLog.i('meta', 'blurb wiki: $artist - $album');
+            return wiki.trim();
+          }
+        } catch (_) {}
+        try {
+          final lfm = await _lfmAlbumBlurb(artist, album)
+              .timeout(const Duration(seconds: 12));
+          if (lfm != null && lfm.trim().isNotEmpty) {
+            ArchLog.i('meta', 'blurb lastfm: $artist - $album');
+            return lfm.trim();
+          }
+        } catch (_) {}
+        return null;
+      })().timeout(const Duration(seconds: 30));
+      _blurbMemo[key] = out;
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Wikipedia REST summary. Direct guess first
+  /// ("Album (Artist album)"), search API as fallback so
+  /// disambiguated and oddly-titled records still resolve.
+  /// Disambiguation pages never surface as prose.
+  Future<String?> _wikiAlbumBlurb(String artist, String album) async {
+    Future<String?> fetch(String title) async {
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://en.wikipedia.org/api/rest_v1/page/summary/${Uri.encodeComponent(title)}',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body) as Map;
+      final type = body['type'] as String?;
+      if (type == 'disambiguation' || type == 'missing') return null;
+      final extract = (body['extract'] as String?)?.trim() ?? '';
+      return extract.isEmpty ? null : extract;
+    }
+
+    final direct =
+        await fetch('$album (${artist.trim()} album)').catchError((_) => null);
+    if (direct != null) return direct;
+    try {
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://en.wikipedia.org/w/api.php'
+              '?action=query&list=search'
+              '&srsearch=${Uri.encodeQueryComponent('$album $artist album')}'
+              '&format=json&srlimit=5',
+            ),
+            headers: {'User-Agent': _userAgent},
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final hits =
+          ((jsonDecode(res.body) as Map)['query'] as Map?)?['search'] as List? ??
+              [];
+      for (final h in hits) {
+        final title = (h as Map)['title'] as String?;
+        if (title == null || title.toLowerCase().contains('disambiguation')) {
+          continue;
+        }
+        final got = await fetch(title).catchError((_) => null);
+        if (got != null) return got;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Last.fm album wiki fallback. Strips the "Read more" footer and
+  /// any HTML the API ships.
+  Future<String?> _lfmAlbumBlurb(String artist, String album) async {
+    final key = secrets.lastFmApiKey;
+    if (key.isEmpty || key == 'PASTE_KEY_HERE') return null;
+    final res = await http
+        .get(
+          Uri.parse(
+            '$_lfmBase?method=album.getinfo'
+            '&artist=${Uri.encodeQueryComponent(artist.trim())}'
+            '&album=${Uri.encodeQueryComponent(album.trim())}'
+            '&api_key=$key&format=json&autocorrect=1',
+          ),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) return null;
+    final wiki = ((jsonDecode(res.body) as Map)['album'] as Map?)?['wiki'];
+    if (wiki is! Map) return null;
+    var summary = (wiki['summary'] as String?) ?? '';
+    summary = summary.replaceAll(RegExp(r'<[^>]*>'), '');
+    summary = summary.split('Read more on Last.fm').first.trim();
+    summary = summary.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return summary.isEmpty ? null : summary;
   }
 
   /// CAA front image + 500px thumb from one release-group fetch.
@@ -1580,9 +1989,263 @@ class MetadataService {
     return null;
   }
 
-  /// Deezer cover by track: resolves to the track's own album, so a
+  /// Deezer 30s preview + cover for one track: same verification
+  /// as the cover lane (artist + title + album must all agree), so a
+  /// same-named live cut never stands in. Null = nothing playable.
+  /// Previews expire — always resolved on tap, never cached.
+  Future<({String preview, String cover})?> trackPreviewFor({
+    required String title,
+    required String artist,
+    String album = '',
+  }) async {
+    if (title.trim().isEmpty) return null;
+    try {
+      final q = 'track:"${title.replaceAll('"', '')}"'
+          ' artist:"${artist.replaceAll('"', '')}"';
+      final res = await http
+          .get(Uri.parse(
+              '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return null;
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      for (final t in list) {
+        final m = t as Map;
+        final am = m['artist'] as Map?;
+        if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
+        if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
+          continue;
+        }
+        final alb = m['album'] as Map?;
+        if (album.trim().isNotEmpty &&
+            !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
+          continue;
+        }
+        final preview = (m['preview'] as String?) ?? '';
+        if (preview.isEmpty) continue;
+        var cover = '';
+        for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+          final v = alb?[k] as String?;
+          if (v != null && v.isNotEmpty) {
+            cover = v;
+            break;
+          }
+        }
+        ArchLog.i('meta', 'preview live: $artist - $title');
+        return (preview: preview, cover: cover);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Last.fm top tracks fallback for when Deezer draws a blank.
+  /// Ranked by chart order; no durations or previews on this lane
+  /// (Last.fm doesn't carry them) — playback resolves those lazily.
+  /// Empty when Last.fm knows nothing either.
+  Future<List<TopTrack>> lfmTopTracksFor(String artistName) async {
+    try {
+      final key = secrets.lastFmApiKey;
+      if (key.isEmpty || key == 'PASTE_KEY_HERE') return const [];
+      final res = await http
+          .get(
+            Uri.parse(
+              '$_lfmBase?method=artist.gettoptracks&artist=${Uri.encodeQueryComponent(artistName)}&api_key=$key&format=json&autocorrect=1&limit=25',
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+      final raw =
+          ((jsonDecode(res.body) as Map)['toptracks'] as Map?)?['track'];
+      final items = <Map>[];
+      if (raw is List) {
+        for (final e in raw) {
+          if (e is Map) items.add(e);
+        }
+      } else if (raw is Map) {
+        items.add(raw);
+      }
+      final out = <TopTrack>[];
+      var rank = 0;
+      for (final t in items) {
+        rank++;
+        String cover = '';
+        final images = t['image'] as List? ?? [];
+        for (final i in images.reversed) {
+          final u = (i as Map)['#text'] as String?;
+          if (u != null && u.isNotEmpty) {
+            cover = u;
+            break;
+          }
+        }
+        out.add(
+          TopTrack(
+            rank: rank,
+            title: (t['name'] as String?)?.trim().isNotEmpty == true
+                ? (t['name'] as String)
+                : 'Unknown title',
+            albumTitle: '',
+            coverUrl: cover.isEmpty ? null : cover,
+            duration: Duration.zero,
+            previewUrl: null,
+          ),
+        );
+      }
+      if (out.isNotEmpty) {
+        ArchLog.i('meta', 'top tracks lastfm fallback: $artistName (${out.length})');
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Deezer artist albums fallback for a missing MusicBrainz
+  /// discography. record_type maps straight onto our hub types;
+  /// unknown kinds land in hubs, never dropped.
+  Future<List<ReleaseGroup>> dzReleasesFor(String artistName) async {
+    try {
+      final found = await _dzArtist(artistName);
+      final id = found?.id ?? 0;
+      if (id == 0) return const [];
+      final res = await http
+          .get(Uri.parse('$_dzBase/artist/$id/albums?limit=100'))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+      final out = <ReleaseGroup>[];
+      for (final a in list) {
+        final m = a as Map;
+        final title = (m['title'] as String?)?.trim() ?? '';
+        if (title.isEmpty) continue;
+        final rt = (m['record_type'] as String? ?? 'album').toLowerCase();
+        final type = switch (rt) {
+          'ep' => 'ep',
+          'single' => 'single',
+          'compilation' => 'compilation',
+          'live' => 'live',
+          _ => 'album',
+        };
+        final date = (m['release_date'] as String?) ?? '';
+        out.add(
+          ReleaseGroup(
+            type: type,
+            title: title,
+            artUrl: (m['cover_xl'] as String?) ??
+                (m['cover_big'] as String?) ??
+                (m['cover_medium'] as String?),
+            year: int.tryParse(date.split('-').first),
+            date: date,
+          ),
+        );
+      }
+      if (out.isNotEmpty) {
+        ArchLog.i('meta', 'releases deezer fallback: $artistName (${out.length})');
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
   /// self-titled record lands on the right one. Track search carries
   /// the whole album object, so no second call is needed.
+  /// Full Deezer album detail for the remote album page: verified
+  /// album match, cover_xl art, release date + label, and the track
+  /// list with previews + ISRCs for one-tap pulls. Keyless, so an
+  /// unowned cover always resolves to an actual place. Null when
+  /// Deezer doesn't know it.
+  Future<DzAlbumDetail?> dzAlbumDetailFor({
+    required String artist,
+    required String album,
+  }) async {
+    if (album.trim().isEmpty) return null;
+    try {
+      final q = 'album:"${album.replaceAll('"', '')}"'
+          ' artist:"${artist.replaceAll('"', '')}"';
+      final search = await http
+          .get(
+            Uri.parse(
+              '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=10',
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (search.statusCode != 200) return null;
+      final hits = (jsonDecode(search.body) as Map)['data'] as List? ?? [];
+      int? albumId;
+      String cover = '';
+      for (final h in hits) {
+        final m = h as Map;
+        if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
+        final an = ((m['artist'] as Map?)?['name'] as String?) ?? '';
+        if (artist.trim().isNotEmpty && !_sameArtist(artist, an)) continue;
+        albumId = (m['id'] as num?)?.toInt();
+        if (albumId == null || albumId <= 0) continue;
+        for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+          final v = m[k] as String?;
+          if (v != null && v.isNotEmpty) {
+            cover = v;
+            break;
+          }
+        }
+        break;
+      }
+      if (albumId == null) return null;
+      final detail = await http
+          .get(Uri.parse('$_dzBase/album/$albumId'))
+          .timeout(const Duration(seconds: 15));
+      String date = '';
+      String label = '';
+      if (detail.statusCode == 200) {
+        final body = jsonDecode(detail.body) as Map;
+        date = (body['release_date'] as String?) ?? '';
+        label = (body['label'] as String?) ?? '';
+        if (cover.isEmpty) {
+          for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+            final v = body[k] as String?;
+            if (v != null && v.isNotEmpty) {
+              cover = v;
+              break;
+            }
+          }
+        }
+      }
+      final trackRes = await http
+          .get(Uri.parse('$_dzBase/album/$albumId/tracks?limit=100'))
+          .timeout(const Duration(seconds: 15));
+      final tracks = <DzAlbumTrack>[];
+      if (trackRes.statusCode == 200) {
+        final list = (jsonDecode(trackRes.body) as Map)['data'] as List? ?? [];
+        var rank = 0;
+        for (final t in list) {
+          final m = t as Map;
+          final tTitle = (m['title'] as String?)?.trim() ?? '';
+          if (tTitle.isEmpty) continue;
+          rank++;
+          tracks.add(
+            DzAlbumTrack(
+              rank: rank,
+              title: tTitle,
+              previewUrl: (m['preview'] as String?) ?? '',
+              durationSecs: (m['duration'] as num?)?.toInt() ?? 0,
+              isrc: (m['isrc'] as String?) ?? '',
+              artist: ((m['artist'] as Map?)?['name'] as String?) ?? '',
+            ),
+          );
+        }
+      }
+      if (tracks.isEmpty) return null;
+      ArchLog.i('meta', 'dz album: $artist - $album (${tracks.length}tk)');
+      return DzAlbumDetail(
+        title: album,
+        artist: artist,
+        cover: cover,
+        date: date,
+        label: label,
+        tracks: tracks,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String?> _dzCoverForTrack(
       String artist, String album, String title) async {
     if (title.trim().isEmpty) return null;

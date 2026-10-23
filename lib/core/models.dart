@@ -292,6 +292,11 @@ class ReleaseGroup {
   final String title;
   final String? artUrl;
   final int? year;
+
+  /// Full first-release date (YYYY-MM-DD) when MusicBrainz knows it.
+  /// Empty when unknown — the featured pick orders by this, falling
+  /// back to list order, so dateless brand-new drops don't vanish.
+  final String date;
   final String? rgMbid;
 
   const ReleaseGroup({
@@ -299,6 +304,7 @@ class ReleaseGroup {
     required this.title,
     this.artUrl,
     this.year,
+    this.date = '',
     this.rgMbid,
   });
 }
