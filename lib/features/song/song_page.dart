@@ -1013,19 +1013,26 @@ class _Hero extends ConsumerWidget {
               GestureDetector(
                 onTap: () => ArtistPage.openIfAbsent(context, a),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.only(
+                      left: 4, right: 16, top: 4, bottom: 4),
                   decoration: BoxDecoration(
                     color: paperRaised,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    a,
-                    style: const TextStyle(
-                      color: archPink,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _MakerPic(name: a, size: 32),
+                      const SizedBox(width: 8),
+                      Text(
+                        a,
+                        style: const TextStyle(
+                          color: archPink,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1185,13 +1192,14 @@ class _FormatPill extends StatelessWidget {
 /// avatar while loading, on error, or when the world has no pic.
 class _MakerPic extends ConsumerWidget {
   final String name;
-  const _MakerPic({required this.name});
+  final double size;
+  const _MakerPic({required this.name, this.size = 48});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Widget fallback() => Container(
-          width: 48,
-          height: 48,
+          width: size,
+          height: size,
           decoration: const BoxDecoration(
             color: paper,
             shape: BoxShape.circle,
@@ -1199,8 +1207,8 @@ class _MakerPic extends ConsumerWidget {
           alignment: Alignment.center,
           child: Text(
             name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
-            style: const TextStyle(
-                fontWeight: FontWeight.w700, fontSize: 20),
+            style: TextStyle(
+                fontWeight: FontWeight.w700, fontSize: size * 0.42),
           ),
         );
     final async = ref.watch(artistPicProvider(name));
@@ -1216,8 +1224,8 @@ class _MakerPic extends ConsumerWidget {
             maxWidthDiskCache: 512,
             maxHeightDiskCache: 512,
             imageUrl: url,
-            width: 48,
-            height: 48,
+            width: size,
+            height: size,
             fit: BoxFit.cover,
             errorWidget: (_, _, _) => fallback(),
           ),
@@ -1436,6 +1444,7 @@ class _ControlsState extends ConsumerState<_Controls> {
           },
           icon: const Icon(Icons.share_outlined, color: ink),
         ),
+        const SizedBox(width: 4),
         IconButton(
           tooltip: 'Artist',
           onPressed: () =>

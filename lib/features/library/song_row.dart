@@ -240,7 +240,7 @@ class ReleaseCover extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
-      memCacheWidth: 300,
+      memCacheWidth: 600,
       errorWidget: (_, _, _) => _fallback(),
     );
   }
@@ -278,7 +278,7 @@ class _CaaCover extends ConsumerWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
-      memCacheWidth: 300,
+      memCacheWidth: 600,
       errorWidget: (_, _, _) => Container(
         color: paperRaised,
         child: const Center(child: Icon(Icons.album, color: inkDim, size: 40)),
