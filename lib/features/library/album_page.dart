@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,25 +9,27 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/art_tone.dart';
+import '../../core/badges.dart';
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
-import '../player/play_guarded.dart';
-import '../player/player_providers.dart';
-import 'artist_hub_page.dart';
-import 'library_providers.dart';
+import '../needle/download_sheet.dart' show showDownloadSheet;
 import '../player/format_marks.dart';
 import '../player/morph_icon.dart';
-import '../player/track_menu.dart';
+import '../player/play_guarded.dart';
+import '../player/player_providers.dart';
+import '../player/track_menu.dart' show MenuAction, showTrackMenu, showSongMenu;
 import '../shell/dock.dart';
+import 'add_to_playlist.dart' show showAddToPlaylistSheet;
+import 'data/playlist_store.dart';
+import 'library_providers.dart';
+import 'library_search_page.dart';
 import 'song_row.dart';
-
-/// Album detail: extracted whole from library_screen. Local Album in,
-/// provider-resolved tracklist where the world knows it, owned rows
-/// play the file, the rest is honest about needing Needle.
+import 'song_select.dart';
+import 'artist_hub_page.dart';
 
 Future<void> _tapToPlay(
   WidgetRef ref,
@@ -52,243 +55,11 @@ class _DisplayTrack {
   });
 }
 
-/// Full-bleed album hero: art fills the expanded bar edge to edge,
-/// voice title + pink artist live ON it, the melt ends in paper.
-/// Same collapse language as the artist hero (melt scrim, status
-/// flip, pinned title, glass back/more) - one app, not two.
-/// No album wordmarks exist in our sources (fanart serves covers +
-/// cdart only), so the title stays typographic in our voice.
-class _AlbumHero extends ConsumerWidget {
-  final String title;
-  final String artist;
-  final int albumId;
-  final VoidCallback onBack;
-  final VoidCallback onMore;
-  final VoidCallback onArtist;
-
-  /// Page-shared wash: bar background and melt target. Reported back
-  /// up via [onWash] once the cover tone resolves.
-  final Color wash;
-  final ValueChanged<Color>? onWash;
-
-  static const _expanded = 440.0;
-
-  const _AlbumHero({
-    required this.title,
-    required this.artist,
-    required this.albumId,
-    required this.onBack,
-    required this.onMore,
-    required this.onArtist,
-    required this.wash,
-    this.onWash,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final topPad = MediaQuery.paddingOf(context).top;
-    final hasArt = albumId > 0;
-    final voice = artistVoiceOf(title);
-    // Report the resolved tone once per cover: the page eases onto
-    // it and hero, bar and body share one uniform color.
-    final palette = ref.watch(albumPaletteProvider(albumId)).value;
-    if (palette != null) {
-      final toneWash = ArtTone.pageWashOf(palette.wash);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        onWash?.call(toneWash);
-      });
-    }
-    // Voice title in the cover's vibrant pick (white when the
-    // vibrant sits too close to its own backdrop to read): words
-    // carry color, not just shadow.
-    var titleColor = hasArt ? Colors.white : ink;
-    if (hasArt && palette != null) {
-      final vibrant = palette.vibrant;
-      final close =
-          (vibrant.computeLuminance() - palette.photoLum).abs() < 0.25;
-      if (!close) titleColor = vibrant;
-    }
-    return SliverAppBar(
-      expandedHeight: _expanded,
-      pinned: true,
-      stretch: !Motion.reduced(context),
-      backgroundColor: wash,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      shadowColor: Colors.transparent,
-      leading: Padding(
-        padding: const EdgeInsets.all(8),
-        child: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
-          child: IconButton(
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back, color: ink),
-          ),
-        ),
-      ),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.all(8),
-          child: LiquidGlassLens(
-            style: ArchGlass.circle(radius: 24),
-            child: IconButton(
-              onPressed: onMore,
-              icon: const Icon(CupertinoIcons.ellipsis, color: ink),
-            ),
-          ),
-        ),
-      ],
-      flexibleSpace: LayoutBuilder(
-        builder: (context, constraints) {
-          final collapse =
-              ((_expanded - constraints.maxHeight) /
-                      (_expanded - (kToolbarHeight + topPad)))
-                  .clamp(0.0, 1.0);
-          // White status icons over art, dark once collapsed onto paper.
-          final overlay = collapse > 0.5
-              ? SystemUiOverlayStyle.dark.copyWith(
-                  statusBarColor: Colors.transparent,
-                )
-              : SystemUiOverlayStyle.light.copyWith(
-                  statusBarColor: Colors.transparent,
-                );
-          return AnnotatedRegion<SystemUiOverlayStyle>(
-            value: overlay,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (hasArt)
-                  AlbumArt(
-                    albumId: albumId,
-                    fill: true,
-                    radius: 0,
-                    detail: true,
-                  )
-                else
-                  Container(
-                    color: paperRaised,
-                    child: const Icon(
-                      Icons.album_outlined,
-                      color: inkDim,
-                      size: 96,
-                    ),
-                  ),
-                // Melt pinned to the hero bottom, ends in the
-                // shared wash: hero and body agree, no edge by
-                // construction. Kept modest: the titles and meta
-                // live on art and wash, never inside the fade.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 240,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        stops: const [0.0, 0.4, 0.7, 1.0],
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.24),
-                          wash,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                // Collapsed toolbar title fades in as the hero
-                // titles fade out.
-                Positioned(
-                  top: topPad + 12,
-                  left: 64,
-                  right: 64,
-                  child: Opacity(
-                    opacity: collapse,
-                    child: Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ink,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 56,
-                  child: Opacity(
-                    opacity: 1 - collapse,
-                    child: Column(
-                      children: [
-                        FocalEntrance(
-                          child: Text(
-                            title,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontFamily: voice,
-                              fontSize: 30,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: voiceSpacing(voice),
-                              color: titleColor,
-                              shadows: hasArt
-                                  ? const [
-                                      Shadow(
-                                        color: Colors.black45,
-                                        blurRadius: 16,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        GestureDetector(
-                          onTap: onArtist,
-                          child: Text(
-                            artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: archPink,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              shadows: hasArt
-                                  ? const [
-                                      Shadow(
-                                        color: Colors.black45,
-                                        blurRadius: 10,
-                                        offset: Offset(0, 1),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
+/// Album page, WA0027/28/29 grammar in our skin: slim pinned bar,
+/// centered art card that upgrades embedded art to hi-res remote
+/// art, voice title + pink artist + meta line, sticky controls row
+/// (shuffle / pink Play / add-all), MORE blurb, numbered rows,
+/// plain-text credits footer. Page wash follows the cover art.
 class AlbumPage extends ConsumerStatefulWidget {
   final Album album;
   const AlbumPage({super.key, required this.album});
@@ -298,11 +69,229 @@ class AlbumPage extends ConsumerStatefulWidget {
 }
 
 class _AlbumPageState extends ConsumerState<AlbumPage> {
-  /// Full-bleed page tint target, reported by the hero once the
-  /// cover tone lands. Plain nullable field: no `late`, no ticker,
-  /// so a hot reload can never strand it. Same pattern as the
-  /// artist page - one app, one wash discipline.
+  /// Full-bleed page tint target, reported by the cover once its
+  /// tone lands (embedded first, hi-res remote upgrades it).
   Color? _washTarget;
+
+  /// Preview in flight (unowned tap): title key, one at a time.
+  /// The row shows a spinner instead of answering twice.
+  String? _loadingPreview;
+
+  /// Select mode: owned ids ride the shared controller, unowned
+  /// rows ride [_unownedSel] by normalized title.
+  final _sel = SelectionController();
+  final _unownedSel = <String>{};
+
+  static String _uKey(String title) => 'u:${normTitle(title)}';
+
+  bool get _armed => _sel.armed || _unownedSel.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _sel.addListener(() {
+      if (!mounted) return;
+      ref.read(selectionActiveProvider.notifier).state = _armed;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sel.dispose();
+    super.dispose();
+  }
+
+  void _syncSel() {
+    ref.read(selectionActiveProvider.notifier).state = _armed;
+    setState(() {});
+  }
+
+  void _exitSel() {
+    _sel.exit();
+    _unownedSel.clear();
+    ref.read(selectionActiveProvider.notifier).state = false;
+    if (mounted) setState(() {});
+  }
+
+  void _enterOwned(Song song) {
+    if (_armed) return;
+    HapticFeedback.mediumImpact();
+    _sel.enter(song.id);
+    _syncSel();
+  }
+
+  void _enterUnowned(String title) {
+    if (_armed) return;
+    HapticFeedback.mediumImpact();
+    _unownedSel.add(_uKey(title));
+    _syncSel();
+  }
+
+  void _toggleOwned(Song song) {
+    _sel.toggle(song.id);
+    if (!_armed) {
+      _unownedSel.clear();
+    }
+    _syncSel();
+  }
+
+  void _toggleUnowned(String title) {
+    final k = _uKey(title);
+    if (_unownedSel.contains(k)) {
+      _unownedSel.remove(k);
+    } else {
+      _unownedSel.add(k);
+    }
+    if (!_armed) _sel.exit();
+    _syncSel();
+  }
+
+  Future<void> _previewUnowned(
+    BuildContext context,
+    WidgetRef ref,
+    _DisplayTrack t,
+    String cover,
+  ) async {
+    if (_loadingPreview != null) return;
+    setState(() => _loadingPreview = t.title);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pv = await ref
+          .read(metadataServiceProvider)
+          .trackPreviewFor(
+            title: t.title,
+            artist: widget.album.artist,
+            album: widget.album.title,
+          );
+      if (!context.mounted) return;
+      if (pv == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Preview unavailable for this track')),
+        );
+        return;
+      }
+      final handler = ref.read(audioHandlerProvider);
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playPreview(
+          uri: Uri.parse(pv.preview),
+          title: t.title,
+          artist: widget.album.artist,
+          album: widget.album.title,
+          coverUrl: pv.cover.isEmpty ? null : pv.cover,
+          previewId: -(100000 + t.position),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingPreview = null);
+    }
+  }
+
+  Future<void> _unownedMenu(
+    BuildContext btnContext,
+    WidgetRef ref,
+    _DisplayTrack t,
+    String cover,
+  ) async {
+    final value = await showTrackMenu(
+      context: btnContext,
+      groups: [
+        [
+          const MenuAction(
+            icon: CupertinoIcons.play_fill,
+            label: 'Preview',
+            value: 'preview',
+          ),
+          const MenuAction(
+            icon: CupertinoIcons.cloud_download,
+            label: 'Pull via Needle',
+            value: 'pull',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.person,
+            label: 'Go to Artist',
+            subtitle: widget.album.artist,
+            value: 'artist',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.square_arrow_up,
+            label: 'Share',
+            subtitle: '${t.title} - ${widget.album.artist}',
+            value: 'share',
+          ),
+        ],
+      ],
+    );
+    if (!btnContext.mounted) return;
+    switch (value) {
+      case 'preview':
+        await _previewUnowned(btnContext, ref, t, cover);
+        break;
+      case 'pull': {
+        HapticFeedback.selectionClick();
+        final ok = await showDownloadSheet(
+          btnContext,
+          ref,
+          title: t.title,
+          artist: widget.album.artist,
+          album: widget.album.title,
+        );
+        if (ok && btnContext.mounted) {
+          ScaffoldMessenger.of(btnContext).showSnackBar(
+            SnackBar(content: Text('Queued "${t.title}" - watch it in Needle')),
+          );
+        }
+        break;
+      }
+      case 'artist':
+        ArtistHubPage.openIfAbsent(btnContext, widget.album.artist);
+        break;
+      case 'share':
+        SharePlus.instance.share(
+          ShareParams(text: '${t.title} - ${widget.album.artist}'),
+        );
+        break;
+    }
+  }
+
+  Future<void> _tapOwned(
+    BuildContext context,
+    WidgetRef ref,
+    Song song,
+    List<Song> queue,
+  ) async {
+    if (_armed) {
+      HapticFeedback.selectionClick();
+      _toggleOwned(song);
+      return;
+    }
+    await _tapToPlay(ref, context, song, queue);
+  }
+
+  List<Song> _orderedOwned(List<_DisplayTrack> display) =>
+      [for (final t in display) if (t.song != null) t.song!];
+
+  List<Song> _selectedOwned(List<_DisplayTrack> display) {
+    final want = _sel.ids;
+    return [
+      for (final t in display)
+        if (t.song != null && want.contains(t.song!.id)) t.song!,
+    ];
+  }
+
+  List<PendingTrack> _selectedPending(
+    List<_DisplayTrack> display,
+    String artist,
+    String album,
+  ) {
+    return [
+      for (final t in display)
+        if (t.song == null && _unownedSel.contains(_uKey(t.title)))
+          PendingTrack(title: t.title, artist: artist, album: album),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -310,12 +299,7 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
     final current = ref.watch(currentSongProvider).value;
     final playing = ref.watch(playingProvider).value ?? false;
     final songs = album.songs;
-    // Mount footprint: proves which build is on the phone and what
-    // data arrived. Silence here means the route never built.
     ArchLog.i('nav', 'album page: ${album.title} (${songs.length} tracks)');
-    // Empty can technically arrive (stale queue entry, moved files):
-    // an explicit empty state, never a blank page or a crash on
-    // songs.first.
     if (songs.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('Album')),
@@ -355,52 +339,17 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
         ),
       );
     }
-    Future<void> play(bool shuffleFirst) async {
-      final handler = ref.read(audioHandlerProvider);
-      // Fire-and-forget: shuffle applies to the live player while the
-      // guarded entry below owns the context across its own awaits.
-      if (shuffleFirst) unawaited(handler.setShuffleEnabled(true));
-      await playAndOpen(
-        ref,
-        context,
-        () => handler.playSong(songs.first, songs),
-      );
-    }
 
-    final total = songs.fold(Duration.zero, (sum, s) => sum + s.duration);
-    // Uniform format: every track the same family (and known) earns
-    // the chip. Mixed albums get no chip - the absence says mixed.
-    AudioFormat? uniform;
-    {
-      final first = formatOf(songs.first.path);
-      final same =
-          first != AudioFormat.unknown &&
-          songs.every((s) => formatOf(s.path) == first);
-      if (same) uniform = first;
-    }
-    // Year from the first track that carries one. Zero = unknown,
-    // omitted silently, never placeholder.
-    var year = 0;
-    for (final s in songs) {
-      if (s.year > 0) {
-        year = s.year;
-        break;
-      }
-    }
-    // Pause-aware play: when this album is what's sounding, the pill
-    // offers pause instead of a redundant restart.
-    final isThis = current != null && songs.any((s) => s.id == current.id);
-    final showPause = isThis && playing;
-    final losslessCount = songs
-        .where((s) => formatLossless(formatOf(s.path)))
-        .length;
-    // Display tracklist: provider-resolved full listing when the
-    // world knows this album, else owned-only. Owned rows match by
-    // the shared identity discipline (title + duration window).
     final albumKey =
         '${album.artist.toLowerCase()}\x00${album.title.toLowerCase()}';
     final resolved = ref.watch(albumTracklistProvider(albumKey)).value ?? [];
-    final genres = ref.watch(albumGenresProvider(albumKey)).value ?? [];
+    final facts = ref.watch(albumFactsProvider(albumKey)).value;
+    final blurb = ref.watch(albumBlurbProvider(albumKey)).value;
+    final hireUrl = ref.watch(
+      albumHiResCoverProvider(
+        '${album.artist.toLowerCase()}\x00${album.title.toLowerCase()}\x00${songs.first.title.toLowerCase()}',
+      ),
+    ).value;
     final byTitle = <String, List<Song>>{};
     for (final s in songs) {
       byTitle.putIfAbsent(normTitle(s.title), () => []).add(s);
@@ -435,277 +384,271 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
               ),
           ];
 
-    return TweenAnimationBuilder<Color?>(
-      tween: ColorTween(
-        begin: ArtTone.pageWashOf(null),
-        end: _washTarget ?? ArtTone.pageWashOf(null),
-      ),
-      duration: Motion.reduced(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 400),
-      builder: (context, wash, _) {
-        final page = wash ?? ArtTone.pageWashOf(null);
-        return Scaffold(
-          backgroundColor: page,
-          body: DockScrollReporter(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomScrollView(
-                  slivers: [
-                    // Full-bleed hero, one app with the artist page: art
-                    // fills the expanded bar edge to edge, titles live
-                    // ON it, the melt ends in the shared wash. No cut,
-                    // no duplicated titles below.
-                    _AlbumHero(
-                      title: album.title,
-                      artist: album.artist,
-                      albumId: songs.first.albumId,
-                      wash: page,
-                      onWash: (c) {
-                        if (!mounted || c == _washTarget) return;
-                        setState(() => _washTarget = c);
-                      },
-                      onBack: () => Navigator.of(context).maybePop(),
-                      onMore: () => _openAlbumMenu(ref, context, play),
-                      onArtist: () =>
-                          ArtistHubPage.openIfAbsent(context, album.artist),
-                    ),
-                    SliverToBoxAdapter(
-                      // Content sits below the art: titles live in the
-                      // hero, meta and actions open the body. Nothing
-                      // hides inside the melt.
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-                        child: Column(
-                          children: [
-                            // Dot meta: counts always, year + uniform
-                            // chip only when the data earns them.
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 6,
+    final ordered = _orderedOwned(displayTracks);
+    final total = songs.fold(Duration.zero, (sum, s) => sum + s.duration);
+    AudioFormat? uniform;
+    {
+      final first = formatOf(songs.first.path);
+      final same =
+          first != AudioFormat.unknown &&
+          songs.every((s) => formatOf(s.path) == first);
+      if (same) uniform = first;
+    }
+    var year = 0;
+    for (final s in songs) {
+      if (s.year > 0) {
+        year = s.year;
+        break;
+      }
+    }
+    final dateLine = _dateLine(facts?.date ?? '', year);
+    final label = (facts?.label ?? '').trim();
+    final copyright = year > 0 && label.isNotEmpty
+        ? '\u00a9 $year $label'
+        : null;
+    final isThis = current != null && songs.any((s) => s.id == current.id);
+    final showPause = isThis && playing;
+
+    Future<void> play(bool shuffleFirst) async {
+      if (ordered.isEmpty) return;
+      final handler = ref.read(audioHandlerProvider);
+      var queue = List<Song>.of(ordered);
+      if (shuffleFirst) {
+        queue.shuffle();
+        unawaited(handler.setShuffleEnabled(true));
+      }
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playSong(queue.first, queue),
+      );
+    }
+
+    Future<void> addAll() async {
+      HapticFeedback.selectionClick();
+      final pending = [
+        for (final t in displayTracks)
+          if (t.song == null)
+            PendingTrack(
+              title: t.title,
+              artist: album.artist,
+              album: album.title,
+            ),
+      ];
+      await showAddToPlaylistSheet(ref, context, ordered, pending: pending);
+    }
+
+    final selecting = _armed;
+    final collapsed = ref.watch(pillCollapsedProvider);
+    final bottomClear = selecting
+        ? 380.0
+        : collapsed
+        ? 120.0
+        : (ref.watch(miniVisibleProvider) ? 200.0 : 140.0);
+
+    return PopScope(
+      canPop: !selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && selecting) _exitSel();
+      },
+      child: TweenAnimationBuilder<Color?>(
+        tween: ColorTween(
+          begin: ArtTone.pageWashOf(null),
+          end: _washTarget ?? ArtTone.pageWashOf(null),
+        ),
+        duration: Motion.reduced(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 400),
+        builder: (context, wash, _) {
+          final page = wash ?? ArtTone.pageWashOf(null);
+          return Scaffold(
+            backgroundColor: page,
+            body: DockScrollReporter(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CustomScrollView(
+                    slivers: [
+                      _AlbumBar(
+                        album: album,
+                        songs: songs,
+                        hireUrl: hireUrl,
+                        wash: page,
+                        uniform: uniform,
+                        releaseType: facts?.releaseType ?? '',
+                        onWash: (c) {
+                          if (!mounted || c == _washTarget) return;
+                          setState(() => _washTarget = c);
+                        },
+                        onBack: () => selecting
+                            ? _exitSel()
+                            : Navigator.of(context).maybePop(),
+                        onMore: () =>
+                            _openAlbumMenu(ref, context, play, addAll),
+                        onArtist: () => ArtistHubPage.openIfAbsent(
+                          context,
+                          album.artist,
+                        ),
+                      ),
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _ControlsHeader(
+                          wash: page,
+                          showPause: showPause,
+                          onPlayPause: () {
+                            HapticFeedback.mediumImpact();
+                            if (showPause) {
+                              ref.read(audioHandlerProvider).pause();
+                            } else {
+                              play(false);
+                            }
+                          },
+                          onShuffle: () {
+                            HapticFeedback.selectionClick();
+                            play(true);
+                          },
+                          onAdd: addAll,
+                        ),
+                      ),
+                      if (blurb != null && blurb.isNotEmpty)
+                        SliverToBoxAdapter(child: _Blurb(text: blurb)),
+                      SliverList.builder(
+                        itemCount: displayTracks.length,
+                        itemBuilder: (context, i) {
+                          final t = displayTracks[i];
+                          final owned = t.song;
+                          final isCurrent = owned != null &&
+                              owned.id == current?.id;
+                          final sel = selecting
+                              ? (owned != null
+                                  ? _sel.ids.contains(owned.id)
+                                  : _unownedSel.contains(_uKey(t.title)))
+                              : null;
+                          return CascadeIn(
+                            delayMs: (i + 1).clamp(1, 10) * 30,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  '${songs.length} song${songs.length == 1 ? '' : 's'} - ${fmtDuration(total)}',
-                                  style: const TextStyle(color: inkDim),
+                                _AlbumTrackRow(
+                                  track: t,
+                                  selected: sel,
+                                  isCurrent: isCurrent,
+                                  loadingPreview:
+                                      _loadingPreview == t.title &&
+                                      owned == null,
+                                  onTap: owned == null
+                                      ? () {
+                                          if (selecting) {
+                                            HapticFeedback.selectionClick();
+                                            _toggleUnowned(t.title);
+                                            return;
+                                          }
+                                          _previewUnowned(
+                                            context,
+                                            ref,
+                                            t,
+                                            hireUrl ?? '',
+                                          );
+                                        }
+                                      : () => _tapOwned(
+                                          context,
+                                          ref,
+                                          owned,
+                                          ordered,
+                                        ),
+                                  onHold: owned == null
+                                      ? () => _enterUnowned(t.title)
+                                      : () => _enterOwned(owned),
+                                  onMore: owned == null
+                                      ? (btnContext) => _unownedMenu(
+                                          btnContext,
+                                          ref,
+                                          t,
+                                          hireUrl ?? '',
+                                        )
+                                      : null,
                                 ),
-                                if (year > 0)
-                                  Text(
-                                    '- $year',
-                                    style: const TextStyle(color: inkDim),
+                                if (i < displayTracks.length - 1)
+                                  const Divider(
+                                    height: 1,
+                                    thickness: 1,
+                                    color: Color(0x140B0B0D),
                                   ),
-                                if (genres.isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: ink.withValues(alpha: 0.16),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      genres.first.toUpperCase(),
-                                      style: const TextStyle(
-                                        color: inkDim,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                if (uniform != null)
-                                  FormatChip(path: songs.first.path),
                               ],
                             ),
-                            const SizedBox(height: 14),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.mediumImpact();
-                                    if (showPause) {
-                                      ref.read(audioHandlerProvider).pause();
-                                    } else {
-                                      play(false);
-                                    }
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 40,
-                                      vertical: 14,
+                          );
+                        },
+                      ),
+                      SliverToBoxAdapter(
+                        child: _Credits(
+                          lossless: uniform != null &&
+                              formatLossless(uniform),
+                          dateLine: dateLine,
+                          countLine:
+                              '${songs.length} song${songs.length == 1 ? '' : 's'}, ${fmtDuration(total)}',
+                          copyright: copyright,
+                          label: label,
+                          onLabel: label.isEmpty
+                              ? null
+                              : () {
+                                  HapticFeedback.selectionClick();
+                                  ref
+                                          .read(libraryQueryProvider.notifier)
+                                          .state = label;
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const LibrarySearchPage(),
                                     ),
-                                    decoration: const BoxDecoration(
-                                      color: archPink,
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(28),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        MorphIcon(
-                                          iconKey: showPause,
-                                          child: Icon(
-                                            showPause
-                                                ? CupertinoIcons.pause_fill
-                                                : CupertinoIcons.play_fill,
-                                            color: Colors.white,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          showPause ? 'Pause' : 'Play',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    play(true);
-                                  },
-                                  child: Container(
-                                    width: 52,
-                                    height: 52,
-                                    decoration: BoxDecoration(
-                                      color: paperRaised,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: ink.withValues(alpha: 0.08),
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      CupertinoIcons.shuffle_medium,
-                                      color: ink,
-                                      size: 24,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                                  );
+                                },
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: bottomClear),
+                      ),
+                    ],
+                  ),
+                  if (!selecting) const NowPlayingDock(),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: AnimatedSlide(
+                      duration: Motion.reduced(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 350),
+                      curve: Motion.arrival,
+                      offset: selecting
+                          ? Offset.zero
+                          : const Offset(0, 2),
+                      child: AnimatedOpacity(
+                        duration: Motion.reduced(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 250),
+                        opacity: selecting ? 1 : 0,
+                        child: IgnorePointer(
+                          ignoring: !selecting,
+                          child: SelectionSheet(
+                            controller: _sel,
+                            ordered: () => _selectedOwned(displayTracks),
+                            pendingOrdered: () => _selectedPending(
+                              displayTracks,
+                              album.artist,
+                              album.title,
                             ),
-                          ],
+                            onExit: _exitSel,
+                          ),
                         ),
                       ),
                     ),
-                    SliverList.builder(
-                      itemCount: displayTracks.length,
-                      itemBuilder: (context, i) {
-                        final t = displayTracks[i];
-                        final owned = t.song;
-                        if (owned == null) {
-                          // Listed but not on this phone: dimmed, honest,
-                          // inert except a pointer toward Needle.
-                          return CascadeIn(
-                            delayMs: (i + 1).clamp(1, 10) * 30,
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 2,
-                              ),
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '${t.title} is not on this phone yet - Needle will fetch it',
-                                    ),
-                                  ),
-                                );
-                              },
-                              leading: SizedBox(
-                                width: 30,
-                                child: Text(
-                                  '${t.position}',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: inkDim,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              title: Text(
-                                t.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: ink.withValues(alpha: 0.75),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              subtitle: const Text(
-                                'Not on this device',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: inkDim, fontSize: 13),
-                              ),
-                              trailing: t.durationSecs > 0
-                                  ? Text(
-                                      fmtDuration(
-                                        Duration(seconds: t.durationSecs),
-                                      ),
-                                      style: const TextStyle(color: inkDim),
-                                    )
-                                  : null,
-                            ),
-                          );
-                        }
-                        return _AlbumTrackRow(
-                          song: owned,
-                          queue: songs,
-                          index: t.position,
-                          isCurrent: owned.id == current?.id,
-                        );
-                      },
-                    ),
-                    SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          // Quiet totals: lossless count only when it
-                          // adds information the meta row lacks.
-                          if (losslessCount > 0 && losslessCount < songs.length)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Text(
-                                '$losslessCount of ${songs.length} lossless',
-                                style: const TextStyle(
-                                  color: inkDim,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          if (losslessCount == songs.length && songs.isNotEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 12),
-                              child: Text(
-                                'All lossless',
-                                style: TextStyle(color: inkDim, fontSize: 13),
-                              ),
-                            ),
-                          const SizedBox(height: 140),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const NowPlayingDock(),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -713,6 +656,7 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
     WidgetRef ref,
     BuildContext context,
     Future<void> Function(bool shuffleFirst) play,
+    Future<void> Function() addAll,
   ) async {
     final value = await showTrackMenu(
       context: context,
@@ -727,6 +671,11 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
             icon: CupertinoIcons.shuffle_medium,
             label: 'Shuffle',
             value: 'shuffle',
+          ),
+          const MenuAction(
+            icon: CupertinoIcons.music_note_list,
+            label: 'Add all to playlist',
+            value: 'add',
           ),
         ],
         [
@@ -748,6 +697,10 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
         HapticFeedback.selectionClick();
         await play(true);
         break;
+      case 'add':
+        HapticFeedback.selectionClick();
+        await addAll();
+        break;
       case 'share':
         SharePlus.instance.share(
           ShareParams(text: '${widget.album.title} - ${widget.album.artist}'),
@@ -757,72 +710,782 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
   }
 }
 
-class _AlbumTrackRow extends ConsumerWidget {
-  final Song song;
-  final List<Song> queue;
-  final int index;
-  final bool isCurrent;
+/// Slim pinned bar + centered art card + voice title + pink artist
+/// + meta line (WA0027). Collapses to the mini title; the wash is
+/// shared with the page.
+class _AlbumBar extends ConsumerWidget {
+  final Album album;
+  final List<Song> songs;
+  final String? hireUrl;
+  final Color wash;
+  final AudioFormat? uniform;
+  final String releaseType;
+  final ValueChanged<Color>? onWash;
+  final VoidCallback onBack;
+  final VoidCallback onMore;
+  final VoidCallback onArtist;
 
-  const _AlbumTrackRow({
-    required this.song,
-    required this.queue,
-    required this.index,
-    required this.isCurrent,
+  static const _expanded = 500.0;
+
+  const _AlbumBar({
+    required this.album,
+    required this.songs,
+    required this.hireUrl,
+    required this.wash,
+    required this.uniform,
+    required this.releaseType,
+    this.onWash,
+    required this.onBack,
+    required this.onMore,
+    required this.onArtist,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final format = formatOf(song.path);
-    final formatWord = format == AudioFormat.unknown ? '' : formatLabel(format);
-    return CascadeIn(
-      delayMs: index.clamp(1, 10) * 30,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-        onTap: () => _tapToPlay(ref, context, song, queue),
-        leading: SizedBox(
-          width: 30,
-          child: Text(
-            '$index',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isCurrent ? archPink : inkDim,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+    final topPad = MediaQuery.paddingOf(context).top;
+    final voice = artistVoiceOf(album.title);
+    final genres = ref.watch(
+      albumGenresProvider(
+        '${album.artist.toLowerCase()}\x00${album.title.toLowerCase()}',
+      ),
+    ).value ??
+        [];
+    var year = 0;
+    for (final s in songs) {
+      if (s.year > 0) {
+        year = s.year;
+        break;
+      }
+    }
+    final chips = [
+      if (genres.isNotEmpty) _displayGenre(genres.first),
+      if (year > 0) '$year',
+      if (uniform != null && formatLossless(uniform!)) 'Lossless',
+    ];
+    final rt = releaseType.trim().toLowerCase();
+    final showType = rt == 'single' || rt == 'ep';
+    return SliverAppBar(
+      expandedHeight: _expanded,
+      pinned: true,
+      stretch: !Motion.reduced(context),
+      backgroundColor: wash,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      shadowColor: Colors.transparent,
+      leading: Padding(
+        padding: const EdgeInsets.all(8),
+        child: LiquidGlassLens(
+          style: ArchGlass.circle(radius: 24),
+          child: IconButton(
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back, color: ink),
+          ),
+        ),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: LiquidGlassLens(
+            style: ArchGlass.capsule(radius: 24),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  onPressed: () {
+                    SharePlus.instance.share(
+                      ShareParams(
+                        text: '${album.title} - ${album.artist}',
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    CupertinoIcons.square_arrow_up,
+                    color: ink,
+                  ),
+                ),
+                IconButton(
+                  onPressed: onMore,
+                  icon: const Icon(
+                    CupertinoIcons.ellipsis,
+                    color: ink,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        title: Text(
-          song.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: isCurrent ? archPink : ink,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Text(
-          formatWord.isEmpty ? song.artist : '${song.artist} - $formatWord',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: inkDim, fontSize: 13),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+      ],
+      flexibleSpace: LayoutBuilder(
+        builder: (context, constraints) {
+          final collapse =
+              ((_expanded - constraints.maxHeight) /
+                      (_expanded - (kToolbarHeight + topPad)))
+                  .clamp(0.0, 1.0);
+          return FlexibleSpaceBar(
+            collapseMode: CollapseMode.pin,
+            background: Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: topPad + kToolbarHeight + 8,
+                  child: Opacity(
+                    opacity: 1 - collapse,
+                    child: Column(
+                      children: [
+                        _HiResArt(
+                          albumId: songs.first.albumId,
+                          path: songs.first.path,
+                          url: hireUrl,
+                          onWash: onWash,
+                        ),
+                        const SizedBox(height: 14),
+                        if (showType)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: TypeBadge(label: rt.toUpperCase()),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            album.title,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: voice,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: voiceSpacing(voice),
+                              color: ink,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        GestureDetector(
+                          onTap: onArtist,
+                          child: Text(
+                            album.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: archPink,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (chips.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            chips.join(' \u00b7 '),
+                            style: const TextStyle(
+                              color: inkDim,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: topPad + 12,
+                  left: 64,
+                  right: 64,
+                  child: Opacity(
+                    opacity: collapse,
+                    child: Column(
+                      children: [
+                        Text(
+                          album.title,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: ink,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          album.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: inkDim,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Genre display that follows language: providers hand back
+/// all-lowercase tags ("hip hop", "r&b") and mixed-case ones
+/// ("K-pop", "UK Garage"). Only the all-lowercase words get
+/// title-cased; anything already carrying capitals is trusted.
+String _displayGenre(String g) {
+  return g.split(' ').map((w) {
+    if (w.isEmpty || w != w.toLowerCase()) return w;
+    return w.splitMapJoin(
+      RegExp(r'[-&/]'),
+      onMatch: (m) => m[0]!,
+      onNonMatch: (p) =>
+          p.isEmpty ? p : p[0].toUpperCase() + p.substring(1),
+    );
+  }).join(' ');
+}
+
+/// Cover card: embedded art instantly, hi-res remote fading in on
+/// top, wash reported off the sharpest available palette.
+class _HiResArt extends ConsumerStatefulWidget {
+  final int albumId;
+  final String path;
+  final String? url;
+  final ValueChanged<Color>? onWash;
+
+  const _HiResArt({
+    required this.albumId,
+    required this.path,
+    required this.url,
+    this.onWash,
+  });
+
+  @override
+  ConsumerState<_HiResArt> createState() => _HiResArtState();
+}
+
+class _HiResArtState extends ConsumerState<_HiResArt> {
+  /// Remote palette wins the moment it lands. The embedded palette
+  /// only fills before that. Two extra guards that the stateless
+  /// version lacked: the palette future is created once per URL
+  /// (a fresh future every build re-subscribes forever), and the
+  /// remote report latches (embedded + remote alternating reports
+  /// ping-ponged setState every frame).
+  Future<ArtPalette?>? _remotePalette;
+  String? _paletteUrl;
+  bool _remoteLanded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncFuture();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HiResArt old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) _syncFuture();
+  }
+
+  void _syncFuture() {
+    final remote = widget.url ?? '';
+    if (remote.isEmpty) {
+      _remotePalette = null;
+      _paletteUrl = null;
+      _remoteLanded = false;
+      return;
+    }
+    if (remote != _paletteUrl) {
+      _paletteUrl = remote;
+      _remoteLanded = false;
+      _remotePalette = ArtTone.paletteOf(remote);
+    }
+  }
+
+  void _report(Color wash) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onWash?.call(wash);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final embedded = ref.watch(albumPaletteProvider(widget.albumId)).value;
+    if (embedded != null && !_remoteLanded) {
+      _report(ArtTone.pageWashOf(embedded.wash));
+    }
+    return SizedBox(
+      width: 240,
+      height: 240,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            if (isCurrent)
-              NowBars(song: song)
-            else
-              Text(
-                fmtDuration(song.duration),
-                style: const TextStyle(color: inkDim),
+            FileArtImage(
+                path: widget.path, albumId: widget.albumId, fill: true),
+            if (_remotePalette != null)
+              FutureBuilder<ArtPalette?>(
+                future: _remotePalette,
+                builder: (context, pal) {
+                  if (pal.data == null) {
+                    return const SizedBox.shrink();
+                  }
+                  if (!_remoteLanded) {
+                    _remoteLanded = true;
+                    _report(ArtTone.pageWashOf(pal.data!.wash));
+                  }
+                  return CachedNetworkImage(
+                    imageUrl: widget.url!,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 700,
+                    fadeInDuration: Motion.reduced(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 400),
+                    errorWidget: (_, _, _) =>
+                        const SizedBox.shrink(),
+                  );
+                },
               ),
-            IconButton(
-              icon: const Icon(CupertinoIcons.ellipsis, color: inkDim),
-              onPressed: () => showSongMenu(ref, context, song),
-            ),
           ],
         ),
       ),
     );
   }
+}
+
+/// Sticky controls row (WA0029): shuffle + pink Play + add-all,
+/// pinned under the mini header while tracks scroll beneath.
+class _ControlsHeader extends SliverPersistentHeaderDelegate {
+  final Color wash;
+  final bool showPause;
+  final VoidCallback onPlayPause;
+  final VoidCallback onShuffle;
+  final VoidCallback onAdd;
+
+  const _ControlsHeader({
+    required this.wash,
+    required this.showPause,
+    required this.onPlayPause,
+    required this.onShuffle,
+    required this.onAdd,
+  });
+
+  @override
+  double get minExtent => 84;
+  @override
+  double get maxExtent => 84;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      color: wash,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: onShuffle,
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: paperRaised,
+                shape: BoxShape.circle,
+                border: Border.all(color: ink.withValues(alpha: 0.08)),
+              ),
+              child: const Icon(
+                CupertinoIcons.shuffle_medium,
+                color: ink,
+                size: 24,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: GestureDetector(
+              onTap: onPlayPause,
+              child: Container(
+                height: 52,
+                decoration: const BoxDecoration(
+                  color: archPink,
+                  borderRadius: BorderRadius.all(Radius.circular(28)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    MorphIcon(
+                      iconKey: showPause,
+                      child: Icon(
+                        showPause
+                            ? CupertinoIcons.pause_fill
+                            : CupertinoIcons.play_fill,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      showPause ? 'Pause' : 'Play',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: onAdd,
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: paperRaised,
+                shape: BoxShape.circle,
+                border: Border.all(color: ink.withValues(alpha: 0.08)),
+              ),
+              child: const Icon(Icons.add_rounded, color: ink, size: 24),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_ControlsHeader old) =>
+      wash != old.wash || showPause != old.showPause;
+}
+
+/// Editorial blurb with MORE expander. Hidden when neither source
+/// knows the record.
+class _Blurb extends StatefulWidget {
+  final String text;
+  const _Blurb({required this.text});
+
+  @override
+  State<_Blurb> createState() => _BlurbState();
+}
+
+class _BlurbState extends State<_Blurb> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedSize(
+            duration: Motion.reduced(context)
+                ? Duration.zero
+                : Motion.stateChange,
+            curve: Motion.settle,
+            alignment: Alignment.topCenter,
+            child: Text(
+              widget.text,
+              maxLines: _open ? null : 2,
+              overflow: _open ? null : TextOverflow.ellipsis,
+              style: const TextStyle(color: ink, fontSize: 15, height: 1.5),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _open = !_open);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                _open ? 'LESS' : 'MORE',
+                style: const TextStyle(
+                  color: inkDim,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlbumTrackRow extends ConsumerWidget {
+  final _DisplayTrack track;
+  final bool? selected;
+  final bool isCurrent;
+  final bool loadingPreview;
+  final VoidCallback onTap;
+  final VoidCallback? onHold;
+  final void Function(BuildContext)? onMore;
+
+  const _AlbumTrackRow({
+    required this.track,
+    required this.selected,
+    required this.isCurrent,
+    this.loadingPreview = false,
+    required this.onTap,
+    this.onHold,
+    this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sel = selected;
+    final song = track.song;
+    final dimmed = song == null;
+    return ListTile(
+      onTap: sel == null
+          ? onTap
+          : () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+      onLongPress: sel != null
+          ? null
+          : onHold == null
+          ? null
+          : () {
+              HapticFeedback.mediumImpact();
+              onHold!();
+            },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      leading: SizedBox(
+        width: 34,
+        child: sel != null
+            ? CheckDot(checked: sel)
+            : isCurrent
+            ? const NowBars()
+            : Text(
+                '${track.position}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: inkDim,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isCurrent
+                    ? archPink
+                    : dimmed
+                    ? ink.withValues(alpha: 0.55)
+                    : ink,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (dimmed)
+            const Padding(
+              padding: EdgeInsets.only(left: 6),
+              child: Icon(
+                CupertinoIcons.exclamationmark_triangle,
+                color: inkDim,
+                size: 15,
+              ),
+            ),
+        ],
+      ),
+      subtitle: dimmed
+          ? const Text(
+              'Not on this device - tap to preview',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: inkDim, fontSize: 13),
+            )
+          : null,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (song == null && loadingPreview)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: archPink,
+                strokeWidth: 2,
+              ),
+            )
+          else if (sel == null && (song != null || onMore != null))
+            Builder(
+              builder: (btnContext) => IconButton(
+                icon: const Icon(CupertinoIcons.ellipsis, color: inkDim),
+                onPressed: () {
+                  if (song != null) {
+                    showSongMenu(ref, btnContext, song);
+                  } else {
+                    onMore?.call(btnContext);
+                  }
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Plain-text credits footer (WA0028): quality mark, date, counts,
+/// copyright, record-label row. Only proven lines render.
+class _Credits extends StatelessWidget {
+  final bool lossless;
+  final String dateLine;
+  final String countLine;
+  final String? copyright;
+  final String label;
+  final VoidCallback? onLabel;
+
+  const _Credits({
+    required this.lossless,
+    required this.dateLine,
+    required this.countLine,
+    required this.copyright,
+    required this.label,
+    required this.onLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (lossless) ...[
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      'assets/logos/arch_core_audio.png',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              const Text(
+                'Arch Core Audio',
+                style: TextStyle(
+                  color: ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (dateLine.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(dateLine, style: _dim),
+          ],
+          const SizedBox(height: 6),
+          Text(countLine, style: _dim),
+          if (copyright != null) ...[
+            const SizedBox(height: 6),
+            Text(copyright!, style: _dim),
+          ],
+          if (label.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'RECORD LABEL',
+              style: TextStyle(
+                color: inkDim,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: onLabel,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (onLabel != null)
+                    const Icon(
+                      CupertinoIcons.chevron_right,
+                      color: inkDim,
+                      size: 18,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static const _dim = TextStyle(color: inkDim, fontSize: 14, height: 1.5);
+}
+
+String _dateLine(String iso, int year) {
+  final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(iso.trim());
+  if (m != null) {
+    final months = [
+      '',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December'
+    ];
+    final mo = int.tryParse(m.group(2)!) ?? 0;
+    final day = int.tryParse(m.group(3)!) ?? 0;
+    if (mo >= 1 && mo <= 12 && day >= 1) {
+      return '$day ${months[mo]} ${m.group(1)}';
+    }
+    return '${m.group(1)}';
+  }
+  if (year > 0) return '$year';
+  return '';
 }

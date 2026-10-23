@@ -88,6 +88,7 @@ flutter:
   # Codec marks (user-sourced PNGs, see docs/ASSET-NOTICES.md).
   # Geometric fallback in code covers formats without a file.
   assets:
+    - assets/logos/arch_core_audio.png
     - assets/logos/mp3.png
     - assets/logos/m4a/m4a.png
     - assets/logos/flac/flac.png
