@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,23 +7,28 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/art_tone.dart';
+import '../../core/badges.dart';
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
+import '../../core/skeleton.dart';
 import '../../core/theme.dart';
 import '../metadata/metadata_providers.dart';
+import '../needle/download_sheet.dart' show showDownloadSheet;
 import '../needle/needle_store.dart';
-import '../needle/pull.dart';
-import '../needle/sandbox.dart';
-import '../needle/verify_sheet.dart';
-import '../needle/session_grant.dart';
-import '../player/morph_icon.dart';
+import '../needle/queue_runner.dart';
+import '../needle/queue_store.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
+import '../player/track_menu.dart'
+    show MenuAction, showSongMenu, showTrackMenu;
 import 'library_providers.dart';
+import 'data/library_repository.dart';
+import 'song_select.dart';
 import 'album_page.dart' show AlbumPage;
 import 'release_gallery.dart';
+import 'remote_album_page.dart';
 import 'song_row.dart';
 import '../shell/dock.dart';
 
@@ -59,6 +65,10 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   /// Currently bloomed fan hub, if any.
   String? _openHub;
 
+  /// Select mode: owned top tracks only. Unowned rows preview or
+  /// pull instead of joining the selection.
+  final _sel = SelectionController();
+
   /// Full-bleed page tint target, reported by the hero once the artist
   /// tone lands. Plain nullable field on purpose: no `late`, no ticker,
   /// so a hot reload across edits can never strand the state
@@ -69,12 +79,34 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   void initState() {
     super.initState();
     ArtistPage._open.add(widget.artistName);
+    _sel.addListener(() {
+      if (!mounted) return;
+      ref.read(selectionActiveProvider.notifier).state = _sel.armed;
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _sel.dispose();
     ArtistPage._open.remove(widget.artistName);
     super.dispose();
+  }
+
+  void _exitSel() {
+    _sel.exit();
+    ref.read(selectionActiveProvider.notifier).state = false;
+    if (mounted) setState(() {});
+  }
+
+  List<Song> _selectedOwned(List<TopTrack> tracks, List<Song> local) {
+    final want = _sel.ids;
+    final out = <Song>[];
+    for (final t in tracks) {
+      final s = ownedTopTrack(local, t.title);
+      if (s != null && want.contains(s.id)) out.add(s);
+    }
+    return out;
   }
 
   @override
@@ -92,11 +124,20 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
     final top = ref.watch(artistTopProvider(widget.artistName));
     final releases = ref.watch(artistReleasesProvider(widget.artistName));
     final followed = ref.watch(followedProvider);
+    final audience = ref.watch(
+      artistListenersProvider(widget.artistName),
+    );
+    final selecting = _sel.armed;
 
     // Full-bleed artist wash (Apple Music-style): page, bar and melt
     // all share one tone, so the transparent status bar never sits on a
     // stark white page above a colorful photo. Eased, never snapped.
-    return TweenAnimationBuilder<Color?>(
+    return PopScope(
+      canPop: !selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && selecting) _exitSel();
+      },
+      child: TweenAnimationBuilder<Color?>(
       tween: ColorTween(
         begin: _washOf(null),
         end: _washTarget ?? _washOf(null),
@@ -107,10 +148,15 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
       builder: (context, wash, _) {
         final page = wash ?? _washOf(null);
         // Clearance follows the docked unit so content never slides
-        // under it - same rule as the library.
+        // under it - same rule as the library. Select mode owns the
+        // bottom edge: the sheet replaces the pill.
         final collapsed = ref.watch(pillCollapsedProvider);
         final mini = ref.watch(miniVisibleProvider);
-        final bottomClear = collapsed ? 120.0 : (mini ? 200.0 : 140.0);
+        final bottomClear = selecting
+            ? 380.0
+            : collapsed
+            ? 120.0
+            : (mini ? 200.0 : 140.0);
         return Scaffold(
           backgroundColor: page,
           body: DockScrollReporter(
@@ -122,8 +168,10 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
                     _Hero(
                       name: widget.artistName,
                       local: local,
+                      top: top.value ?? const [],
                       imageUrl: pic.value,
                       logoUrl: logo.value,
+                      listeners: audience.value,
                       wash: page,
                       followed: followed.contains(widget.artistName),
                       onFollow: () => _toggleFollow(
@@ -137,7 +185,14 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
                         if (!mounted || c == _washTarget) return;
                         setState(() => _washTarget = c);
                       },
-                      onBack: () => Navigator.of(context).pop(),
+                      onBack: () => selecting
+                          ? _exitSel()
+                          : Navigator.of(context).pop(),
+                      onPullAll: () => _pullAllTop(
+                        ref,
+                        context,
+                        top.value ?? const [],
+                      ),
                     ),
                     SliverToBoxAdapter(
                       child: _FeaturedRelease(
@@ -151,6 +206,19 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
                         top: top,
                         local: local,
                         artistName: widget.artistName,
+                        selecting: selecting,
+                        isSelected: (song) =>
+                            _sel.ids.contains(song.id),
+                        onToggleOwned: (song) {
+                          HapticFeedback.selectionClick();
+                          _sel.toggle(song.id);
+                          if (!_sel.armed) _exitSel();
+                        },
+                        onHoldOwned: (song) {
+                          if (_sel.armed) return;
+                          HapticFeedback.mediumImpact();
+                          _sel.enter(song.id);
+                        },
                       ),
                     ),
                     SliverToBoxAdapter(
@@ -174,12 +242,44 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
                     SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
                   ],
                 ),
-                const NowPlayingDock(),
+                if (!selecting) const NowPlayingDock(),
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
+                  child: AnimatedSlide(
+                    duration: Motion.reduced(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 350),
+                    curve: Motion.arrival,
+                    offset: selecting
+                        ? Offset.zero
+                        : const Offset(0, 2),
+                    child: AnimatedOpacity(
+                      duration: Motion.reduced(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 250),
+                      opacity: selecting ? 1 : 0,
+                      child: IgnorePointer(
+                        ignoring: !selecting,
+                        child: SelectionSheet(
+                          controller: _sel,
+                          ordered: () => _selectedOwned(
+                            top.value ?? const [],
+                            local,
+                          ),
+                          onExit: _exitSel,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         );
       },
+      ),
     );
   }
 
@@ -198,16 +298,66 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
       ),
     );
   }
+
+  /// Pull the artist's top tracks through Needle: enqueue the
+  /// missing ones on the priority-first download provider.
+  Future<void> _pullAllTop(
+    WidgetRef ref,
+    BuildContext context,
+    List<TopTrack> tracks,
+  ) async {
+    final downloaders = [
+      for (final p in ref.read(installedExtensionsProvider))
+        if (p.enabled && p.roles.contains('download')) p,
+    ];
+    if (downloaders.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No download providers enabled')),
+        );
+      }
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    final quality = ref.read(downloadQualityProvider);
+    final queue = ref.read(downloadQueueProvider.notifier);
+    var n = 0;
+    for (final t in tracks) {
+      queue.enqueue(
+        title: t.title,
+        artist: widget.artistName,
+        album: t.albumTitle,
+        art: t.coverUrl ?? '',
+        isrc: '',
+        providers: downloaders,
+        providerId: null,
+        quality: quality,
+      );
+      n++;
+    }
+    runQueue(ProviderScope.containerOf(context, listen: false));
+    ArchLog.i('artist', 'pull all top "${widget.artistName}": $n queued');
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Queued $n — watch it in Needle')),
+      );
+    }
+  }
 }
 
 class _Hero extends StatefulWidget {
   final String name;
   final List<Song> local;
+  final List<TopTrack> top;
   final String? imageUrl;
 
   /// True artist wordmark (fanart.tv HD ClearLogo), when the world has
   /// one. Null = our display-font voice speaks the name instead.
   final String? logoUrl;
+
+  /// Audience line (monthly listeners / fans / listeners) with trend.
+  /// Null = nobody knows; the hero skips the line, never placeholders.
+  final ArtistListeners? listeners;
 
   /// Page-shared wash: bar background and melt target. Reported back up
   /// via [onWash] once the artist tone resolves.
@@ -217,18 +367,22 @@ class _Hero extends StatefulWidget {
   final VoidCallback onFollow;
   final VoidCallback onShare;
   final VoidCallback onBack;
+  final VoidCallback onPullAll;
 
   const _Hero({
     required this.name,
     required this.local,
+    required this.top,
     required this.imageUrl,
     this.logoUrl,
+    this.listeners,
     required this.wash,
     this.onWash,
     required this.followed,
     required this.onFollow,
     required this.onShare,
     required this.onBack,
+    required this.onPullAll,
   });
 
   @override
@@ -388,6 +542,10 @@ class _HeroState extends State<_Hero> {
                         else
                           _voiceName(),
                         const SizedBox(height: 4),
+                        if (widget.listeners != null)
+                          _ListenersLine(
+                            listeners: widget.listeners!,
+                          ),
                         Text(
                           '${widget.local.length} song${widget.local.length == 1 ? '' : 's'} on device',
                           textAlign: TextAlign.center,
@@ -405,13 +563,15 @@ class _HeroState extends State<_Hero> {
                         ),
                         // Action row lives fully on the photo, above the
                         // melt: full circles on image pixels, never crossing
-                        // a background seam.
+                        // a background seam. Big button plays owned files,
+                        // or pulls the top tracks when nothing is owned.
                         const SizedBox(height: 12),
                         _ActionRow(
                           local: widget.local,
                           followed: widget.followed,
                           onFollow: widget.onFollow,
                           onShare: widget.onShare,
+                          onPullAll: widget.onPullAll,
                         ),
                       ],
                     ),
@@ -498,30 +658,85 @@ class _HeroState extends State<_Hero> {
   }
 }
 
-/// Share - big play - follow. No dead download control until Needle exists.
+/// Audience line under the name: "18.2M monthly listeners" with a
+/// market trend arrow (green up, red down, hidden on first sight).
+/// Null audience never reaches here — the hero skips the line.
+class _ListenersLine extends StatelessWidget {
+  final ArtistListeners listeners;
+  const _ListenersLine({required this.listeners});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            formatListeners(listeners),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 15,
+              shadows: [
+                Shadow(
+                  color: Colors.black45,
+                  blurRadius: 10,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+          ),
+          if (listeners.trend != 0) ...[
+            const SizedBox(width: 4),
+            Icon(
+              listeners.trend > 0
+                  ? CupertinoIcons.arrow_up_right
+                  : CupertinoIcons.arrow_down_right,
+              color: listeners.trend > 0
+                  ? const Color(0xFF30D158)
+                  : const Color(0xFFFF453A),
+              size: 16,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Share - big play/pull - follow. The big button plays owned files
+/// and pulls the top tracks when nothing is on the device.
 class _ActionRow extends ConsumerWidget {
   final List<Song> local;
   final bool followed;
   final VoidCallback onFollow;
   final VoidCallback onShare;
+  final VoidCallback onPullAll;
 
   const _ActionRow({
     required this.local,
     required this.followed,
     required this.onFollow,
     required this.onShare,
+    required this.onPullAll,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final pullMode = local.isEmpty;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         _RoundButton(icon: Icons.share_rounded, onTap: onShare),
         GestureDetector(
           onTap: () async {
-            if (local.isEmpty) return;
             HapticFeedback.mediumImpact();
+            if (pullMode) {
+              onPullAll();
+              return;
+            }
             final handler = ref.read(audioHandlerProvider);
             await playAndOpen(
               ref,
@@ -536,7 +751,13 @@ class _ActionRow extends ConsumerWidget {
               color: Colors.white,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.play_arrow_rounded, color: ink, size: 36),
+            child: Icon(
+              pullMode
+                  ? CupertinoIcons.cloud_download
+                  : Icons.play_arrow_rounded,
+              color: ink,
+              size: 32,
+            ),
           ),
         ),
         _RoundButton(
@@ -580,6 +801,20 @@ class _RoundButton extends StatelessWidget {
     );
   }
 }
+
+/// Owned match for a provider top track: normalized title only.
+/// Shared by Popular rows and the select sheet so both agree on
+/// what "yours" means.
+Song? ownedTopTrack(List<Song> local, String title) {
+  final norm = _normTopTitle(title);
+  for (final s in local) {
+    if (_normTopTitle(s.title) == norm) return s;
+  }
+  return null;
+}
+
+String _normTopTitle(String t) =>
+    t.toLowerCase().replaceAll(RegExp(r'\s*\(.*?\)\s*'), '').trim();
 
 /// Page wash: the artist's own tone pulled most of the way to paper.
 /// Light enough for ink text, tinted enough for full-bleed. Null tone =
@@ -665,36 +900,69 @@ class _FeaturedRelease extends ConsumerWidget {
       }
     }
 
+    // Absolute latest, ordered by full release date (ISO dates
+    // compare lexicographically). Dateless entries keep MB's order
+    // at the back. Owned wins ONLY when strictly newer by file
+    // tags — curated world dates beat local tags everywhere else.
     ReleaseGroup? remote;
-    List<ReleaseGroup>? hubItems;
     final list = releases.value;
     if (list != null && list.isNotEmpty) {
-      var pick = list.first;
-      for (final r in list) {
-        if (r.type == 'album') {
-          pick = r;
-          break;
-        }
-      }
-      remote = pick;
-      final label = _hubLabel(pick.type);
-      hubItems = list.where((r) => _hubLabel(r.type) == label).toList();
+      final dated = [for (final r in list) if (r.date.trim().isNotEmpty) r]
+        ..sort((a, b) => b.date.compareTo(a.date));
+      final undated = [for (final r in list) if (r.date.trim().isEmpty) r];
+      final ordered = [...dated, ...undated];
+      remote = ordered.first;
+      ArchLog.i(
+        'featured',
+        'candidates: ${[
+          for (final r in ordered.take(5))
+            '${r.title} [${r.type}/${r.date.isEmpty ? 'nodate' : r.date}]',
+        ].join(' | ')} -> pick ${remote.title}',
+      );
     }
+    var ownedYear = 0;
+    if (owned != null) {
+      for (final s in owned.songs) {
+        if (s.year > ownedYear) ownedYear = s.year;
+      }
+    }
+    final remoteYear = remote == null
+        ? -1
+        : int.tryParse(remote.date.split('-').first) ?? remote.year ?? -1;
+    final useOwned =
+        owned != null && (remote == null || ownedYear > remoteYear);
 
     if (owned == null && remote == null) return const SizedBox.shrink();
 
     final String yearText;
     final String title;
     final Widget cover;
+
+    /// SINGLE / EP badge when the featured release is one. Owned
+    /// albums match their release-group by title; remote carries it.
+    /// The badge tints from the cover art (same voice rule as the
+    /// hero name), so it always belongs to its backdrop.
+    String? badge;
+    String paletteKey = 'none';
+    Future<ArtPalette?> Function() paletteLoad = () async => null;
     void Function() open;
-    if (owned != null) {
+    if (useOwned) {
       final o = owned;
-      var year = 0;
-      for (final s in o.songs) {
-        if (s.year > year) year = s.year;
-      }
-      yearText = year > 0 ? '$year' : '${o.songs.length} songs';
+      yearText = ownedYear > 0 ? '$ownedYear' : '${o.songs.length} songs';
       title = o.title;
+      final match = list?.where(
+        (r) => normTitle(r.title) == normTitle(o.title),
+      );
+      final t = match == null || match.isEmpty
+          ? ''
+          : match.first.type.toLowerCase();
+      if (t == 'single' || t == 'ep') badge = t.toUpperCase();
+      final albumId = o.songs.first.albumId;
+      paletteKey = 'art:$albumId';
+      paletteLoad = () => ArtTone.paletteFromBytes(
+            'art:$albumId',
+            () => ArtCache.of(albumId, ArtBucket.large),
+          );
       cover = FileArtImage(
         path: o.songs.first.path,
         albumId: o.songs.first.albumId,
@@ -710,20 +978,17 @@ class _FeaturedRelease extends ConsumerWidget {
       final r = remote!;
       yearText = r.year != null ? '${r.year}' : _hubLabel(r.type);
       title = r.title;
+      final t = r.type.toLowerCase();
+      if (t == 'single' || t == 'ep') badge = t.toUpperCase();
+      final artUrl = r.artUrl;
+      if (artUrl != null && artUrl.isNotEmpty) {
+        paletteKey = artUrl;
+        paletteLoad = () => ArtTone.paletteOf(artUrl);
+      }
       cover = ReleaseCover(release: r, owned: false, size: 64);
       open = () {
         HapticFeedback.selectionClick();
-        final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ReleaseGallery(
-              artistName: artistName,
-              label: _hubLabel(r.type),
-              items: hubItems ?? [r],
-              ownedTitles: ownedTitles,
-            ),
-          ),
-        );
+        RemoteAlbumPage.open(context, artistName, r.title);
       };
     }
 
@@ -731,43 +996,111 @@ class _FeaturedRelease extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
       child: GestureDetector(
         onTap: open,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: paperRaised,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            children: [
-              cover,
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      yearText,
-                      style: const TextStyle(color: inkDim, fontSize: 13),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ink,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+        child: _ReleasePalette(
+          cacheKey: '$badge|${badge == null ? '' : paletteKey}',
+          load: paletteLoad,
+          builder: (context, pal) {
+            var bg = paperRaised;
+            if (pal != null) {
+              bg = Color.lerp(paperRaised, pal.vibrant, 0.10)!;
+            }
+            return Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(20),
               ),
-              const Icon(Icons.chevron_right_rounded, color: inkDim),
-            ],
-          ),
+              child: Row(
+                children: [
+                  cover,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                yearText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: inkDim,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            if (badge != null)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: TypeBadge(label: badge),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: ink,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: inkDim),
+                ],
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+}
+
+/// Palette loader that fires once per artwork key, so the tinted
+/// card and its badge never re-subscribe (and re-flicker) on every
+/// parent rebuild. Same memo the tone system already keeps.
+class _ReleasePalette extends StatefulWidget {
+  final String cacheKey;
+  final Future<ArtPalette?> Function() load;
+  final Widget Function(BuildContext context, ArtPalette? palette) builder;
+
+  const _ReleasePalette({
+    required this.cacheKey,
+    required this.load,
+    required this.builder,
+  });
+
+  @override
+  State<_ReleasePalette> createState() => _ReleasePaletteState();
+}
+
+class _ReleasePaletteState extends State<_ReleasePalette> {
+  Future<ArtPalette?>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReleasePalette old) {
+    super.didUpdateWidget(old);
+    if (old.cacheKey != widget.cacheKey) _future = widget.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<ArtPalette?>(
+      future: _future,
+      builder: (context, snap) => widget.builder(context, snap.data),
     );
   }
 }
@@ -810,9 +1143,10 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-/// Collaborators: every other name sharing these songs, as sideways
-/// links. The merge killed phantom pages; this keeps the people
-/// reachable - tap opens their page (remote-only when needed).
+/// Collaborators: every other name sharing these songs, as
+/// portrait links. The merge killed phantom pages; this keeps the
+/// people reachable — tap opens their page (remote-only when
+/// needed). Faces come through the same cached artist-pic lane.
 class _Collaborators extends StatelessWidget {
   final List<Song> local;
   final String artistName;
@@ -836,42 +1170,93 @@ class _Collaborators extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionTitle('Collaborators', count: names.length),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final n in names)
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    ArtistPage.openIfAbsent(context, n);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      color: paperRaised,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: ink.withValues(alpha: 0.08)),
-                    ),
-                    child: Text(
-                      n,
-                      style: const TextStyle(
-                        color: ink,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+        SizedBox(
+          height: 108,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: names.length,
+            itemBuilder: (context, i) => _CollaboratorFace(name: names[i]),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CollaboratorFace extends ConsumerWidget {
+  final String name;
+  const _CollaboratorFace({required this.name});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pic = ref.watch(artistPicProvider(name)).value;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        ArtistPage.openIfAbsent(context, name);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 76,
+        margin: const EdgeInsets.only(right: 8),
+        child: Column(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: paperRaised,
+                border: Border.all(
+                  color: ink.withValues(alpha: 0.08),
+                ),
+              ),
+              child: ClipOval(
+                child: pic != null && pic.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: pic,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 160,
+                        errorWidget: (_, _, _) => Center(
+                          child: Text(
+                            name.isEmpty ? '?' : name[0].toUpperCase(),
+                            style: const TextStyle(
+                              color: archPink,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: Text(
+                          name.isEmpty ? '?' : name[0].toUpperCase(),
+                          style: const TextStyle(
+                            color: archPink,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: ink,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -939,17 +1324,34 @@ class _ExpandableBioState extends State<_ExpandableBio> {
 }
 
 /// Popular as swipeable pages (5 rows each) with ref-style dots.
-/// No ranks, no expander - swipe left/right for more songs.
+/// No ranks, no expander - swipe left/right for more songs. Owned
+/// rows play the file and join select mode; unowned rows preview
+/// and pull. The `...` menu is the house context popover.
 class _Popular extends ConsumerStatefulWidget {
   final AsyncValue<List<TopTrack>> top;
   final List<Song> local;
   final String artistName;
 
+  /// Select mode (owned only): tap toggles, hold arms.
+  final bool selecting;
+  final bool Function(Song song) isSelected;
+  final void Function(Song song) onToggleOwned;
+  final void Function(Song song) onHoldOwned;
+
   const _Popular({
     required this.top,
     required this.local,
     required this.artistName,
-  });
+    this.selecting = false,
+    bool Function(Song song)? isSelected,
+    void Function(Song song)? onToggleOwned,
+    void Function(Song song)? onHoldOwned,
+  })  : isSelected = isSelected ?? _neverSelected,
+        onToggleOwned = onToggleOwned ?? _noopSong,
+        onHoldOwned = onHoldOwned ?? _noopSong;
+
+  static bool _neverSelected(Song _) => false;
+  static void _noopSong(Song _) {}
 
   @override
   ConsumerState<_Popular> createState() => _PopularState();
@@ -959,22 +1361,16 @@ class _PopularState extends ConsumerState<_Popular> {
   late final PageController _pages = PageController();
   int _page = 0;
 
+  /// Preview resolving at most one at a time (keyed by rank+title).
+  String? _loadingKey;
+
   @override
   void dispose() {
     _pages.dispose();
     super.dispose();
   }
 
-  Song? _owned(String title) {
-    final norm = _norm(title);
-    for (final s in widget.local) {
-      if (_norm(s.title) == norm) return s;
-    }
-    return null;
-  }
-
-  static String _norm(String t) =>
-      t.toLowerCase().replaceAll(RegExp(r'\s*\(.*?\)\s*'), '').trim();
+  Song? _owned(String title) => ownedTopTrack(widget.local, title);
 
   @override
   Widget build(BuildContext context) {
@@ -984,10 +1380,11 @@ class _PopularState extends ConsumerState<_Popular> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle('Popular'),
-          Padding(
-            padding: EdgeInsets.all(20),
-            child: LinearProgressIndicator(color: archPink),
-          ),
+          GhostTrackRow(),
+          GhostTrackRow(),
+          GhostTrackRow(),
+          GhostTrackRow(),
+          GhostTrackRow(),
         ],
       ),
       error: (_, _) => const SizedBox.shrink(),
@@ -1002,9 +1399,18 @@ class _PopularState extends ConsumerState<_Popular> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _SectionTitle('Popular', count: tracks.length),
-            SizedBox(
-              height: 350,
-              child: PageView.builder(
+            Builder(
+              builder: (context) {
+                // Page height derives from the rows, never the reverse:
+                // two-line ListTiles size with text, so a fixed 350
+                // overflows the moment type scales up. Headroom included.
+                final scale = MediaQuery.textScalerOf(
+                  context,
+                ).scale(1.0).clamp(1.0, 1.6);
+                final pageH = chunks[0].length * 72.0 * scale + 8;
+                return SizedBox(
+                  height: pageH,
+                  child: PageView.builder(
                 controller: _pages,
                 onPageChanged: (p) => setState(() => _page = p),
                 itemCount: chunks.length,
@@ -1014,16 +1420,30 @@ class _PopularState extends ConsumerState<_Popular> {
                       _TopRow(
                         track: track,
                         owned: _owned(track.title),
+                        selected: widget.selecting
+                            ? widget.isSelected(
+                                _owned(track.title) ?? _ghost,
+                              )
+                            : null,
+                        loading: _loadingKey == _keyOf(track),
                         isCurrent:
                             currentId != null &&
                             (currentId == _owned(track.title)?.id ||
                                 currentId == -(track.rank + 1)),
-                        onTap: () => _play(ref, context, track),
-                        onOverflow: () => _trackActions(ref, context, track),
+                        onTap: () => _tapTrack(track),
+                        onHold: () => _holdTrack(track),
+                        onDownload: _owned(track.title) == null &&
+                                !widget.selecting
+                            ? () => _pull(ref, context, track)
+                            : null,
+                        onOverflow: (btnContext) =>
+                            _menuTrack(ref, btnContext, track),
                       ),
                   ],
                 ),
               ),
+            );
+              },
             ),
             if (chunks.length > 1)
               Padding(
@@ -1053,169 +1473,188 @@ class _PopularState extends ConsumerState<_Popular> {
     );
   }
 
-  Future<void> _play(
-    WidgetRef ref,
-    BuildContext context,
-    TopTrack track,
-  ) async {
-    final handler = ref.read(audioHandlerProvider);
-    final local = widget.local;
+  /// Placeholder so unowned rows never fake a selection lookup.
+  static final Song _ghost = Song(
+    id: -1,
+    uri: Uri(),
+    title: '',
+    artist: '',
+    album: '',
+    albumId: 0,
+    duration: Duration.zero,
+    year: 0,
+    folderKey: '',
+    folderLabel: '',
+  );
+
+  static String _keyOf(TopTrack t) => '${t.rank}:${t.title}';
+
+  Future<void> _tapTrack(TopTrack track) async {
     final owned = _owned(track.title);
-    if (owned != null) {
-      await playAndOpen(ref, context, () => handler.playSong(owned, local));
-      return;
-    }
-    final url = track.previewUrl;
-    if (url == null || url.isEmpty) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Preview unavailable for this track')),
-        );
+    if (widget.selecting) {
+      if (owned != null) {
+        HapticFeedback.selectionClick();
+        widget.onToggleOwned(owned);
+      } else {
+        await _previewOnly(track);
       }
       return;
     }
-    await playAndOpen(
-      ref,
-      context,
-      () => handler.playPreview(
-        uri: Uri.parse(url),
-        title: track.title,
-        artist: local.isEmpty ? widget.artistName : local.first.artist,
-        album: track.albumTitle,
-        coverUrl: track.coverUrl,
-        previewId: -(track.rank + 1),
-      ),
-    );
+    await _play(track);
   }
 
-  void _trackActions(WidgetRef ref, BuildContext context, TopTrack track) {
+  void _holdTrack(TopTrack track) {
+    if (widget.selecting) return;
     final owned = _owned(track.title);
-    final tiles = <Widget>[
-      ListTile(
-        leading: const Icon(Icons.play_arrow_rounded, color: archPink),
-        title: Text('Play ${track.title}', maxLines: 1),
-        onTap: () {
-          Navigator.of(context).pop();
-          _play(ref, context, track);
-        },
-      ),
-      if (owned != null)
-        ListTile(
-          leading: const Icon(Icons.album_rounded, color: ink),
-          title: Text('Go to album - ${owned.album}', maxLines: 1),
-          onTap: () {
-            Navigator.of(context).pop();
-            final albums = ref.read(albumsProvider);
-            for (final a in albums) {
-              if (normTitle(a.title) == normTitle(owned.album) &&
-                  a.songs.any((s) => artistsOverlap(s.artist, owned.artist))) {
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => AlbumPage(album: a)));
-                return;
-              }
-            }
-          },
-        ),
-      ListTile(
-        leading: const Icon(Icons.share_rounded, color: ink),
-        title: const Text('Share'),
-        onTap: () {
-          Navigator.of(context).pop();
-          SharePlus.instance.share(
-            ShareParams(text: '${track.title} - ${widget.artistName}'),
-          );
-        },
-      ),
-      // Discovery converts here: unowned tracks pull from providers.
-      // Owned tracks never show this (restraint: no re-downloads).
-      if (owned == null)
-        ListTile(
-          leading: const Icon(Icons.cloud_download_outlined, color: ink),
-          title: Text('Download ${track.title}', maxLines: 1),
-          onTap: () {
-            Navigator.of(context).pop();
-            _pull(ref, context, track);
-          },
-        ),
-    ];
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Same house cascade as menus: rows arrive staggered.
-            for (var i = 0; i < tiles.length; i++)
-              CascadeIn(delayMs: i * 30, child: tiles[i]),
-          ],
-        ),
-      ),
-    );
+    if (owned != null) {
+      widget.onHoldOwned(owned);
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    _menuTrack(ref, context, track);
   }
 
-  /// Pull an unowned track through the priority-first download
-  /// provider. Verify challenges open the sheet in context, then
-  /// the same pull retries.
+  Future<void> _play(TopTrack track) async {
+    final owned = _owned(track.title);
+    if (owned != null) {
+      final handler = ref.read(audioHandlerProvider);
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playSong(owned, widget.local),
+      );
+      return;
+    }
+    await _previewOnly(track);
+  }
+
+  /// Unowned playback: provider preview first, track-lane resolve
+  /// as fallback, honest toast when nothing plays.
+  Future<void> _previewOnly(TopTrack track) async {
+    if (_loadingKey != null) return;
+    final key = _keyOf(track);
+    setState(() => _loadingKey = key);
+    try {
+      var url = track.previewUrl;
+      String? cover = track.coverUrl;
+      if (url == null || url.isEmpty) {
+        final pv = await ref
+            .read(metadataServiceProvider)
+            .trackPreviewFor(
+              title: track.title,
+              artist: widget.artistName,
+              album: track.albumTitle,
+            );
+        url = pv?.preview;
+        cover ??= pv?.cover;
+      }
+      if (!mounted) return;
+      if (url == null || url.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Preview unavailable for this track'),
+          ),
+        );
+        return;
+      }
+      final handler = ref.read(audioHandlerProvider);
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playPreview(
+          uri: Uri.parse(url!),
+          title: track.title,
+          artist: widget.local.isEmpty
+              ? widget.artistName
+              : widget.local.first.artist,
+          album: track.albumTitle,
+          coverUrl: cover,
+          previewId: -(track.rank + 1),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingKey = null);
+    }
+  }
+
+  Future<void> _menuTrack(
+    WidgetRef ref,
+    BuildContext btnContext,
+    TopTrack track,
+  ) async {
+    final owned = _owned(track.title);
+    if (owned != null) {
+      await showSongMenu(ref, btnContext, owned);
+      return;
+    }
+    final value = await showTrackMenu(
+      context: btnContext,
+      groups: [
+        [
+          const MenuAction(
+            icon: CupertinoIcons.play_fill,
+            label: 'Preview',
+            value: 'preview',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.cloud_download,
+            label: 'Pull via Needle',
+            value: 'pull',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.music_note,
+            label: track.title,
+            subtitle: widget.artistName,
+            value: 'none',
+          ),
+        ],
+        [
+          const MenuAction(
+            icon: CupertinoIcons.square_arrow_up,
+            label: 'Share',
+            value: 'share',
+          ),
+        ],
+      ],
+    );
+    if (!btnContext.mounted) return;
+    switch (value) {
+      case 'preview':
+        await _previewOnly(track);
+        break;
+      case 'pull':
+        await _pull(ref, btnContext, track);
+        break;
+      case 'share':
+        SharePlus.instance.share(
+          ShareParams(text: '${track.title} - ${widget.artistName}'),
+        );
+        break;
+    }
+  }
+
+  /// Unowned pull, visible all the way: provider + quality picker,
+  /// then a real queue job in the Needle hub (with its progress),
+  /// never a silent background pull. Completion refreshes the
+  /// library through the runner.
   Future<void> _pull(
     WidgetRef ref,
     BuildContext context,
     TopTrack track,
   ) async {
-    final downloaders = [
-      for (final p in ref.read(installedExtensionsProvider))
-        if (p.enabled && p.roles.contains('download')) p,
-    ];
-    if (downloaders.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No download providers enabled')),
-      );
-      return;
-    }
-    final provider = downloaders.first;
     HapticFeedback.selectionClick();
-    try {
-      await pullTrack(
-        provider: provider,
-        title: track.title,
-        artist: widget.artistName,
-      );
-      if (!context.mounted) return;
-      HapticFeedback.mediumImpact();
+    final ok = await showDownloadSheet(
+      context,
+      ref,
+      title: track.title,
+      artist: widget.artistName,
+      album: track.albumTitle,
+      art: track.coverUrl ?? '',
+    );
+    if (ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${track.title} landed in your library')),
+        SnackBar(content: Text('Queued "${track.title}" - watch it in Needle')),
       );
-      await Future<void>.delayed(const Duration(seconds: 2));
-      ref.invalidate(songsProvider);
-    } on NeedleException catch (e) {
-      if (!context.mounted) return;
-      if (e.code == 'verify-required') {
-        final inlineUrl = e.message.startsWith('auth_url=')
-            ? e.message.substring('auth_url='.length)
-            : '';
-        final url = await SessionGrant.resolveAuthUrl(provider.id, inlineUrl);
-        if (!context.mounted) return;
-        if (url == null || url.isEmpty) return;
-        final granted = await handleVerifyRequired(
-          context,
-          extId: provider.id,
-          displayName: provider.displayName,
-          authUrl: url,
-        );
-        if (granted && context.mounted) _pull(ref, context, track);
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.code == 'unavailable'
-                ? 'Not available from ${provider.displayName}'
-                : 'Download failed. Try again.',
-          ),
-        ),
-      );
-      ArchLog.w('needle', 'artist pull failed: ${e.code}');
     }
   }
 }
@@ -1223,44 +1662,71 @@ class _PopularState extends ConsumerState<_Popular> {
 class _TopRow extends StatelessWidget {
   final TopTrack track;
   final Song? owned;
+  final bool? selected;
+  final bool loading;
   final bool isCurrent;
   final VoidCallback onTap;
-  final VoidCallback onOverflow;
+  final VoidCallback onHold;
+  final VoidCallback? onDownload;
+  final void Function(BuildContext) onOverflow;
 
   const _TopRow({
     required this.track,
     required this.owned,
+    this.selected,
+    this.loading = false,
     required this.isCurrent,
     required this.onTap,
+    required this.onHold,
+    this.onDownload,
     required this.onOverflow,
   });
 
   @override
   Widget build(BuildContext context) {
+    final sel = selected;
+    final hasFile = owned != null;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      onTap: onTap,
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: track.coverUrl != null
-            ? CachedNetworkImage(
-                imageUrl: track.coverUrl!,
-                width: 52,
-                height: 52,
-                fit: BoxFit.cover,
-                memCacheWidth: 150,
-                errorWidget: (_, _, _) => Container(
-                  width: 52,
-                  height: 52,
-                  color: paperRaised,
-                  child: const Icon(Icons.music_note, color: inkDim),
-                ),
-              )
-            : Container(
-                width: 52,
-                height: 52,
-                color: paperRaised,
-                child: const Icon(Icons.music_note, color: inkDim),
+      onTap: sel == null
+          ? onTap
+          : () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+      onLongPress: sel != null
+          ? null
+          : () {
+              HapticFeedback.mediumImpact();
+              onHold();
+            },
+      leading: SizedBox(
+        width: 52,
+        height: 52,
+        child: sel != null
+            ? CheckDot(checked: sel)
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: track.coverUrl != null
+                    ? CachedNetworkImage(
+                        imageUrl: track.coverUrl!,
+                        width: 52,
+                        height: 52,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 150,
+                        errorWidget: (_, _, _) => Container(
+                          width: 52,
+                          height: 52,
+                          color: paperRaised,
+                          child: const Icon(Icons.music_note, color: inkDim),
+                        ),
+                      )
+                    : Container(
+                        width: 52,
+                        height: 52,
+                        color: paperRaised,
+                        child: const Icon(Icons.music_note, color: inkDim),
+                      ),
               ),
       ),
       title: Text(
@@ -1273,7 +1739,7 @@ class _TopRow extends StatelessWidget {
       ),
       subtitle: Row(
         children: [
-          if (owned == null)
+          if (!hasFile)
             Container(
               margin: const EdgeInsets.only(right: 6),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -1302,22 +1768,52 @@ class _TopRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (hasFile)
+            const Padding(
+              padding: EdgeInsets.only(right: 2),
+              child: Icon(
+                CupertinoIcons.checkmark,
+                color: archPink,
+                size: 16,
+              ),
+            ),
           if (isCurrent)
             const NowBars()
-          else
+          else if (loading)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: archPink,
+                strokeWidth: 2,
+              ),
+            )
+          else if (track.duration.inSeconds > 0)
             Text(
               fmtDuration(track.duration),
               style: const TextStyle(color: inkDim),
             ),
-          IconButton(
-            icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
-            onPressed: onOverflow,
-          ),
+          if (onDownload != null && sel == null)
+            IconButton(
+              icon: const Icon(
+                CupertinoIcons.cloud_download,
+                color: inkDim,
+              ),
+              onPressed: onDownload,
+            ),
+          if (sel == null)
+            Builder(
+              builder: (btnContext) => IconButton(
+                icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
+                onPressed: () => onOverflow(btnContext),
+              ),
+            ),
         ],
       ),
     );
   }
 }
+
 
 /// Discography as fanned cover stacks. The hubs ARE the covers:
 /// latest release front and center, tap to bloom the fan, tap a cover
@@ -1344,9 +1840,20 @@ class _FanRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle('Discography'),
-          Padding(
-            padding: EdgeInsets.all(20),
-            child: LinearProgressIndicator(color: archPink),
+          SizedBox(
+            height: 215,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  GhostFanCard(),
+                  GhostFanCard(),
+                  GhostFanCard(),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -1357,7 +1864,7 @@ class _FanRow extends StatelessWidget {
         for (final r in list) {
           groups.putIfAbsent(_hubLabel(r.type), () => []).add(r);
         }
-        final ownedTitles = local.map((s) => s.album.toLowerCase()).toSet();
+        final ownedTitles = local.map((s) => normTitle(s.album)).toSet();
         final total = groups.values.fold<int>(0, (n, g) => n + g.length);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1410,6 +1917,44 @@ class _FanStack extends StatefulWidget {
   State<_FanStack> createState() => _FanStackState();
 }
 
+
+/// Release cover with a black type badge for singles and EPs.
+/// Albums stay clean; the badge only appears where kinds mix.
+class _BadgedCover extends StatelessWidget {
+  final ReleaseGroup release;
+  final bool owned;
+  final double size;
+
+  const _BadgedCover({
+    required this.release,
+    required this.owned,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = release.type.toLowerCase();
+    final isSingle = t == 'single' || t == 'ep';
+    final mark = isSingle ? t.toUpperCase() : null;
+    final cover = ReleaseCover(
+      release: release,
+      owned: owned,
+      size: size,
+    );
+    if (mark == null) return cover;
+    return Stack(
+      children: [
+        cover,
+        Positioned(
+          top: 6,
+          left: 6,
+          child: TypeBadge(label: mark),
+        ),
+      ],
+    );
+  }
+}
+
 class _FanStackState extends State<_FanStack>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
@@ -1451,7 +1996,7 @@ class _FanStackState extends State<_FanStack>
   }
 
   bool _owned(ReleaseGroup r) =>
-      widget.ownedTitles.contains(r.title.toLowerCase());
+      widget.ownedTitles.contains(normTitle(r.title));
 
   void _gallery(BuildContext context) {
     Navigator.of(context).push(
@@ -1465,6 +2010,7 @@ class _FanStackState extends State<_FanStack>
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1496,7 +2042,7 @@ class _FanStackState extends State<_FanStack>
                           angle: (i.isEven ? -1 : 1) * i * 0.14 * t,
                           child: GestureDetector(
                             onTap: () => _gallery(context),
-                            child: ReleaseCover(
+                            child: _BadgedCover(
                               release: shown[i],
                               owned: _owned(shown[i]),
                               size: 118,
@@ -1508,7 +2054,7 @@ class _FanStackState extends State<_FanStack>
                       onTap: widget.open
                           ? () => _gallery(context)
                           : widget.onToggle,
-                      child: ReleaseCover(
+                      child: _BadgedCover(
                         release: shown.first,
                         owned: _owned(shown.first),
                         size: 118 + 10 * t,
