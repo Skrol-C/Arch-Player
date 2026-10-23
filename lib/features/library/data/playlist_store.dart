@@ -5,6 +5,43 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/log.dart';
+import '../../../core/models.dart';
+
+/// A playlist entry for a track the library doesn't hold yet.
+/// Rendered greyed with a warning triangle; tap offers the Needle
+/// pull. When the file later lands in a scan it auto-upgrades to a
+/// real id by title + artist match — no data migration needed.
+class PendingTrack {
+  final String title;
+  final String artist;
+  final String album;
+
+  const PendingTrack({
+    required this.title,
+    required this.artist,
+    required this.album,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'artist': artist,
+    'album': album,
+  };
+
+  static PendingTrack? fromJson(Map<String, dynamic> j) {
+    final title = (j['title'] ?? '').toString();
+    if (title.isEmpty) return null;
+    return PendingTrack(
+      title: title,
+      artist: (j['artist'] ?? '').toString(),
+      album: (j['album'] ?? '').toString(),
+    );
+  }
+
+  bool matches(Song s) =>
+      normTitle(s.title) == normTitle(title) &&
+      (artist.trim().isEmpty || artistsOverlap(s.artist, artist));
+}
 
 /// A local playlist: an ordered list of library song ids plus an
 /// auto-gradient hue. Art is NEVER stored — the gradient derives from
@@ -20,6 +57,10 @@ class Playlist {
   final List<int> songIds;
   final int updatedMs;
 
+  /// Unowned entries, in add order. Shown greyed with a warning
+  /// until their file lands in a scan.
+  final List<PendingTrack> pending;
+
   /// Absolute path of the user-picked cover file, or empty for the
   /// auto-gradient. Lives under app files, never cache.
   final String customArt;
@@ -29,6 +70,7 @@ class Playlist {
     required this.name,
     required this.songIds,
     required this.updatedMs,
+    this.pending = const [],
     this.customArt = '',
   });
 
@@ -40,6 +82,7 @@ class Playlist {
     List<int>? songIds,
     int? updatedMs,
     String? customArt,
+    List<PendingTrack>? pending,
   }) {
     return Playlist(
       id: id,
@@ -47,6 +90,7 @@ class Playlist {
       songIds: songIds ?? this.songIds,
       updatedMs: updatedMs ?? this.updatedMs,
       customArt: customArt ?? this.customArt,
+      pending: pending ?? this.pending,
     );
   }
 
@@ -56,6 +100,8 @@ class Playlist {
     'songIds': songIds,
     'updatedMs': updatedMs,
     if (customArt.isNotEmpty) 'customArt': customArt,
+    if (pending.isNotEmpty)
+      'pending': [for (final p in pending) p.toJson()],
   };
 
   static Playlist? fromJson(Map<String, dynamic> j) {
@@ -65,6 +111,19 @@ class Playlist {
       if (id.isEmpty || name.isEmpty) return null;
       final raw = j['songIds'];
       final art = (j['customArt'] ?? '').toString();
+      final praw = j['pending'];
+      final pending = <PendingTrack>[];
+      if (praw is List) {
+        for (final e in praw) {
+          if (e is Map<String, dynamic>) {
+            final p = PendingTrack.fromJson(e);
+            if (p != null) pending.add(p);
+          } else if (e is Map) {
+            final p = PendingTrack.fromJson(Map<String, dynamic>.from(e));
+            if (p != null) pending.add(p);
+          }
+        }
+      }
       final ids = <int>[];
       if (raw is List) {
         for (final e in raw) {
@@ -84,6 +143,7 @@ class Playlist {
             ? updated
             : DateTime.now().millisecondsSinceEpoch,
         customArt: art,
+        pending: pending,
       );
     } catch (_) {
       return null;

@@ -15,6 +15,7 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
+import '../needle/download_sheet.dart' show showDownloadSheet;
 import '../player/player_providers.dart';
 import '../player/track_menu.dart' show MenuAction, showTrackMenu;
 import '../shell/dock.dart';
@@ -140,7 +141,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
       );
     }
     final playlist = found;
-    final members = playlistSongs(playlist, songs);
+    final members = playlistTracks(playlist, songs);
+    final unmatched = playlistUnmatched(playlist, songs);
     final collapsed = ref.watch(pillCollapsedProvider);
     final selecting = _sel.armed;
     // Select mode owns the bottom edge: the docked sheet replaces
@@ -201,66 +203,111 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
                         onAdd: () => _openPicker(context, ref, playlist),
                       ),
                     ),
-                    if (members.isEmpty)
+                    if (members.isEmpty && unmatched.isEmpty)
                       SliverToBoxAdapter(
                         child: _DetailEmpty(
                           isSystem: playlist.isSystem,
                           onAdd: () => _openPicker(context, ref, playlist),
                         ),
                       )
-                    else if (_reordering && !selecting)
-                      SliverReorderableList(
-                        itemCount: members.length,
-                        onReorderItem: (a, b) => ref
-                            .read(playlistsProvider.notifier)
-                            .reorder(playlist.id, a, b),
-                        itemBuilder: (context, i) => _ReorderRow(
-                          key: ValueKey(
-                            '${playlist.id}:${members[i].id}',
-                          ),
-                          song: members[i],
-                          starred: playlist.isSystem,
-                          isCurrent:
-                              ref.watch(currentSongProvider).value?.id ==
-                              members[i].id,
-                        ),
-                      )
-                    else
-                      SliverList.builder(
-                        itemCount: members.length,
-                        itemBuilder: (context, i) {
-                          final s = members[i];
-                          final isCurrent =
-                              ref.watch(currentSongProvider).value?.id ==
-                              s.id;
-                          return CascadeIn(
-                            delayMs: (i + 1).clamp(1, 10) * 30,
-                            child: _PlaylistRow(
-                              song: s,
-                              queue: members,
+                    else ...[
+                      if (members.isNotEmpty) ...[
+                        if (_reordering && !selecting)
+                          SliverReorderableList(
+                            itemCount: members.length,
+                            onReorderItem: (a, b) => ref
+                                .read(playlistsProvider.notifier)
+                                .reorder(playlist.id, a, b),
+                            itemBuilder: (context, i) => _ReorderRow(
+                              key: ValueKey(
+                                '${playlist.id}:${members[i].id}',
+                              ),
+                              song: members[i],
                               starred: playlist.isSystem,
-                              selected: selecting
-                                  ? _sel.ids.contains(s.id)
-                                  : null,
-                              isCurrent: isCurrent,
-                              onRemove: selecting || playlist.isSystem
-                                  ? null
-                                  : () => _remove(
-                                      context,
-                                      ref,
-                                      playlist,
-                                      s,
-                                    ),
-                              onSelectTap: selecting
-                                  ? () => _tapRow(ref, context, s, members)
-                                  : null,
-                              onHold: selecting
-                                  ? null
-                                  : () => _enterSelect(s),
+                              isCurrent:
+                                  ref.watch(currentSongProvider).value?.id ==
+                                  members[i].id,
                             ),
-                          );
-                        },
-                      ),
+                          )
+                        else
+                          SliverList.builder(
+                            itemCount: members.length,
+                            itemBuilder: (context, i) {
+                              final s = members[i];
+                              final isCurrent =
+                                  ref.watch(currentSongProvider).value?.id ==
+                                  s.id;
+                              return CascadeIn(
+                                delayMs: (i + 1).clamp(1, 10) * 30,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _PlaylistRow(
+                                      song: s,
+                                      queue: members,
+                                      starred: playlist.isSystem,
+                                      selected: selecting
+                                          ? _sel.ids.contains(s.id)
+                                          : null,
+                                      isCurrent: isCurrent,
+                                      onRemove: selecting || playlist.isSystem
+                                          ? null
+                                          : () => _remove(
+                                              context,
+                                              ref,
+                                              playlist,
+                                              s,
+                                            ),
+                                      onSelectTap: selecting
+                                          ? () =>
+                                              _tapRow(ref, context, s, members)
+                                          : null,
+                                      onHold: selecting
+                                          ? null
+                                          : () => _enterSelect(s),
+                                    ),
+                                    if (i < members.length - 1)
+                                      const Divider(
+                                        height: 1,
+                                        thickness: 1,
+                                        color: Color(0x140B0B0D),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                      ],
+                      if (unmatched.isNotEmpty && !selecting)
+                        SliverList.builder(
+                          itemCount: unmatched.length,
+                          itemBuilder: (context, i) {
+                            final r = unmatched[i];
+                            return CascadeIn(
+                              delayMs: (i + 1).clamp(1, 10) * 30,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _PendingRow(
+                                    pending: r,
+                                    onTap: () => _pullPending(
+                                        context, ref, playlist, r),
+                                    onRemove: () => ref
+                                        .read(playlistsProvider.notifier)
+                                        .removePending(playlist.id, r),
+                                  ),
+                                  if (i < unmatched.length - 1)
+                                    const Divider(
+                                      height: 1,
+                                      thickness: 1,
+                                      color: Color(0x140B0B0D),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                    ],
                     SliverToBoxAdapter(
                       child: SizedBox(height: bottomClear),
                     ),
@@ -392,6 +439,29 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
         await notifier.delete(playlist.id);
         if (context.mounted) Navigator.of(context).maybePop();
         break;
+    }
+  }
+
+  Future<void> _pullPending(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist playlist,
+    PendingTrack pending,
+  ) async {
+    HapticFeedback.selectionClick();
+    final ok = await showDownloadSheet(
+      context,
+      ref,
+      title: pending.title,
+      artist: pending.artist,
+      album: pending.album,
+    );
+    if (ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Queued "${pending.title}" - watch it in Needle'),
+        ),
+      );
     }
   }
 
@@ -1074,6 +1144,85 @@ class _PlaylistRow extends ConsumerWidget {
     } else if (value == 'remove') {
       await notifier.removeSong(Playlist.favouritesId, song.id);
     }
+  }
+}
+
+/// Greyed unowned entry with a warning triangle. Tap offers the
+/// Needle pull; the row auto-upgrades to a real track when the file
+/// lands in a scan.
+class _PendingRow extends StatelessWidget {
+  final PendingTrack pending;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  const _PendingRow({
+    required this.pending,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      leading: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: paperRaised,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(
+          CupertinoIcons.exclamationmark_triangle,
+          color: inkDim,
+          size: 22,
+        ),
+      ),
+      title: Text(
+        pending.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: ink.withValues(alpha: 0.6),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        pending.artist.isEmpty ? 'Not on this device' : pending.artist,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: inkDim, fontSize: 13),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              border: Border.all(color: inkDim.withValues(alpha: 0.5)),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              'MISSING',
+              style: TextStyle(
+                color: inkDim,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(CupertinoIcons.minus_circle, color: inkDim),
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    );
   }
 }
 

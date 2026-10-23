@@ -14,6 +14,7 @@ import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'add_to_playlist.dart' show showAddToPlaylistSheet;
+import 'data/playlist_store.dart';
 import 'playlists_providers.dart';
 
 /// Global select signal: true while ANY host has select mode armed.
@@ -76,14 +77,21 @@ List<Song> selectedOrdered(SelectionController c, List<Song> all) {
 class SelectionSheet extends ConsumerStatefulWidget {
   final SelectionController controller;
   final List<Song> Function() ordered;
+
+  /// Unowned refs selected alongside (album tracklists). Added as
+  /// greyed pending entries; bulk play/queue/star skip them.
+  final List<PendingTrack> Function() pendingOrdered;
   final VoidCallback onExit;
 
   const SelectionSheet({
     super.key,
     required this.controller,
     required this.ordered,
+    this.pendingOrdered = _noPending,
     required this.onExit,
   });
+
+  static List<PendingTrack> _noPending() => const [];
 
   @override
   ConsumerState<SelectionSheet> createState() => _SelectionSheetState();
@@ -283,10 +291,15 @@ class _SelectionSheetState extends ConsumerState<SelectionSheet> {
   }
 
   Future<void> _addToPlaylist(List<Song> songs) async {
-    if (songs.isEmpty) return;
+    if (songs.isEmpty && widget.pendingOrdered().isEmpty) return;
     HapticFeedback.selectionClick();
     final ctx = context;
-    await showAddToPlaylistSheet(ref, ctx, songs);
+    await showAddToPlaylistSheet(
+      ref,
+      ctx,
+      songs,
+      pending: widget.pendingOrdered(),
+    );
     widget.onExit();
   }
 

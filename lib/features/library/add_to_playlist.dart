@@ -58,17 +58,20 @@ Future<Playlist?> newPlaylistDialog(
 }
 
 /// Add-to-playlist sheet: existing lists + Favourites + New.
-/// Works for one song or a select-mode bulk. Check = already holds
+/// Works for one song, select-mode bulks, and unowned refs (which
+/// land as greyed pending entries). Check = already holds
 /// everything picked; New adds the missing ids only.
 Future<void> showAddToPlaylistSheet(
   WidgetRef ref,
   BuildContext context,
-  List<Song> picked,
-) async {
+  List<Song> picked, {
+  List<PendingTrack> pending = const [],
+}) async {
   HapticFeedback.selectionClick();
   final lists = ref.read(playlistsProvider);
   final songs = ref.read(songsProvider).value ?? [];
   final ids = {for (final s in picked) s.id};
+  final hasPending = pending.isNotEmpty;
   final pickedId = await showModalBottomSheet<String>(
     context: context,
     backgroundColor: Colors.transparent,
@@ -138,7 +141,8 @@ Future<void> showAddToPlaylistSheet(
                 final p = lists[i];
                 final members = playlistSongs(p, songs);
                 final has = ids.isNotEmpty &&
-                    ids.every((id) => p.songIds.contains(id));
+                    ids.every((id) => p.songIds.contains(id)) &&
+                    !hasPending;
                 return CascadeIn(
                   delayMs: i * 30,
                   child: ListTile(
@@ -188,14 +192,19 @@ Future<void> showAddToPlaylistSheet(
   if (pickedId == null || !context.mounted) return;
   final notifier = ref.read(playlistsProvider.notifier);
   if (pickedId == '_new') {
-    final name = picked.length == 1 ? picked.first.title : 'New Playlist';
+    final name = picked.length == 1 && pending.isEmpty
+        ? picked.first.title
+        : 'New Playlist';
     final created = await notifier.create(name);
     await notifier.addSongs(created.id, ids.toList());
+    await notifier.addPending(created.id, pending);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Created "${created.name}" with ${ids.length} song${ids.length == 1 ? '' : 's'}',
+            'Created "${created.name}"'
+            '${ids.isEmpty ? '' : ' with ${ids.length} song${ids.length == 1 ? '' : 's'}'}'
+            '${pending.isEmpty ? '' : ' + ${pending.length} to find'}',
           ),
         ),
       );
@@ -209,13 +218,16 @@ Future<void> showAddToPlaylistSheet(
       if (!(before?.songIds.contains(id) ?? false)) id,
   ];
   await notifier.addSongs(pickedId, fresh);
+  await notifier.addPending(pickedId, pending);
   if (context.mounted) {
+    final total = fresh.length + pending.length;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          fresh.isEmpty
+          total == 0
               ? 'Already in there'
-              : 'Added ${fresh.length} song${fresh.length == 1 ? '' : 's'}',
+              : 'Added $total song${total == 1 ? '' : 's'}'
+                  '${pending.isEmpty ? '' : ' (${pending.length} to find)'}',
         ),
       ),
     );

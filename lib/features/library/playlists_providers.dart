@@ -173,6 +173,54 @@ class PlaylistsNotifier extends StateNotifier<List<Playlist>> {
     await _persist();
   }
 
+  /// Queue unowned refs onto a playlist. They render greyed with
+  /// a warning until their files land in a scan.
+  Future<void> addPending(String id, List<PendingTrack> refs) async {
+    if (refs.isEmpty) return;
+    state = [
+      for (final p in state)
+        if (p.id == id)
+          p.copyWith(
+            pending: [
+              ...p.pending,
+              for (final r in refs)
+                if (!p.pending.any(
+                  (q) =>
+                      normTitle(q.title) == normTitle(r.title) &&
+                      q.artist.toLowerCase() ==
+                          r.artist.toLowerCase(),
+                ))
+                  r,
+            ],
+            updatedMs: nowMs(),
+          )
+        else
+          p,
+    ];
+    ArchLog.i('playlist', 'pending +${refs.length} to $id');
+    await _persist();
+  }
+
+  Future<void> removePending(String id, PendingTrack ref_) async {
+    state = [
+      for (final p in state)
+        if (p.id == id)
+          p.copyWith(
+            pending: [
+              for (final q in p.pending)
+                if (!(normTitle(q.title) == normTitle(ref_.title) &&
+                    q.artist.toLowerCase() ==
+                        ref_.artist.toLowerCase()))
+                  q,
+            ],
+            updatedMs: nowMs(),
+          )
+        else
+          p,
+    ];
+    await _persist();
+  }
+
   Future<void> reorder(String id, int oldIndex, int newIndex) async {
     for (final p in state) {
       if (p.id != id) continue;
@@ -205,6 +253,43 @@ class PlaylistsNotifier extends StateNotifier<List<Playlist>> {
 List<Song> playlistSongs(Playlist p, List<Song> all) {
   final byId = {for (final s in all) s.id: s};
   return [for (final id in p.songIds) if (byId[id] != null) byId[id]!];
+}
+
+/// Owned tracks for playback: stored ids plus pending refs whose
+/// files have since landed (auto-upgrade by title + artist, no data
+/// migration — delete the file and it falls back to pending).
+List<Song> playlistTracks(Playlist p, List<Song> all) {
+  final owned = playlistSongs(p, all);
+  final have = {for (final s in owned) s.id};
+  for (final r in p.pending) {
+    for (final s in all) {
+      if (have.contains(s.id)) continue;
+      if (r.matches(s)) {
+        owned.add(s);
+        have.add(s.id);
+        break;
+      }
+    }
+  }
+  return owned;
+}
+
+/// Pending refs still missing from the library, in add order.
+List<PendingTrack> playlistUnmatched(Playlist p, List<Song> all) {
+  final owned = playlistTracks(p, all);
+  final matched = <PendingTrack>[];
+  for (final r in p.pending) {
+    for (final s in owned) {
+      if (r.matches(s)) {
+        matched.add(r);
+        break;
+      }
+    }
+  }
+  return [
+    for (final r in p.pending)
+      if (!matched.contains(r)) r,
+  ];
 }
 
 /// "Updated 2w ago" for detail headers. Quiet, relative, honest.
