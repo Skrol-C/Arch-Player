@@ -712,6 +712,7 @@ class ArchAudioHandler extends BaseAudioHandler {
       const Duration(milliseconds: 800),
       (_) => unawaited(_maybeMix()),
     );
+    ArchLog.i('automix', 'armed idx=$index at=${at.inSeconds}s');
   }
 
   /// Park or end the engine. [resume] hands transport back to the
@@ -721,6 +722,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     _mixTick = null;
     final engine = _engine;
     if (engine == null) return;
+    ArchLog.i('automix', 'teardown resume=$resume idx=$_mixIndex');
     final pos = engine.position;
     final idx = _mixIndex;
     final wasPlaying = engine.playing;
@@ -745,14 +747,16 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Watcher: start the blend once the remaining runtime fits the plan.
   Future<void> _maybeMix() async {
     final engine = _engine;
-    if (engine == null || !_automixOn || _mixFiring) return;
-    if (engine.isCrossfading) return;
+    if (engine == null) return _mixWhy('no engine');
+    if (!_automixOn) return _mixWhy('automix off');
+    if (_mixFiring) return _mixWhy('already firing');
+    if (engine.isCrossfading) return _mixWhy('crossfading');
     // A track that already ran out still needs the next one: treat
     // completion as "window open now" so automix never dies at a
     // boundary just because a tick landed late.
     final finished = engine.completed;
-    if (!engine.playing && !finished) return;
-    if (_mixIndex < 0 || _mixIndex >= _songs.length) return;
+    if (!engine.playing && !finished) return _mixWhy('not playing');
+    if (_mixIndex < 0 || _mixIndex >= _songs.length) return _mixWhy('index oob');
     // Engine duration first, queue metadata second: a content:// load
     // can sit without a duration for a while and silently starve the
     // mix. The library always knows how long the track is.
@@ -761,9 +765,9 @@ class ArchAudioHandler extends BaseAudioHandler {
     final total = (known != null && known > Duration.zero)
         ? known
         : (fallback > Duration.zero ? fallback : null);
-    if (total == null) return;
+    if (total == null) return _mixWhy('no duration');
     final next = _mixNeighborIndex(1);
-    if (next == null || next == _mixIndex) return;
+    if (next == null || next == _mixIndex) return _mixWhy('no next');
     final plan = _mixPlan(_mixIndex, next);
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
     _mixProbe(engine, total, remaining, next, plan);
@@ -791,6 +795,13 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Throttled diagnostic: without it a starved mix is undiagnosable
   /// (nothing logs when the watcher simply returns early).
   DateTime _mixProbeAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _mixWhy(String reason) {
+    final now = DateTime.now();
+    if (now.difference(_mixProbeAt).inSeconds < 5) return;
+    _mixProbeAt = now;
+    ArchLog.i('automix', 'wait: $reason');
+  }
 
   void _mixProbe(
     AutomixEngine engine,
