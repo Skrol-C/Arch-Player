@@ -7,6 +7,7 @@ import '../../core/log.dart';
 import '../home/home_screen.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart';
+import '../library/song_select.dart' show selectionActiveProvider;
 import '../needle/needle_hub.dart';
 import '../search/search_page.dart';
 import '../player/player_providers.dart';
@@ -54,7 +55,10 @@ class Shell extends ConsumerWidget {
                 key: ValueKey('dest-needle'),
               ),
             },
-            const NowPlayingDock(),
+            // Select mode owns the bottom edge: the docked sheet
+            // replaces the pill, the mini player sits behind it.
+            if (!ref.watch(selectionActiveProvider))
+              const NowPlayingDock(),
             if (playerOpen) const PlayerScreen(),
             const _GlassWarmer(),
           ],

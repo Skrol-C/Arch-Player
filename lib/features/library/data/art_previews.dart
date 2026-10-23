@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/art_scale.dart';
 import '../../../core/log.dart';
 import 'embedded_art.dart';
 
@@ -147,7 +148,17 @@ abstract final class ArtPreviews {
         ArchLog.i('art', 'preview: none embedded in $path');
         return null;
       }
-      await file.writeAsBytes(art.bytes, flush: true);
+      // Bound what lands on disk AND what every surface will later
+      // decode from it. Raw embedded art can be a 24 MB scan that
+      // decodes to ~500 MB of RGBA; on a low-RAM phone that is a
+      // process kill the moment the notification or a tile draws it.
+      final raw = art.bytes.length;
+      final bytes = await shrinkArt(art.bytes);
+      if (bytes.length != raw) {
+        ArchLog.i('art',
+            'preview: shrunk $path ${(raw / 1024).round()}KB -> ${(bytes.length / 1024).round()}KB');
+      }
+      await file.writeAsBytes(bytes, flush: true);
       await _writeSidecar(dir, key, path, mtime);
       _failed.remove(path);
       _putMem(path, file.path);

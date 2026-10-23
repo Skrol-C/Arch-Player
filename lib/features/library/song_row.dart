@@ -298,8 +298,19 @@ class SongRow extends StatelessWidget {
   final VoidCallback onTap;
 
   /// Trailing `...`. Null hides it (contexts where a menu has no
-  /// home), otherwise the caller opens the house song menu.
+  /// home). [onMoreAt] gets the button's own context so the menu
+  /// anchors to the row — preferred. Plain [onMore] keeps working
+  /// for callers whose context already anchors.
   final VoidCallback? onMore;
+  final void Function(BuildContext)? onMoreAt;
+
+  /// Hold = same menu as `...` (list + grid parity). Null = tap only.
+  final VoidCallback? onHold;
+
+  /// Select mode: non-null shows a leading check circle instead of
+  /// art. Tap toggles through [onTap]; [onMore]/[onMoreAt] should be
+  /// null while selecting.
+  final bool? selected;
 
   const SongRow({
     super.key,
@@ -308,17 +319,36 @@ class SongRow extends StatelessWidget {
     required this.isCurrent,
     required this.onTap,
     this.onMore,
+    this.onMoreAt,
+    this.onHold,
+    this.selected,
   });
 
   @override
   Widget build(BuildContext context) {
+    final sel = selected;
     return ListTile(
-      onTap: onTap,
+      onTap: sel == null
+          ? onTap
+          : () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+      onLongPress: sel != null
+          ? null
+          : onHold == null
+          ? null
+          : () {
+              HapticFeedback.mediumImpact();
+              onHold!();
+            },
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       leading: SizedBox(
         width: 52,
         height: 52,
-        child: art ?? FileArtImage(path: song.path, albumId: song.albumId),
+        child: sel == null
+            ? art ?? FileArtImage(path: song.path, albumId: song.albumId)
+            : CheckDot(checked: sel),
       ),
       title: Text(
         song.title,
@@ -339,20 +369,56 @@ class SongRow extends StatelessWidget {
             fmtDuration(song.duration),
             style: const TextStyle(color: inkDim),
           ),
-          if (onMore != null)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                onMore!();
-              },
-              child: const SizedBox(
-                width: 40,
-                height: 52,
-                child: Icon(CupertinoIcons.ellipsis, color: inkDim, size: 18),
+          if (onMore != null || onMoreAt != null)
+            Builder(
+              builder: (btnContext) => GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  if (onMoreAt != null) {
+                    onMoreAt!(btnContext);
+                  } else {
+                    onMore!();
+                  }
+                },
+                child: const SizedBox(
+                  width: 40,
+                  height: 52,
+                  child: Icon(CupertinoIcons.ellipsis, color: inkDim, size: 18),
+                ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class CheckDot extends StatelessWidget {
+  final bool checked;
+  const CheckDot({super.key, required this.checked});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: checked ? archPink : Colors.transparent,
+          border: Border.all(
+            color: checked ? archPink : inkDim.withValues(alpha: 0.5),
+            width: 2,
+          ),
+        ),
+        child: checked
+            ? const Icon(
+                CupertinoIcons.checkmark,
+                color: Colors.white,
+                size: 16,
+              )
+            : null,
       ),
     );
   }

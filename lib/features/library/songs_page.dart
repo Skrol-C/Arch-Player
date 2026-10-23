@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
+import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
@@ -13,6 +14,7 @@ import 'library_chrome.dart';
 import 'library_controls.dart';
 import 'library_providers.dart';
 import 'song_row.dart';
+import 'song_select.dart';
 
 /// Songs index (WA0009 grammar): back, sort capsule + `...`, search,
 /// Play / Shuffle, then every track as a row (with its own `...`) or
@@ -25,6 +27,41 @@ class SongsPage extends ConsumerStatefulWidget {
 }
 
 class _SongsPageState extends ConsumerState<SongsPage> {
+  final _sel = SelectionController();
+
+  @override
+  void initState() {
+    super.initState();
+    _sel.addListener(() {
+      if (!mounted) return;
+      ref.read(selectionActiveProvider.notifier).state = _sel.armed;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sel.dispose();
+    super.dispose();
+  }
+
+  /// Hold enters select mode: the held song checks, boxes appear,
+  /// the one-row bar slides up. Tap toggles; exit is explicit.
+  Future<void> _enterSelect(Song first) async {
+    if (_sel.armed) return;
+    HapticFeedback.mediumImpact();
+    _sel.enter(first.id);
+  }
+
+  Future<void> _tapSong(Song song, List<Song> queue) async {
+    if (_sel.armed) {
+      HapticFeedback.selectionClick();
+      _sel.toggle(song.id);
+      return;
+    }
+    await _tapToPlay(ref, context, song, queue);
+  }
+
   Future<void> _playAll(List<Song> songs) async {
     if (songs.isEmpty) return;
     HapticFeedback.mediumImpact();
@@ -91,11 +128,19 @@ class _SongsPageState extends ConsumerState<SongsPage> {
     final view = ref.watch(libraryViewProvider);
     final visible = ref.watch(visibleSongsProvider);
     final current = ref.watch(currentSongProvider).value;
+    final selecting = _sel.armed;
     final collapsed = ref.watch(pillCollapsedProvider);
-    final bottomClear = collapsed
+    final bottomClear = selecting
+        ? 380.0
+        : collapsed
         ? 120.0
         : (ref.watch(miniVisibleProvider) ? 200.0 : 140.0);
-    return Scaffold(
+    return PopScope(
+      canPop: !selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && selecting) _sel.exit();
+      },
+      child: Scaffold(
       backgroundColor: paper,
       body: Stack(
         children: [
@@ -109,7 +154,9 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                     child: Row(
                       children: [
                         GestureDetector(
-                          onTap: () => Navigator.of(context).maybePop(),
+                          onTap: () => selecting
+                              ? _sel.exit()
+                              : Navigator.of(context).maybePop(),
                           child: Container(
                             width: 44,
                             height: 44,
@@ -117,17 +164,21 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                               color: paperRaised,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
-                              CupertinoIcons.chevron_left,
+                            child: Icon(
+                              selecting
+                                  ? CupertinoIcons.xmark
+                                  : CupertinoIcons.chevron_left,
                               color: ink,
                             ),
                           ),
                         ),
                         const SizedBox(width: 12),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            'Songs',
-                            style: TextStyle(
+                            selecting
+                                ? '${_sel.count} selected'
+                                : 'Songs',
+                            style: const TextStyle(
                               fontFamily: 'ArchSerif',
                               fontSize: 28,
                               fontWeight: FontWeight.w800,
@@ -135,12 +186,28 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                             ),
                           ),
                         ),
-                        LibraryCornerCluster(
-                          leftIcon: CupertinoIcons.line_horizontal_3_decrease,
-                          leftColor: ink,
-                          onLeft: _pickSort,
-                          onMenu: _openViewMenu,
-                        ),
+                        if (selecting)
+                          TextButton(
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              Navigator.of(context).maybePop();
+                              _sel.exit();
+                            },
+                            child: const Text(
+                              'Done',
+                              style: TextStyle(
+                                color: archPink,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          )
+                        else
+                          LibraryCornerCluster(
+                            leftIcon: CupertinoIcons.line_horizontal_3_decrease,
+                            leftColor: ink,
+                            onLeft: _pickSort,
+                            onMenu: _openViewMenu,
+                          ),
                       ],
                     ),
                   ),
@@ -184,15 +251,56 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 10)),
                 if (view == ViewMode.grid)
-                  _SongGrid(currentId: current?.id, songs: visible)
+                  _SongGrid(
+                    currentId: current?.id,
+                    songs: visible,
+                    selecting: selecting,
+                    isSelected: (id) => _sel.ids.contains(id),
+                    onTap: (s) => _tapSong(s, visible),
+                    onHold: _enterSelect,
+                  )
                 else
-                  _SongList(currentId: current?.id, songs: visible),
+                  _SongList(
+                    currentId: current?.id,
+                    songs: visible,
+                    selecting: selecting,
+                    isSelected: (id) => _sel.ids.contains(id),
+                    onTap: (s) => _tapSong(s, visible),
+                    onHold: _enterSelect,
+                  ),
                 SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
               ],
             ),
           ),
-          const NowPlayingDock(),
+          if (!selecting) const NowPlayingDock(),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: AnimatedSlide(
+              duration: Motion.reduced(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 350),
+              curve: Motion.arrival,
+              offset: selecting ? Offset.zero : const Offset(0, 2),
+              child: AnimatedOpacity(
+                duration: Motion.reduced(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 250),
+                opacity: selecting ? 1 : 0,
+                child: IgnorePointer(
+                  ignoring: !selecting,
+                  child: SelectionSheet(
+                    controller: _sel,
+                    ordered: () => visible,
+                    onExit: () => _sel.exit(),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
+      ),
       ),
     );
   }
@@ -211,7 +319,19 @@ Future<void> _tapToPlay(
 class _SongList extends ConsumerWidget {
   final int? currentId;
   final List<Song> songs;
-  const _SongList({required this.currentId, required this.songs});
+  final bool selecting;
+  final bool Function(int id) isSelected;
+  final void Function(Song song) onTap;
+  final void Function(Song song) onHold;
+
+  const _SongList({
+    required this.currentId,
+    required this.songs,
+    required this.selecting,
+    required this.isSelected,
+    required this.onTap,
+    required this.onHold,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -232,8 +352,13 @@ class _SongList extends ConsumerWidget {
         return SongRow(
           song: song,
           isCurrent: song.id == currentId,
-          onTap: () => _tapToPlay(ref, context, song, songs),
-          onMore: () => showSongMenu(ref, context, song),
+          selected: selecting ? isSelected(song.id) : null,
+          onTap: () => onTap(song),
+          onMoreAt: selecting
+              ? null
+              : (btnContext) =>
+                    showSongMenu(ref, btnContext, song),
+          onHold: selecting ? null : () => onHold(song),
         );
       },
     );
@@ -243,7 +368,19 @@ class _SongList extends ConsumerWidget {
 class _SongGrid extends ConsumerWidget {
   final int? currentId;
   final List<Song> songs;
-  const _SongGrid({required this.currentId, required this.songs});
+  final bool selecting;
+  final bool Function(int id) isSelected;
+  final void Function(Song song) onTap;
+  final void Function(Song song) onHold;
+
+  const _SongGrid({
+    required this.currentId,
+    required this.songs,
+    required this.selecting,
+    required this.isSelected,
+    required this.onTap,
+    required this.onHold,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -272,29 +409,89 @@ class _SongGrid extends ConsumerWidget {
         itemBuilder: (context, i) {
           final song = songs[i];
           final selected = song.id == currentId;
+          final checked = selecting && isSelected(song.id);
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _tapToPlay(ref, context, song, songs),
-            onLongPress: () => showSongMenu(ref, context, song),
+            onTap: () => onTap(song),
+            onLongPress: selecting ? null : () => onHold(song),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 AspectRatio(
                   aspectRatio: 1,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: selected
-                          ? Border.all(color: archPink, width: 2)
-                          : null,
-                    ),
-                    child: FileArtImage(
-                      path: song.path,
-                      albumId: song.albumId,
-                      size: 160,
-                      radius: 18,
-                      fill: true,
-                    ),
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: selected
+                              ? Border.all(color: archPink, width: 2)
+                              : null,
+                        ),
+                        child: FileArtImage(
+                          path: song.path,
+                          albumId: song.albumId,
+                          size: 160,
+                          radius: 18,
+                          fill: true,
+                        ),
+                      ),
+                      // Select-mode check badge, top-left on the art.
+                      if (selecting)
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: checked
+                                  ? archPink
+                                  : Colors.black.withValues(alpha: 0.35),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                width: 2,
+                              ),
+                            ),
+                            child: checked
+                                ? const Icon(
+                                    CupertinoIcons.checkmark,
+                                    color: Colors.white,
+                                    size: 16,
+                                  )
+                                : null,
+                          ),
+                        ),
+                      // Overflow `...`: grid had hold only until now.
+                      if (!selecting)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Builder(
+                            builder: (btnContext) => GestureDetector(
+                              onTap: () =>
+                                  showSongMenu(ref, btnContext, song),
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: paperRaised,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: ink.withValues(alpha: 0.08),
+                                  ),
+                                ),
+                                child: const Icon(
+                                  CupertinoIcons.ellipsis,
+                                  color: inkDim,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 6),

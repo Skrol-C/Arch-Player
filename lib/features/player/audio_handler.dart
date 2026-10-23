@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/art_scale.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../library/data/art_previews.dart';
@@ -32,14 +33,17 @@ class NotifArt {
   }
 
   /// Raw bytes (embedded art via ArtCache) to a stable notification file.
+  /// Capped first: the notification is a system surface and gets the
+  /// same bounded image as the app, never a 24 MB scan to decode.
   static Future<String?> cacheBytes(Uint8List bytes, String name) async {
     try {
       if (bytes.isEmpty) return null;
+      final sized = await shrinkArt(bytes);
       final dir = await getApplicationCacheDirectory();
       final art = Directory('${dir.path}/notif_art');
       if (!await art.exists()) await art.create(recursive: true);
       final file = File('${art.path}/$name.jpg');
-      await file.writeAsBytes(bytes, flush: true);
+      await file.writeAsBytes(sized, flush: true);
       return file.path;
     } catch (e) {
       ArchLog.w('player', 'notif art bytes failed: $e');
@@ -59,7 +63,16 @@ class ArchAudioHandler extends BaseAudioHandler {
   int _skipGen = 0;
 
   ArchAudioHandler() {
-    _player.playbackEventStream.map(_toPlaybackState).pipe(playbackState);
+    _player.playbackEventStream.listen((event) {
+      // Never `.pipe()` here. An addStream holds the controller
+      // against every other add, so each shuffle/loop _republish()
+      // threw "You cannot add items while items are being added from
+      // addStream" and that notification control silently missed its
+      // update (twelve of those per cold start, before any tap).
+      // A plain listen keeps every emission its own add.
+      if (playbackState.isClosed) return;
+      playbackState.add(_toPlaybackState(event));
+    });
     // Notification icons mirror engine state (shuffle/repeat), not
     // just playback events: re-publish on those flips.
     _player.shuffleModeEnabledStream.listen((_) => _republish());
@@ -88,9 +101,18 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   /// Re-publish the current state (notification icon refresh). Reads
   /// the live event so nothing else has to be threaded through.
-  void _republish() {
+  /// Overrides paint the intended state immediately while the engine
+  /// catches up — the toggle answers on tap, not after a reshuffle.
+  void _republish({bool? shuffle, LoopMode? loop}) {
     try {
-      playbackState.add(_toPlaybackState(_player.playbackEvent));
+      if (playbackState.isClosed) return;
+      playbackState.add(
+        _toPlaybackState(
+          _player.playbackEvent,
+          shuffleOverride: shuffle,
+          loopOverride: loop,
+        ),
+      );
     } catch (e) {
       ArchLog.w('player', 'republish failed: $e');
     }
@@ -658,6 +680,66 @@ class ArchAudioHandler extends BaseAudioHandler {
     ArchLog.i('player', 'queue remove id=${removed.id} index=$index');
   }
 
+  /// True when the live queue is a streaming preview (single source,
+  /// no library context). Queue surgery targets library queues only:
+  /// callers show a snackbar instead of wedging here.
+  bool get isPreviewQueue =>
+      _songs.isEmpty && mediaItem.value != null;
+
+  /// Play next: splice after the current index, order-preserving for
+  /// bulks. Empty library queue (nothing playing ever) just takes
+  /// the songs, paused. Preview queue: false, caller explains.
+  Future<bool> insertNextAll(List<Song> songs) async {
+    if (songs.isEmpty) return true;
+    if (isPreviewQueue) return false;
+    if (_songs.isEmpty) {
+      await setQueueSongs(songs);
+      ArchLog.i('player', 'play-next on empty queue: took ${songs.length}');
+      return true;
+    }
+    var pos = (_player.currentIndex ?? _songs.length - 1) + 1;
+    pos = pos.clamp(0, _songs.length);
+    final fresh = [
+      for (final s in songs)
+        if (!_songs.any((q) => q.id == s.id)) s,
+    ];
+    if (fresh.isEmpty) return true;
+    await _player.insertAudioSources(
+      pos,
+      [for (final s in fresh) AudioSource.uri(s.uri)],
+    );
+    _songs.insertAll(pos, fresh);
+    _emitQueue(_songs.map((s) => s.toMediaItem()).toList());
+    ArchLog.i('player', 'play-next ${fresh.length} at $pos');
+    return true;
+  }
+
+  Future<bool> insertNext(Song song) => insertNextAll([song]);
+
+  /// Add to queue: end-append, order-preserving, de-duped against
+  /// the live queue. Same empty/preview contract as insertNextAll.
+  Future<bool> appendToQueue(List<Song> songs) async {
+    if (songs.isEmpty) return true;
+    if (isPreviewQueue) return false;
+    if (_songs.isEmpty) {
+      await setQueueSongs(songs);
+      ArchLog.i('player', 'append on empty queue: took ${songs.length}');
+      return true;
+    }
+    final fresh = [
+      for (final s in songs)
+        if (!_songs.any((q) => q.id == s.id)) s,
+    ];
+    if (fresh.isEmpty) return true;
+    await _player.addAudioSources(
+      [for (final s in fresh) AudioSource.uri(s.uri)],
+    );
+    _songs.addAll(fresh);
+    _emitQueue(_songs.map((s) => s.toMediaItem()).toList());
+    ArchLog.i('player', 'append ${fresh.length}');
+    return true;
+  }
+
   Future<void> clearQueue() async {
     await _player.stop();
     _songs = [];
@@ -670,8 +752,13 @@ class ArchAudioHandler extends BaseAudioHandler {
   @override
   Future<void> stop() => _player.stop();
 
-  PlaybackState _toPlaybackState(PlaybackEvent event) {
-    final shuffle = _player.shuffleModeEnabled;
+  PlaybackState _toPlaybackState(
+    PlaybackEvent event, {
+    bool? shuffleOverride,
+    LoopMode? loopOverride,
+  }) {
+    final shuffle = shuffleOverride ?? _player.shuffleModeEnabled;
+    final loop = loopOverride ?? _player.loopMode;
     return PlaybackState(
       controls: [
         MediaControl.custom(
@@ -685,7 +772,7 @@ class ArchAudioHandler extends BaseAudioHandler {
         if (_player.playing) MediaControl.pause else MediaControl.play,
         MediaControl.skipToNext,
         MediaControl.custom(
-          androidIcon: switch (_player.loopMode) {
+          androidIcon: switch (loop) {
             LoopMode.all => 'drawable/ic_notif_repeat_all',
             LoopMode.one => 'drawable/ic_notif_repeat_one',
             _ => 'drawable/ic_notif_repeat_off',
@@ -724,13 +811,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     switch (name) {
       case 'notif_shuffle':
         final v = !_player.shuffleModeEnabled;
+        // Paint first, reshuffle behind: setShuffleEnabled awaits a
+        // full queue reorder, which is what made the icon feel stuck.
+        _republish(shuffle: v);
         await setShuffleEnabled(v);
-        _republish();
         ArchLog.i('player', 'notif shuffle=$v');
       case 'notif_repeat':
         final v = LoopMode.values[(_player.loopMode.index + 1) % 3];
+        _republish(loop: v);
         await setLoopMode(v);
-        _republish();
         ArchLog.i('player', 'notif loop=$v');
     }
   }

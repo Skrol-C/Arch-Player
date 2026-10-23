@@ -36,11 +36,15 @@ class ReleaseGallery extends ConsumerWidget {
           children: [
             GridView.builder(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 24,
-                childAspectRatio: 0.78,
+                // Measured extent, not a ratio: a ratio rounds and the
+                // tile overflows by a fraction of a pixel on narrow
+                // screens. Fits the year line when present.
+                mainAxisExtent:
+                    (MediaQuery.sizeOf(context).width - 56) / 2 + 48,
               ),
               itemCount: items.length,
               itemBuilder: (context, i) {

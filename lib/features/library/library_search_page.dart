@@ -266,13 +266,14 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       sliver: SliverGrid.builder(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 20,
-                              childAspectRatio: 0.78,
-                            ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 20,
+                          mainAxisExtent:
+                              (MediaQuery.sizeOf(context).width - 56) / 2 +
+                              46, // measured, not ratio
+                        ),
                         itemCount: albums.length,
                         itemBuilder: (context, i) {
                           final a = albums[i];

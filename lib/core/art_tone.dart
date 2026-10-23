@@ -69,6 +69,12 @@ abstract final class ArtTone {
   /// the wash mapping, not this function.
   static final Map<String, ArtPalette?> _bytesMemo = {};
 
+  /// Drop one memoized byte-palette (e.g. a playlist cover file that
+  /// was just overwritten at the same path).
+  static void evict(String key) {
+    _bytesMemo.remove(key);
+  }
+
   static Future<ArtPalette?> paletteFromBytes(
     String key,
     Future<Uint8List?> Function() load,

@@ -17,6 +17,7 @@ import '../../core/theme.dart';
 import '../library/album_page.dart' show AlbumPage;
 import '../library/artist_hub_page.dart';
 import '../library/library_providers.dart';
+import '../library/playlists_providers.dart' show playlistsProvider;
 import '../library/song_row.dart' show fmtDuration;
 import '../song/song_page.dart';
 import 'morph_icon.dart';
@@ -83,6 +84,16 @@ Future<String?> showTrackMenu({
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
         final media = MediaQuery.of(context);
+        // Floor the top edge on the view padding, not the route
+        // padding: dialog routes can report a zero top inset while
+        // the status bar is still there, which parked tall menus
+        // under it. The view padding is always real.
+        final pad = EdgeInsets.fromLTRB(
+          media.padding.left,
+          math.max(media.padding.top, media.viewPadding.top),
+          media.padding.right,
+          media.padding.bottom,
+        );
         return AnimatedBuilder(
           animation: animation,
           // Rows build once and stay cached; the choreography below
@@ -119,7 +130,7 @@ Future<String?> showTrackMenu({
                 delegate: _MenuLayout(
                   anchor: target,
                   maxWidth: 300,
-                  padding: media.padding,
+                  padding: pad,
                   progress: glide,
                 ),
                 child: Transform.scale(
@@ -257,41 +268,46 @@ class _MenuRows extends StatelessWidget {
     // Material canvas for the rows: ListTile paints ink on the
     // nearest Material ancestor, and a bare dialog route provides
     // none - without this every open throws Material.of null.
+    // Scroll-safe: a tall menu scrolls inside its capped height
+    // instead of clipping its top rows off-screen.
     return Material(
       type: MaterialType.transparency,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (quick.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
+        child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (quick.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      for (final a in quick)
+                        CascadeIn(
+                          delayMs: (k++) * 30,
+                          child: _QuickChip(action: a),
+                        ),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    for (final a in quick)
-                      CascadeIn(
-                        delayMs: (k++) * 30,
-                        child: _QuickChip(action: a),
-                      ),
-                  ],
-                ),
-              ),
-              const Divider(height: 12, indent: 16, endIndent: 16),
+                const Divider(height: 12, indent: 16, endIndent: 16),
+              ],
+              for (var g = 0; g < groups.length; g++) ...[
+                if (g > 0) const Divider(height: 8, indent: 16, endIndent: 16),
+                for (final a in groups[g])
+                  CascadeIn(
+                    delayMs: (k++) * 30,
+                    child: _MenuRow(action: a),
+                  ),
+              ],
             ],
-            for (var g = 0; g < groups.length; g++) ...[
-              if (g > 0) const Divider(height: 8, indent: 16, endIndent: 16),
-              for (final a in groups[g])
-                CascadeIn(
-                  delayMs: (k++) * 30,
-                  child: _MenuRow(action: a),
-                ),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -408,6 +424,7 @@ Future<void> showSongMenu(
   Song song,
 ) async {
   final ownedAlbum = ownedAlbumFor(ref, song);
+  final starred = ref.read(playlistsProvider.notifier).isStarred(song.id);
   final value = await showTrackMenu(
     context: context,
     groups: [
@@ -439,6 +456,14 @@ Future<void> showSongMenu(
       ],
       [
         MenuAction(
+          icon: starred
+              ? CupertinoIcons.star_fill
+              : CupertinoIcons.star,
+          label: starred ? 'Unstar' : 'Star',
+          value: 'star',
+          selected: starred,
+        ),
+        MenuAction(
           icon: CupertinoIcons.square_arrow_up,
           label: 'Share',
           subtitle: '${song.title} - ${song.artist}',
@@ -461,6 +486,10 @@ Future<void> showSongMenu(
       break;
     case 'artist':
       ArtistHubPage.openIfAbsent(context, song.artist);
+      break;
+    case 'star':
+      HapticFeedback.selectionClick();
+      await ref.read(playlistsProvider.notifier).toggleStar(song.id);
       break;
     case 'share':
       SharePlus.instance.share(
