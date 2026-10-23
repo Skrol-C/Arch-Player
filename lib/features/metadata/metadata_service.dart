@@ -2199,17 +2199,18 @@ class MetadataService {
         unawaited(_saveMusicalDisk());
       }
     }
-    // On-device DSP fallback (Mornye-ported beat grid + hand-rolled
-    // chroma key): covers tracks no database knows. One decode feeds
-    // both analyzers. Confidence-gated; misses stay silent and
-    // uncached so a later retry can still land.
+    // On-device DSP (Mornye-ported beat grid, hand-rolled chroma key):
+    // one full decode feeds a 3-window tempo sweep plus whole-track
+    // key, all in parallel isolates. Misses stay silent and uncached
+    // so a later retry can still land.
     if ((netBpm == null || netKey.isEmpty) && path.isNotEmpty) {
       try {
-        final bytes = await decodeMono11k(path);
+        final bytes = await decodeMono11k(path, full: true);
         if (bytes != null) {
           var grew = false;
           if (netBpm == null) {
-            final grid = await analyzeGrid(bytes);
+            final won = await analyzeTempoWindows(bytes);
+            final grid = won.grid;
             if (grid.confidence >= 0.55 && grid.bpm > 0) {
               netBpm = grid.bpm;
               netSrc = 'dsp';
@@ -2217,13 +2218,14 @@ class MetadataService {
               ArchLog.i(
                 'meta',
                 'musical dsp tempo: $artist - $title '
-                'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)}',
+                'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)} '
+                'win=${won.window + 1}/${won.of}',
               );
             } else {
               ArchLog.i(
                 'meta',
                 'musical dsp tempo miss: $artist - $title '
-                'conf=${grid.confidence.toStringAsFixed(2)}',
+                'conf=${grid.confidence.toStringAsFixed(2)} win=${won.window + 1}/${won.of}',
               );
             }
           }
