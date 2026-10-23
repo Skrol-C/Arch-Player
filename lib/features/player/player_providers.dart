@@ -175,6 +175,33 @@ class ShuffleNotifier extends Notifier<bool> {
   }
 }
 
+/// Automix: continuous harmonic playback. Persisted, default off,
+/// one tap off — the hub doc's rule. The transition engine and
+/// ordering read this; the switch itself is just honest state.
+final autoMixProvider = NotifierProvider<AutoMixNotifier, bool>(
+  AutoMixNotifier.new,
+);
+
+class AutoMixNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    _sync();
+    return false;
+  }
+
+  Future<void> _sync() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool('arch.automix') ?? false;
+  }
+
+  Future<void> toggle() async {
+    final v = !state;
+    state = v;
+    (await SharedPreferences.getInstance()).setBool('arch.automix', v);
+    ArchLog.i('player', 'automix=$v');
+  }
+}
+
 final loopProvider = NotifierProvider<LoopNotifier, LoopMode>(LoopNotifier.new);
 
 class LoopNotifier extends Notifier<LoopMode> {

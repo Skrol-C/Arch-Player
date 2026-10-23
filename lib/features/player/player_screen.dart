@@ -1476,6 +1476,7 @@ class _QueuePanel extends ConsumerWidget {
     final handler = ref.read(audioHandlerProvider);
     final shuffle = ref.watch(shuffleProvider);
     final loop = ref.watch(loopProvider);
+    final automix = ref.watch(autoMixProvider);
     return Column(
       children: [
         Padding(
@@ -1492,19 +1493,12 @@ class _QueuePanel extends ConsumerWidget {
                 icon: Icon(
                   CupertinoIcons.infinite,
                   size: 20,
-                  color: inkDim.withValues(alpha: 0.4),
+                  color: automix ? archPink : inkDim,
                 ),
-                tooltip: 'Autoplay',
-                active: false,
-                dimmed: true,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Autoplay arrives with harmonic flow'),
-                    ),
-                  );
-                },
+                tooltip: 'Automix',
+                active: automix,
+                onTap: () =>
+                    ref.read(autoMixProvider.notifier).toggle(),
               ),
               const SizedBox(width: 4),
               _PanelModeBtn(
@@ -1665,7 +1659,6 @@ class _PanelModeBtn extends StatelessWidget {
   final Widget icon;
   final String tooltip;
   final bool active;
-  final bool dimmed;
   final VoidCallback onTap;
 
   const _PanelModeBtn({
@@ -1673,7 +1666,6 @@ class _PanelModeBtn extends StatelessWidget {
     required this.tooltip,
     required this.active,
     required this.onTap,
-    this.dimmed = false,
   });
 
   @override
@@ -1694,11 +1686,7 @@ class _PanelModeBtn extends StatelessWidget {
           child: IconTheme(
             data: IconThemeData(
               size: 20,
-              color: active
-                  ? archPink
-                  : dimmed
-                  ? inkDim.withValues(alpha: 0.4)
-                  : inkDim,
+              color: active ? archPink : inkDim,
             ),
             child: icon,
           ),
