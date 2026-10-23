@@ -22,8 +22,12 @@ import '../../core/log.dart';
 import 'crossfade.dart';
 
 class AutomixEngine {
-  final AudioPlayer _a = AudioPlayer();
-  final AudioPlayer _b = AudioPlayer();
+  // Session activation is handled by the app once (the transport owns
+  // audio focus); these players must NOT each request focus, or the
+  // incoming one blocks waiting for a grant the parked player still
+  // holds — that is the play() hang that killed the first mixes.
+  final AudioPlayer _a = AudioPlayer(handleAudioSessionActivation: false);
+  final AudioPlayer _b = AudioPlayer(handleAudioSessionActivation: false);
 
   /// True while [_a] is the audible side. Swaps each transition.
   bool _aActive = true;
@@ -78,8 +82,10 @@ class AutomixEngine {
   Future<bool> start(Uri uri, {Duration at = Duration.zero}) async {
     if (_disposed) return false;
     try {
+      // Preload inside setAudioSource so the 15s bound covers the
+      // actual decode/load; play() then returns immediately.
       await _active
-          .setAudioSource(AudioSource.uri(uri), preload: false)
+          .setAudioSource(AudioSource.uri(uri))
           .timeout(const Duration(seconds: 15));
       if (_disposed) return false;
       if (at > Duration.zero) {
@@ -104,7 +110,7 @@ class AutomixEngine {
     try {
       final incoming = _idle;
       await incoming
-          .setAudioSource(AudioSource.uri(next), preload: false)
+          .setAudioSource(AudioSource.uri(next))
           .timeout(const Duration(seconds: 12));
       if (_disposed) return false;
       await incoming.setVolume(0.0);
@@ -144,7 +150,7 @@ class AutomixEngine {
     try {
       if (incoming.processingState == ProcessingState.idle) {
         await incoming
-            .setAudioSource(AudioSource.uri(next), preload: false)
+            .setAudioSource(AudioSource.uri(next))
             .timeout(const Duration(seconds: 12));
       }
       await incoming.setVolume(1.0);

@@ -186,6 +186,16 @@ class AutoMixNotifier extends Notifier<bool> {
   @override
   bool build() {
     _sync();
+    // Engine couldn't take over: flip the toggle off so the UI never
+    // disagrees with what is actually playing.
+    final handler = ref.read(audioHandlerProvider);
+    final sub = handler.automixFailures.listen((_) async {
+      if (!state) return;
+      state = false;
+      (await SharedPreferences.getInstance()).setBool('arch.automix', false);
+      ArchLog.w('player', 'automix unavailable - toggled off');
+    });
+    ref.onDispose(sub.cancel);
     return false;
   }
 

@@ -117,6 +117,13 @@ class ArchAudioHandler extends BaseAudioHandler {
   bool _mixFiring = false;
   StreamSubscription<PlaybackEvent>? _mixEvents;
 
+  /// Fires when the engine can't take over (load failure). The toggle
+  /// provider listens and flips itself off, so the UI never claims
+  /// automix is on while the playlist is actually driving.
+  final StreamController<void> _automixFailures =
+      StreamController<void>.broadcast();
+  Stream<void> get automixFailures => _automixFailures.stream;
+
   ArchAudioHandler({MetadataService? metadata}) {
     _meta = metadata;
     _player.playbackEventStream.listen((event) {
@@ -696,13 +703,22 @@ class ArchAudioHandler extends BaseAudioHandler {
     _engine = engine;
     _mixIndex = index;
     _mixEvents = engine.events.listen(_publishEngine);
+    // One explicit activation for the app: the engine players do not
+    // request focus themselves. Without this they wait on a grant the
+    // parked playlist player still holds and play() never returns.
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (_) {}
     try {
       await _meta?.warmMusical();
     } catch (_) {}
     final ok = await engine.start(song.uri, at: at);
     if (!ok) {
       ArchLog.w('automix', 'engine start failed - staying on playlist');
+      _automixOn = false;
       await _teardownEngine(resume: true);
+      if (!_automixFailures.isClosed) _automixFailures.add(null);
       return;
     }
     _setItem(song.toMediaItem());
