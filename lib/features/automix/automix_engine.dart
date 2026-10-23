@@ -78,11 +78,15 @@ class AutomixEngine {
   Future<bool> start(Uri uri, {Duration at = Duration.zero}) async {
     if (_disposed) return false;
     try {
-      await _active.setAudioSource(AudioSource.uri(uri), preload: false);
+      await _active
+          .setAudioSource(AudioSource.uri(uri), preload: false)
+          .timeout(const Duration(seconds: 15));
       if (_disposed) return false;
-      if (at > Duration.zero) await _active.seek(at);
+      if (at > Duration.zero) {
+        await _active.seek(at).timeout(const Duration(seconds: 5));
+      }
       await _active.setVolume(1.0);
-      await _active.play();
+      await _active.play().timeout(const Duration(seconds: 10));
       ArchLog.i('automix', 'engine start ${uri.pathSegments.last}');
       return true;
     } catch (e) {
@@ -92,24 +96,28 @@ class AutomixEngine {
   }
 
   /// Blend the audible track into [next]. [seconds] comes from
-  /// [planCrossfade]; [at] seeks the incoming track past its head
-  /// (phrase offsets land here later). Returns the new audible side.
+  /// [planCrossfade]. Every await is time-bounded: a stalled load must
+  /// degrade to a clean cut, never to a wedged (silent) engine.
   Future<bool> crossfadeTo(Uri next, {required double seconds}) async {
     if (_disposed || _crossfading) return false;
     _crossfading = true;
-    final incoming = _idle;
     try {
-      await incoming.setAudioSource(AudioSource.uri(next), preload: false);
+      final incoming = _idle;
+      await incoming
+          .setAudioSource(AudioSource.uri(next), preload: false)
+          .timeout(const Duration(seconds: 12));
       if (_disposed) return false;
-      await incoming.seek(Duration.zero);
       await incoming.setVolume(0.0);
-      await incoming.play();
-      final ok = await _ramp(seconds);
-      if (!ok) return false;
-      // Handoff: the outgoing side is parked (not stopped — stopping
-      // releases the decoder and would stall the next preload).
+      await incoming.play().timeout(const Duration(seconds: 8));
+      final ok = await _ramp(seconds).timeout(
+        Duration(milliseconds: (seconds * 1000).round() + 4000),
+      );
+      if (!ok) {
+        await _cutTo(next);
+        return false;
+      }
       try {
-        await _active.pause();
+        await _active.pause().timeout(const Duration(seconds: 4));
         await _active.setVolume(1.0);
       } catch (_) {}
       _aActive = !_aActive;
@@ -120,15 +128,35 @@ class AutomixEngine {
       );
       return true;
     } catch (e) {
-      ArchLog.w('automix', 'crossfade failed: ${e.toString()}');
-      // Put the outgoing side back to full so the user still hears
-      // something instead of two half-faded players.
-      try {
-        await _active.setVolume(1.0);
-      } catch (_) {}
+      ArchLog.w('automix', 'crossfade failed, cutting: $e');
+      await _cutTo(next);
       return false;
     } finally {
       _crossfading = false;
+    }
+  }
+
+  /// Emergency handoff: promote the incoming side at full volume and
+  /// park the outgoing one. Used when a load or ramp stalls — a hard
+  /// cut is always better than silence.
+  Future<void> _cutTo(Uri next) async {
+    final incoming = _idle;
+    try {
+      if (incoming.processingState == ProcessingState.idle) {
+        await incoming
+            .setAudioSource(AudioSource.uri(next), preload: false)
+            .timeout(const Duration(seconds: 12));
+      }
+      await incoming.setVolume(1.0);
+      await incoming.play().timeout(const Duration(seconds: 8));
+      try {
+        await _active.pause().timeout(const Duration(seconds: 4));
+        await _active.setVolume(1.0);
+      } catch (_) {}
+      _aActive = !_aActive;
+      ArchLog.i('automix', 'cut (fallback)');
+    } catch (e) {
+      ArchLog.w('automix', 'cut failed: $e');
     }
   }
 

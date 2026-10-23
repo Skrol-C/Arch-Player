@@ -775,7 +775,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     _mixFiring = true;
     try {
       final song = _songs[next];
-      final ok = await engine.crossfadeTo(song.uri, seconds: plan.seconds);
+      // Belt and braces: the engine bounds its own awaits, but the
+      // flag must clear no matter what, or every later tick bails.
+      final ok = await engine
+          .crossfadeTo(song.uri, seconds: plan.seconds)
+          .timeout(Duration(seconds: plan.seconds.round() + 30))
+          .catchError((Object e) {
+        ArchLog.w('automix', 'crossfade timeout: $e');
+        return false;
+      });
       if (ok) {
         _mixIndex = next;
         _setItem(song.toMediaItem());
