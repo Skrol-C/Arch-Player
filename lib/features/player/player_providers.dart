@@ -238,11 +238,13 @@ final playerPaletteProvider = FutureProvider<ArtPalette?>((ref) {
 
 /// Adaptive light wash for the player canvas: the artwork's muted
 /// tone pulled toward paper, contrast-clamped so ink always reads.
+/// Pull sits low on purpose — the colour should survive, not rinse
+/// out — and the clamp loop still lifts light art until ink passes.
 /// Brightness is a parameter, not an assumption - dark mode later
 /// flips this mapping, nothing else.
 Color playerWashOf(ArtPalette? palette) {
   final base = palette?.wash ?? paperRaised;
-  var pull = 0.6;
+  var pull = 0.35;
   var wash = Color.lerp(base, paper, pull)!;
   while (pull < 1.0 && _inkContrast(wash) < 4.5) {
     pull += 0.05;

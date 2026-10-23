@@ -95,33 +95,56 @@ class PlayerScreen extends ConsumerWidget {
               : const Duration(milliseconds: 380),
           curve: Curves.easeInOut,
           color: wash,
-          child: SafeArea(
-            child: _ImmersionScope(
-              child: Column(
-                children: [
-                  _Immersed(
-                    child: _DismissDrag(
-                      child: _TopBar(
-                        onMore: () => _openPlayerMenu(ref, context, song),
-                      ),
-                    ),
-                  ),
-                  Expanded(child: _Stage(song: song)),
-                  _Immersed(child: _Scrub(song: song)),
-                  const _Immersed(child: _Transport()),
-                  const _Immersed(child: _UtilityRow()),
-                  // Lift: the cluster floats with air below instead of
-                  // touching the screen bottom. One constant to tune.
-                  const SizedBox(height: 24),
-                ],
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(gradient: _lowEndGradient),
+                ),
               ),
-            ),
+              SafeArea(
+                child: _ImmersionScope(
+                  child: Column(
+                    children: [
+                      _Immersed(
+                        child: _DismissDrag(
+                          child: _TopBar(
+                            onMore: () => _openPlayerMenu(ref, context, song),
+                          ),
+                        ),
+                      ),
+                      Expanded(child: _Stage(song: song)),
+                      _Immersed(child: _Scrub(song: song)),
+                      const _Immersed(child: _Transport()),
+                      const _Immersed(child: _UtilityRow()),
+                      // Lift: the cluster floats with air below instead of
+                      // touching the screen bottom. One constant to tune.
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 }
+
+/// Low-end gradient: transparent through the art, blooming into a
+/// dark (not black) red at the bottom edge so the canvas pops without
+/// rinsing the wash. Static — the wash crossfades per track above it.
+final _lowEndGradient = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Colors.transparent,
+    archPink.withValues(alpha: 0.08),
+    archPinkDim.withValues(alpha: 0.30),
+  ],
+  stops: const [0.62, 0.85, 1.0],
+);
 
 /// The morphing stage: full cover (art + titles) at rest, 72px header
 /// + panel when lyrics or queue take over. One 380ms driver - cover
