@@ -10,6 +10,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/art_tone.dart';
 import '../../core/glass.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -83,6 +84,7 @@ class PlayerScreen extends ConsumerWidget {
     // calm, not sluggish). Paper fallback, never the accent.
     final palette = ref.watch(playerPaletteProvider).value;
     final wash = playerWashOf(palette);
+    final tones = _lowEndTones(palette);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
@@ -98,8 +100,9 @@ class PlayerScreen extends ConsumerWidget {
           child: Stack(
             children: [
               Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(gradient: _lowEndGradient),
+                child: _LowEndGradient(
+                  bloom: tones.bloom,
+                  depth: tones.depth,
                 ),
               ),
               SafeArea(
@@ -132,20 +135,61 @@ class PlayerScreen extends ConsumerWidget {
   }
 }
 
-/// Low-end gradient: transparent through the art, blooming into a
-/// dark (not black) red at the bottom edge so the canvas pops without
-/// rinsing the wash. Static — the wash crossfades per track above it.
-final _lowEndGradient = LinearGradient(
-  begin: Alignment.topCenter,
-  end: Alignment.bottomCenter,
-  colors: [
-    Colors.transparent,
-    archPink.withValues(alpha: 0.08),
-    archPinkDim.withValues(alpha: 0.30),
-  ],
-  stops: const [0.62, 0.85, 1.0],
-);
+/// Low-end gradient tones, borrowed straight from the cover: the
+/// bloom is the palette's vibrant pick, the depth is its wash pulled
+/// most of the way to ink. No accent mixing anywhere — a blue cover
+/// blooms blue. Null palette (nothing playing art yet) falls back to
+/// a neutral ink fade.
+({Color bloom, Color depth}) _lowEndTones(ArtPalette? palette) {
+  if (palette == null) return (bloom: Colors.transparent, depth: ink);
+  return (
+    bloom: palette.vibrant,
+    depth: Color.lerp(palette.wash, ink, 0.55)!,
+  );
+}
 
+/// Low-end gradient shell: transparent through the art, blooming at
+/// the bottom edge so the canvas pops. Both tones ride the same
+/// 380ms driver as the wash so base + gradient arrive as one body.
+class _LowEndGradient extends StatelessWidget {
+  final Color bloom;
+  final Color depth;
+
+  const _LowEndGradient({required this.bloom, required this.depth});
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = Motion.reduced(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 380);
+    // New tween each build animates from the current value to the
+    // new end — successive palettes crossfade, never snap.
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: bloom),
+      duration: duration,
+      curve: Curves.easeInOut,
+      builder: (context, b, _) => TweenAnimationBuilder<Color?>(
+        tween: ColorTween(end: depth),
+        duration: duration,
+        curve: Curves.easeInOut,
+        builder: (context, d, _) => DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.transparent,
+                (b ?? bloom).withValues(alpha: 0.10),
+                (d ?? depth).withValues(alpha: 0.32),
+              ],
+              stops: const [0.62, 0.85, 1.0],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 /// The morphing stage: full cover (art + titles) at rest, 72px header
 /// + panel when lyrics or queue take over. One 380ms driver - cover
 /// and panel travel together, never on separate timings.
