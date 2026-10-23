@@ -1316,7 +1316,7 @@ class _UtilityRow extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _GlassAction(
             icon: MorphIcon(
@@ -1327,6 +1327,16 @@ class _UtilityRow extends ConsumerWidget {
             selected: panel == PlayerPanel.queue,
             onTap: () => _togglePanel(ref, PlayerPanel.queue),
           ),
+          const SizedBox(width: 28),
+          // Arch Hub placeholder: the systems' entry (Adaptive, Motion,
+          // ARCH-FM). Inert until the hub lands — present, not wired.
+          const _GlassAction(
+            icon: Icon(Icons.blur_circular),
+            tooltip: 'Arch Hub',
+            selected: false,
+            onTap: null,
+          ),
+          const SizedBox(width: 28),
           _GlassAction(
             icon: MorphIcon(
               iconKey: panel == PlayerPanel.lyrics,
@@ -1387,7 +1397,7 @@ class _GlassAction extends StatelessWidget {
   }
 }
 
-/// Up Next panel: mode buttons + shuffle-library + full editing list.
+/// Up Next panel: mode toggles + full editing list.
 /// Header mirrors the transport states; rows tap-jump, drag-reorder
 /// (handle), swipe-remove; the current row is locked and lit.
 class _QueuePanel extends ConsumerWidget {
