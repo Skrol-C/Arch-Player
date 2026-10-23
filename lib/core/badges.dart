@@ -50,3 +50,54 @@ class ContainedBadge extends StatelessWidget {
     return TypeBadge(label: label);
   }
 }
+
+/// Harmonic key mark: Camelot code on its wheel color (8A lands
+/// green). Minor keys run deep, majors run brighter. Unknown codes
+/// fall back to the ink box. Borrowed grammar, own wheel — Spotify
+/// never published its palette.
+class KeyBadge extends StatelessWidget {
+  /// Traktor open key: '8m' / '8d'.
+  final String openKey;
+
+  const KeyBadge({super.key, required this.openKey});
+
+  static ({int number, bool minor})? _parse(String open) {
+    final m =
+        RegExp(r'^(\d{1,2})\s*([md])$', caseSensitive: false)
+            .firstMatch(open.trim());
+    if (m == null) return null;
+    final num = int.tryParse(m.group(1)!);
+    if (num == null || num < 1 || num > 12) return null;
+    return (number: num, minor: m.group(2)!.toLowerCase() == 'm');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final parsed = _parse(openKey);
+    if (parsed == null) return TypeBadge(label: openKey);
+    final hue = ((parsed.number - 1) * 30 + 270) % 360.0;
+    final bg = HSLColor.fromAHSL(
+      1.0,
+      hue,
+      0.55,
+      parsed.minor ? 0.38 : 0.48,
+    ).toColor();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        '${parsed.number}${parsed.minor ? 'A' : 'B'}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
+}

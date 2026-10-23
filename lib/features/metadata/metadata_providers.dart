@@ -252,6 +252,31 @@ final releaseCoverProvider = FutureProvider.family<String?, String>((
   return ref.watch(metadataServiceProvider).coverFor(rgMbid);
 });
 
+/// Show/hide the Harmonic section on the song page. Persisted,
+/// default on. The eye toggle in the section header owns it.
+final showMusicalProvider = NotifierProvider<ShowMusicalNotifier, bool>(
+  ShowMusicalNotifier.new,
+);
+
+class ShowMusicalNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    _sync();
+    return true;
+  }
+
+  Future<void> _sync() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool('arch.showMusical') ?? true;
+  }
+
+  Future<void> toggle() async {
+    final v = !state;
+    state = v;
+    (await SharedPreferences.getInstance()).setBool('arch.showMusical', v);
+  }
+}
+
 /// BPM + musical key for harmonic ordering: embedded tags, then the
 /// GetSongBPM lane (disk-cached). Keyed "artist\x00title\x00path" —
 /// path empty means network-only. Null = neither lane knew the track.

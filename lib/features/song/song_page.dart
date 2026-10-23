@@ -11,6 +11,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/badges.dart';
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
@@ -1775,6 +1776,13 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
         ? ref.watch(tagFieldsProvider(owned.path))
         : null;
     final fields = tagsAsync?.value;
+    final showMusical = ref.watch(showMusicalProvider);
+    final musicalAsync = ref.watch(
+      musicalInfoProvider(
+        '${r.artist}\x00${r.title}\x00${owned?.path ?? ''}',
+      ),
+    );
+    final musical = musicalAsync.value;
 
     final fileYear = _yearOf(fields);
     final fileGenre = fields?[kGenre];
@@ -1927,6 +1935,65 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
             ],
           ),
         ),
+        // Harmonic: Camelot key on its wheel color + tempo, resolved
+        // from tags, network or on-device DSP (same lane as automix).
+        // Unknown tracks omit the section, never a blank row; the eye
+        // toggle owns visibility and persists across restarts.
+        if (musical case final info? when !info.isEmpty) ...[
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              const Text(
+                'Harmonic',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  ref.read(showMusicalProvider.notifier).toggle();
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    showMusical
+                        ? CupertinoIcons.eye_fill
+                        : CupertinoIcons.eye_slash_fill,
+                    color: showMusical ? archPink : inkDim,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (showMusical) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (info.openKey.isNotEmpty)
+                  KeyBadge(openKey: info.openKey),
+                if (info.openKey.isNotEmpty) const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    [
+                      if (info.keyOf.isNotEmpty) info.keyOf,
+                      if (info.bpm != null)
+                        '${_fmtBpm(info.bpm!)} BPM',
+                    ].join('  ·  '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
         // The file's remaining tags, folded away until asked for: a
         // long raw list should not push the card around.
         if (tagRows.isNotEmpty) ...[
@@ -2000,6 +2067,13 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
     if (date == null) return null;
     final m = RegExp(r'(\d{4})').firstMatch(date);
     return m?.group(1);
+  }
+
+  /// BPM display: whole when it reads whole (128), one decimal
+  /// otherwise (111.0). Embedded tags land whole; DSP floats.
+  static String _fmtBpm(double bpm) {
+    final r = bpm.roundToDouble();
+    return (bpm - r).abs() < 0.05 ? '${r.toInt()}' : bpm.toStringAsFixed(1);
   }
 
   static Widget _factRow(String k, String v) {
