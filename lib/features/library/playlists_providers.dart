@@ -16,6 +16,20 @@ final playlistsProvider =
       (ref) => PlaylistsNotifier(ref.watch(playlistStoreProvider)),
     );
 
+/// Containment index for the select-mode "already there" badges:
+/// song id -> names of playlists holding it. Built once per
+/// playlist change; rows read their own id, never the whole store.
+final playlistMembershipProvider = Provider<Map<int, List<String>>>((ref) {
+  final lists = ref.watch(playlistsProvider);
+  final out = <int, List<String>>{};
+  for (final p in lists) {
+    for (final id in p.songIds) {
+      (out[id] ??= []).add(p.name);
+    }
+  }
+  return out;
+});
+
 class PlaylistsNotifier extends StateNotifier<List<Playlist>> {
   final PlaylistStore _store;
 

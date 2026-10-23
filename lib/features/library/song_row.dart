@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/badges.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
@@ -312,6 +313,11 @@ class SongRow extends StatelessWidget {
   /// null while selecting.
   final bool? selected;
 
+  /// Playlists already holding this song, for the select-mode
+  /// containment badge. Null/empty = no badge. Callers pass it only
+  /// while selecting — normal browsing stays clean.
+  final List<String>? containedIn;
+
   const SongRow({
     super.key,
     required this.song,
@@ -322,6 +328,7 @@ class SongRow extends StatelessWidget {
     this.onMoreAt,
     this.onHold,
     this.selected,
+    this.containedIn,
   });
 
   @override
@@ -355,11 +362,26 @@ class SongRow extends StatelessWidget {
         maxLines: 1,
         style: TextStyle(color: isCurrent ? archPink : ink),
       ),
-      subtitle: Text(
-        song.artist,
-        maxLines: 1,
-        style: const TextStyle(color: inkDim),
-      ),
+      subtitle: containedIn == null || containedIn!.isEmpty
+          ? Text(
+              song.artist,
+              maxLines: 1,
+              style: const TextStyle(color: inkDim),
+            )
+          : Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    song.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: inkDim),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                ContainedBadge(names: containedIn!),
+              ],
+            ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

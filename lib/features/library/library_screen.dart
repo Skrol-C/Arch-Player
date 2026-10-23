@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/badges.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -296,6 +297,8 @@ class _RecentGrid extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (recent.isEmpty) return const SliverToBoxAdapter();
     final current = ref.watch(currentSongProvider).value;
+    final membership =
+        selecting ? ref.watch(playlistMembershipProvider) : null;
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       sliver: SliverGrid.builder(
@@ -310,6 +313,7 @@ class _RecentGrid extends ConsumerWidget {
           final song = recent[i];
           final selected = song.id == current?.id;
           final checked = selecting && isSelected(song.id);
+          final contained = membership?[song.id];
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => onTap(song),
@@ -365,6 +369,15 @@ class _RecentGrid extends ConsumerWidget {
                                   )
                                 : null,
                           ),
+                        ),
+                      // Containment badge, bottom-left on the art.
+                      if (selecting &&
+                          contained != null &&
+                          contained.isNotEmpty)
+                        Positioned(
+                          bottom: 8,
+                          left: 8,
+                          child: ContainedBadge(names: contained),
                         ),
                     ],
                   ),

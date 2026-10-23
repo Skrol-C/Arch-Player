@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/badges.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
@@ -13,6 +14,7 @@ import '../shell/dock.dart';
 import 'library_chrome.dart';
 import 'library_controls.dart';
 import 'library_providers.dart';
+import 'playlists_providers.dart';
 import 'song_row.dart';
 import 'song_select.dart';
 
@@ -344,6 +346,8 @@ class _SongList extends ConsumerWidget {
         ),
       );
     }
+    final membership =
+        selecting ? ref.watch(playlistMembershipProvider) : null;
     return SliverList.builder(
       itemCount: songs.length,
       itemBuilder: (context, i) {
@@ -352,6 +356,7 @@ class _SongList extends ConsumerWidget {
           song: song,
           isCurrent: song.id == currentId,
           selected: selecting ? isSelected(song.id) : null,
+          containedIn: membership?[song.id],
           onTap: () => onTap(song),
           onMoreAt: selecting
               ? null
@@ -393,6 +398,8 @@ class _SongGrid extends ConsumerWidget {
         ),
       );
     }
+    final membership =
+        selecting ? ref.watch(playlistMembershipProvider) : null;
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       sliver: SliverGrid.builder(
@@ -409,6 +416,7 @@ class _SongGrid extends ConsumerWidget {
           final song = songs[i];
           final selected = song.id == currentId;
           final checked = selecting && isSelected(song.id);
+          final contained = membership?[song.id];
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => onTap(song),
@@ -461,6 +469,15 @@ class _SongGrid extends ConsumerWidget {
                                   )
                                 : null,
                           ),
+                        ),
+                      // Containment badge, bottom-left on the art.
+                      if (selecting &&
+                          contained != null &&
+                          contained.isNotEmpty)
+                        Positioned(
+                          bottom: 8,
+                          left: 8,
+                          child: ContainedBadge(names: contained),
                         ),
                       // Overflow `...`: grid had hold only until now.
                       if (!selecting)
