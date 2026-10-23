@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/art_tone.dart';
+import '../../core/badges.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -72,34 +73,6 @@ class _Hit {
     this.previewUrl = '',
     this.releaseType = '',
   });
-}
-
-/// Black release-type mark (SINGLE/EP). Albums are the default
-/// and stay unbadged. Rendered only when the provider said so.
-class _ReleaseBadge extends StatelessWidget {
-  final String releaseType;
-  const _ReleaseBadge({required this.releaseType});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: ink,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        releaseType.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.6,
-          height: 1.2,
-        ),
-      ),
-    );
-  }
 }
 
 /// Parental-advisory E mark. Rendered only when a provider says so.
@@ -1241,7 +1214,6 @@ class _RowState extends ConsumerState<_Row> {
     );
     setState(() => _resolving = true);
     HapticFeedback.selectionClick();
-    ref.read(playerOpenProvider.notifier).state = true;
     if (owned != null) {
       final handler = ref.read(audioHandlerProvider);
       await playAndOpen(
@@ -1261,7 +1233,6 @@ class _RowState extends ConsumerState<_Row> {
     }
     setState(() => _resolving = true);
     HapticFeedback.selectionClick();
-    ref.read(playerOpenProvider.notifier).state = true;
     await playSearchPreview(
       ref,
       context,
@@ -1397,7 +1368,7 @@ class _RowState extends ConsumerState<_Row> {
                   const SizedBox(width: 8),
                 ],
                 if (hit.releaseType.isNotEmpty) ...[
-                  _ReleaseBadge(releaseType: hit.releaseType),
+                  TypeBadge(label: hit.releaseType),
                   const SizedBox(width: 8),
                 ],
                 if (hit.explicit) ...[
@@ -1753,7 +1724,6 @@ class _SubRow extends ConsumerWidget {
             break;
           }
         }
-        ref.read(playerOpenProvider.notifier).state = true;
         playSearchPreview(
           ref,
           context,
