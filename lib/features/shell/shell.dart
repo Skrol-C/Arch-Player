@@ -4,10 +4,12 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
+import '../../core/models.dart';
 import '../home/home_screen.dart';
 import '../library/library_providers.dart';
 import '../library/library_screen.dart';
 import '../library/song_select.dart' show selectionActiveProvider;
+import '../metadata/metadata_providers.dart';
 import '../needle/needle_hub.dart';
 import '../search/search_page.dart';
 import '../player/player_providers.dart';
@@ -25,12 +27,15 @@ class Shell extends ConsumerWidget {
     final playerOpen = ref.watch(playerOpenProvider);
     ArchLog.i('nav', 'shell build dest=$dest playerOpen=$playerOpen');
     // One hook: every newly current song counts as listened, wherever the
-    // tap happened. Feeds Listen Again + taste shelves.
+    // tap happened. Feeds Listen Again + taste shelves. Musical info
+    // (BPM/key) resolves alongside for the automix lane — log only,
+    // the ordering engine consumes it later.
     ref.listen(currentSongProvider, (prev, next) {
       final song = next.value;
       if (song == null || song.id == prev?.value?.id) return;
       ref.read(historyStoreProvider).recordPlay(song.id);
       ref.invalidate(listenAgainProvider);
+      _logMusical(ref, song);
     });
     // Screen stays awake while the player is open, sleeps with it.
     ref.listen(playerOpenProvider, (_, open) {
@@ -70,6 +75,26 @@ class Shell extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Automix lane probe: resolve BPM/key for the new current song and
+/// log the verdict (embedded vs network vs unknown). Fire-and-forget;
+/// failures stay off the playback path by construction (provider).
+Future<void> _logMusical(WidgetRef ref, Song song) async {
+  try {
+    final info = await ref.read(
+      musicalInfoProvider('${song.artist}\x00${song.title}\x00${song.path}').future,
+    );
+    if (info == null || info.isEmpty) {
+      ArchLog.i('musical', 'unknown ${song.artist} - ${song.title}');
+    } else {
+      ArchLog.i(
+        'musical',
+        '${info.source} ${song.artist} - ${song.title} '
+        'bpm=${info.bpm?.toStringAsFixed(1)} key=${info.keyOf} open=${info.openKey}',
+      );
+    }
+  } catch (_) {}
 }
 
 /// One-time shader warmup: paints the menu + sheet lens recipes

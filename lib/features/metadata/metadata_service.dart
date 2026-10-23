@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/secrets.local.dart' as secrets;
+import '../library/data/tag_fields.dart';
 import '../lyrics/word_lyrics.dart';
 
 /// Enriches a local artist name: MusicBrainz (identity + discography),
@@ -2145,6 +2147,153 @@ class MetadataService {
       return const [];
     }
   }
+
+  /// BPM + musical key for harmonic ordering: embedded tags first
+  /// (free, instant — the pull already embeds Deezer BPM), then the
+  /// GetSongBPM lane (disk-cached across launches). Null = neither
+  /// lane knew the track; the on-device DSP fallback covers those.
+  /// Partial hits count: an embedded BPM plus a network key merge.
+  Future<TrackMusicalInfo?> musicalInfoFor({
+    required String title,
+    required String artist,
+    String path = '',
+  }) async {
+    if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+    double? bpm;
+    var key = '';
+    if (path.isNotEmpty) {
+      try {
+        final tags = readTagFields(path);
+        final raw = double.tryParse((tags[kBpm] ?? '').trim());
+        if (raw != null && raw > 0 && raw <= 300) bpm = raw;
+        key = (tags[kKey] ?? '').trim();
+      } catch (_) {}
+    }
+    await _loadMusicalDisk();
+    final cacheKey =
+        '${artist.toLowerCase()}\u0000${title.toLowerCase()}';
+    final cached = _musicalDisk[cacheKey];
+    double? netBpm = bpm;
+    var netKey = key;
+    var netOpen = '';
+    var netSrc = bpm != null || key.isNotEmpty ? 'embedded' : '';
+    if (cached != null) {
+      netBpm = (cached['bpm'] as num?)?.toDouble() ?? bpm;
+      if (netKey.isEmpty) netKey = '${cached['key'] ?? ''}';
+      netOpen = '${cached['openKey'] ?? ''}';
+      netSrc = '${cached['src'] ?? 'getsongbpm'}';
+    } else {
+      final live = await _gsbMusical(title, artist);
+      if (live != null) {
+        netBpm = live.bpm ?? bpm;
+        if (netKey.isEmpty) netKey = live.keyOf;
+        netOpen = live.openKey;
+        netSrc = 'getsongbpm';
+        _musicalDisk[cacheKey] = {
+          'bpm': netBpm,
+          'key': netKey,
+          'openKey': netOpen,
+          'src': netSrc,
+        };
+        unawaited(_saveMusicalDisk());
+      }
+    }
+    if (netBpm == null && netKey.isEmpty && netOpen.isEmpty) return null;
+    return TrackMusicalInfo(
+      bpm: netBpm,
+      keyOf: netKey,
+      openKey: netOpen,
+      source: netSrc.isEmpty ? 'getsongbpm' : netSrc,
+    );
+  }
+
+  /// GetSongBPM lane: one search call carries tempo + key_of +
+  /// open_key, so no second fetch. Verified match (title + artist)
+  /// or nothing — a wrong-track BPM poisons the harmonic order.
+  /// Empty key = lane stays quiet (misses retry later, never cached).
+  Future<TrackMusicalInfo?> _gsbMusical(String title, String artist) async {
+    final apiKey = secrets.getSongBpmApiKey;
+    if (apiKey.isEmpty || apiKey == 'PASTE_KEY_HERE') return null;
+    try {
+      final lookup =
+          'song:${title.replaceAll('"', '')} artist:${artist.replaceAll('"', '')}';
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://api.getsong.co/search/?api_key=$apiKey&type=song&lookup=${Uri.encodeQueryComponent(lookup)}',
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body);
+      final List list = body is List
+          ? body
+          : ((body as Map)['search'] as List? ??
+              (body)['data'] as List? ??
+              const []);
+      for (final e in list) {
+        if (e is! Map) continue;
+        if (normTitle('${e['title'] ?? ''}') != normTitle(title)) continue;
+        final artists = e['artist'];
+        var artistOk = false;
+        if (artists is Map) {
+          artistOk = _sameArtist(artist, '${artists['name'] ?? ''}');
+        } else if (artists is List) {
+          for (final a in artists) {
+            if (a is Map && _sameArtist(artist, '${a['name'] ?? ''}')) {
+              artistOk = true;
+              break;
+            }
+          }
+        }
+        if (!artistOk) continue;
+        final tempo = double.tryParse('${e['tempo'] ?? ''}');
+        final keyOf = ('${e['key_of'] ?? ''}').trim();
+        final openKey = ('${e['open_key'] ?? ''}').trim();
+        if (tempo == null && keyOf.isEmpty) continue;
+        ArchLog.i(
+          'meta',
+          'musical getsongbpm: $artist - $title bpm=$tempo key=$keyOf',
+        );
+        return TrackMusicalInfo(
+          bpm: tempo,
+          keyOf: keyOf,
+          openKey: openKey,
+          source: 'getsongbpm',
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  final Map<String, Map<String, dynamic>> _musicalDisk = {};
+  bool _musicalDiskLoaded = false;
+
+  Future<void> _loadMusicalDisk() async {
+    if (_musicalDiskLoaded) return;
+    _musicalDiskLoaded = true;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/musical.json');
+      if (!await file.exists()) return;
+      final m = jsonDecode(await file.readAsString()) as Map;
+      m.forEach((k, v) {
+        if (v is Map) {
+          _musicalDisk[k as String] = Map<String, dynamic>.from(v);
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveMusicalDisk() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final tmp = File('${dir.path}/musical.json.tmp');
+      await tmp.writeAsString(jsonEncode(_musicalDisk));
+      await tmp.rename('${dir.path}/musical.json');
+    } catch (_) {}
+  }
+
   /// self-titled record lands on the right one. Track search carries
   /// the whole album object, so no second call is needed.
   /// Full Deezer album detail for the remote album page: verified

@@ -309,6 +309,29 @@ class ReleaseGroup {
   });
 }
 
+/// BPM + musical key for harmonic ordering. Embedded tags resolve
+/// first (free, instant), the GetSongBPM lane second (cached), the
+/// on-device DSP fallback last. [source] is 'embedded' or
+/// 'getsongbpm' — the DSP validation step compares computed values
+/// against the network lane, so provenance stays on the record.
+class TrackMusicalInfo {
+  final double? bpm;
+  // GetSongBPM key_of: "Am", "F#m", "C".
+  final String keyOf;
+  // Traktor open key: "8m" — converts straight to Camelot.
+  final String openKey;
+  final String source;
+
+  const TrackMusicalInfo({
+    this.bpm,
+    this.keyOf = '',
+    this.openKey = '',
+    this.source = '',
+  });
+
+  bool get isEmpty => bpm == null && keyOf.isEmpty && openKey.isEmpty;
+}
+
 /// A chart top-track from Deezer. [previewUrl] expires - fetched fresh per
 /// page open, never cached long-term. Everything else caches normally.
 class TopTrack {

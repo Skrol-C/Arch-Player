@@ -252,6 +252,20 @@ final releaseCoverProvider = FutureProvider.family<String?, String>((
   return ref.watch(metadataServiceProvider).coverFor(rgMbid);
 });
 
+/// BPM + musical key for harmonic ordering: embedded tags, then the
+/// GetSongBPM lane (disk-cached). Keyed "artist\x00title\x00path" —
+/// path empty means network-only. Null = neither lane knew the track.
+final musicalInfoProvider =
+    FutureProvider.family<TrackMusicalInfo?, String>((ref, key) async {
+  final parts = key.split('\x00');
+  final artist = parts.isNotEmpty ? parts.first : '';
+  final title = parts.length > 1 ? parts[1] : '';
+  final path = parts.length > 2 ? parts[2] : '';
+  return ref
+      .watch(metadataServiceProvider)
+      .musicalInfoFor(title: title, artist: artist, path: path);
+});
+
 /// Full album tracklist (Deezer, else MusicBrainz), keyed
 /// "artist\x00album" lowercased. Empty = unresolvable - callers
 /// render owned-only, never a hole.
