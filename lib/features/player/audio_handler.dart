@@ -13,8 +13,11 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/art_scale.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
+import '../automix/automix_engine.dart';
+import '../automix/crossfade.dart';
 import '../library/data/art_previews.dart';
 import '../library/data/library_repository.dart';
+import '../metadata/metadata_service.dart';
 
 /// Shuffle order that never repeats itself: every roll is guaranteed
 /// different from the previous one (the 1-in-n! collision re-rolls,
@@ -102,7 +105,20 @@ class ArchAudioHandler extends BaseAudioHandler {
   int _playGen = 0;
   int _skipGen = 0;
 
-  ArchAudioHandler() {
+  /// Automix: when on, the dual-player engine owns transport so the
+  /// next track can fade in under the current one. The single-player
+  /// playlist stays the queue authority — parked, never closed — so
+  /// leaving automix resumes exactly where the engine was.
+  MetadataService? _meta;
+  AutomixEngine? _engine;
+  bool _automixOn = false;
+  Timer? _mixTick;
+  int _mixIndex = 0;
+  bool _mixFiring = false;
+  StreamSubscription<PlaybackEvent>? _mixEvents;
+
+  ArchAudioHandler({MetadataService? metadata}) {
+    _meta = metadata;
     _player.playbackEventStream.listen((event) {
       // Never `.pipe()` here. An addStream holds the controller
       // against every other add, so each shuffle/loop _republish()
@@ -111,6 +127,9 @@ class ArchAudioHandler extends BaseAudioHandler {
       // update (twelve of those per cold start, before any tap).
       // A plain listen keeps every emission its own add.
       if (playbackState.isClosed) return;
+      // While the engine owns transport its own events are the truth;
+      // the parked playlist player must not overwrite them.
+      if (_engine != null) return;
       playbackState.add(_toPlaybackState(event));
     });
     // Notification icons mirror engine state (shuffle/repeat), not
@@ -349,6 +368,26 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// next "it didn't switch" report diagnoses from one tap's lines
   /// instead of a week of guesses.
   Future<void> playSong(
+    Song song,
+    List<Song> context, {
+    bool shuffleAfterLoad = false,
+  }) async {
+    // Automix: a tap hands transport back to the playlist long enough
+    // to rebuild the queue, then the engine takes over at the new
+    // track. Never leave two transports running.
+    final wasEngine = _engine != null;
+    if (wasEngine) await _teardownEngine(resume: false);
+    try {
+      await _playSongImpl(song, context, shuffleAfterLoad: shuffleAfterLoad);
+    } finally {
+      if (wasEngine && _automixOn && _songs.isNotEmpty) {
+        final idx = (_player.currentIndex ?? 0).clamp(0, _songs.length - 1);
+        await _enterEngineAt(idx, at: _player.position);
+      }
+    }
+  }
+
+  Future<void> _playSongImpl(
     Song song,
     List<Song> context, {
     bool shuffleAfterLoad = false,
@@ -617,13 +656,225 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() => _engine?.resume() ?? _player.play();
+
+  /// Turn automix on/off. On: the engine takes over transport at the
+  /// current song and position. Off: the playlist player resumes there.
+  /// Any failure falls back to the playlist path — automix must never
+  /// be able to leave the app silent.
+  Future<void> setAutomixEnabled(bool on) async {
+    if (on == _automixOn) return;
+    _automixOn = on;
+    ArchLog.i('automix', 'enabled=$on');
+    if (on) {
+      await _enterEngine();
+    } else {
+      await _teardownEngine(resume: true);
+    }
+  }
+
+  Future<void> _enterEngine() async {
+    if (_songs.isEmpty) return;
+    final cur = (_player.currentIndex ?? 0).clamp(0, _songs.length - 1);
+    await _enterEngineAt(cur, at: _player.position);
+  }
+
+  /// Start the engine at [index]. Tears down any previous engine first,
+  /// so this is also the "restart automix here" path for taps and skips.
+  Future<void> _enterEngineAt(int index, {Duration at = Duration.zero}) async {
+    if (_songs.isEmpty) return;
+    if (index < 0 || index >= _songs.length) return;
+    final song = _songs[index];
+    await _teardownEngine(resume: false);
+    // The playlist player must fall silent before the engine speaks,
+    // or both transports play at once.
+    try {
+      await _player.pause();
+      await _player.setVolume(1.0);
+    } catch (_) {}
+    final engine = AutomixEngine();
+    _engine = engine;
+    _mixIndex = index;
+    _mixEvents = engine.events.listen(_publishEngine);
+    try {
+      await _meta?.warmMusical();
+    } catch (_) {}
+    final ok = await engine.start(song.uri, at: at);
+    if (!ok) {
+      ArchLog.w('automix', 'engine start failed - staying on playlist');
+      await _teardownEngine(resume: true);
+      return;
+    }
+    _setItem(song.toMediaItem());
+    unawaited(_attachArtFile(song));
+    _mixTick?.cancel();
+    _mixTick = Timer.periodic(
+      const Duration(milliseconds: 800),
+      (_) => unawaited(_maybeMix()),
+    );
+  }
+
+  /// Park or end the engine. [resume] hands transport back to the
+  /// playlist player at the engine's exact position and index.
+  Future<void> _teardownEngine({required bool resume}) async {
+    _mixTick?.cancel();
+    _mixTick = null;
+    final engine = _engine;
+    if (engine == null) return;
+    final pos = engine.position;
+    final idx = _mixIndex;
+    final wasPlaying = engine.playing;
+    await _mixEvents?.cancel();
+    _mixEvents = null;
+    _engine = null;
+    await engine.stop();
+    await engine.dispose();
+    if (!resume) return;
+    if (idx < 0 || idx >= _songs.length) return;
+    try {
+      await _player.seek(pos, index: idx);
+      // Hand back the transport in the state the user left it: a
+      // paused engine must not start playing on toggle-off.
+      if (wasPlaying) await _player.play();
+      _setItem(_songs[idx].toMediaItem());
+    } catch (e) {
+      ArchLog.w('automix', 'handback failed: $e');
+    }
+  }
+
+  /// Watcher: start the blend once the remaining runtime fits the plan.
+  Future<void> _maybeMix() async {
+    final engine = _engine;
+    if (engine == null || !_automixOn || _mixFiring) return;
+    if (engine.isCrossfading || !engine.playing) return;
+    final dur = engine.duration;
+    if (dur == null || dur == Duration.zero) return;
+    final next = _mixNeighborIndex(1);
+    if (next == null || next == _mixIndex) return;
+    final plan = _mixPlan(_mixIndex, next);
+    final remaining = dur - engine.position;
+    if (remaining > plan.duration) return;
+    _mixFiring = true;
+    try {
+      final song = _songs[next];
+      final ok = await engine.crossfadeTo(song.uri, seconds: plan.seconds);
+      if (ok) {
+        _mixIndex = next;
+        _setItem(song.toMediaItem());
+        unawaited(_attachArtFile(song));
+        ArchLog.i(
+          'automix',
+          'mixing id=${song.id} ${plan.seconds.toStringAsFixed(1)}s (${plan.reason})',
+        );
+      }
+    } catch (e) {
+      ArchLog.w('automix', 'mix failed: $e');
+    } finally {
+      _mixFiring = false;
+    }
+  }
+
+  /// Neighbour of the engine's current index in play order. Honours
+  /// the engine's shuffle permutation and loop-all wrap; null at the
+  /// end with loop off (the mix simply stops, like a playlist would).
+  int? _mixNeighborIndex(int delta) {
+    if (_songs.length < 2) return null;
+    final List<int> order;
+    if (_player.shuffleModeEnabled &&
+        _player.shuffleIndices.length == _songs.length) {
+      order = _player.shuffleIndices;
+    } else {
+      order = List<int>.generate(_songs.length, (i) => i);
+    }
+    final pos = order.indexOf(_mixIndex);
+    if (pos < 0) return null;
+    final p = pos + delta;
+    if (p < 0 || p >= order.length) {
+      if (_player.loopMode != LoopMode.all) return null;
+      return order[(p + order.length) % order.length];
+    }
+    return order[p];
+  }
+
+  /// Adaptive blend length from cached musical facts only — no
+  /// network, no DSP on the playback path. Unknowns go neutral.
+  CrossfadePlan _mixPlan(int a, int b) {
+    TrackMusicalInfo? ia;
+    TrackMusicalInfo? ib;
+    try {
+      ia = _meta?.musicalInfoCached(
+        title: _songs[a].title,
+        artist: _songs[a].artist,
+        path: _songs[a].path,
+      );
+      ib = _meta?.musicalInfoCached(
+        title: _songs[b].title,
+        artist: _songs[b].artist,
+        path: _songs[b].path,
+      );
+    } catch (_) {}
+    return planCrossfade(
+      openA: ia?.openKey,
+      openB: ib?.openKey,
+      bpmA: ia?.bpm,
+      bpmB: ib?.bpm,
+    );
+  }
+
+  /// Publish the engine's audible state so the scrubber, mini player
+  /// and notification follow the side the user can actually hear.
+  void _publishEngine(PlaybackEvent event) {
+    final engine = _engine;
+    if (engine == null || playbackState.isClosed) return;
+    final shuffle = _player.shuffleModeEnabled;
+    final loop = _player.loopMode;
+    playbackState.add(
+      PlaybackState(
+        controls: [
+          MediaControl.custom(
+            androidIcon: shuffle
+                ? 'drawable/ic_notif_shuffle_on'
+                : 'drawable/ic_notif_shuffle_off',
+            label: 'Shuffle',
+            name: 'notif_shuffle',
+          ),
+          MediaControl.skipToPrevious,
+          engine.playing ? MediaControl.pause : MediaControl.play,
+          MediaControl.skipToNext,
+          MediaControl.custom(
+            androidIcon: switch (loop) {
+              LoopMode.all => 'drawable/ic_notif_repeat_all',
+              LoopMode.one => 'drawable/ic_notif_repeat_one',
+              _ => 'drawable/ic_notif_repeat_off',
+            },
+            label: 'Repeat',
+            name: 'notif_repeat',
+          ),
+        ],
+        androidCompactActionIndices: const [1, 2, 3],
+        systemActions: const {MediaAction.seek},
+        processingState: switch (event.processingState) {
+          ProcessingState.idle => AudioProcessingState.idle,
+          ProcessingState.loading => AudioProcessingState.loading,
+          ProcessingState.buffering => AudioProcessingState.buffering,
+          ProcessingState.ready => AudioProcessingState.ready,
+          ProcessingState.completed => AudioProcessingState.completed,
+        },
+        playing: engine.playing,
+        updatePosition: event.updatePosition,
+        bufferedPosition: event.bufferedPosition,
+        speed: 1.0,
+        queueIndex: _mixIndex,
+      ),
+    );
+  }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() => _engine?.pause() ?? _player.pause();
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) =>
+      _engine?.seek(position) ?? _player.seek(position);
 
   /// Manual skip, optimistic: the target commits to the UI in-frame
   /// (deterministic order only — shuffle order lives inside the
@@ -631,6 +882,15 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// token shared with taps: a second skip retargets instead of
   /// racing. Fully logged: intent, expectation, landing.
   Future<void> _skip(int dir) async {
+    // Automix: skipping restarts the engine at the neighbour. The
+    // engine's own index is the truth here, not the parked playlist.
+    if (_engine != null) {
+      final target = _mixNeighborIndex(dir > 0 ? 1 : -1);
+      if (target == null) return;
+      ArchLog.i('automix', 'skip ${dir > 0 ? 'next' : 'prev'} -> $target');
+      await _enterEngineAt(target);
+      return;
+    }
     final n = _songs.length;
     if (n == 0) return;
     final gen = ++_skipGen;
@@ -683,7 +943,11 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// queue, unknown index and order gaps all read as "no neighbor".
   Song? neighborSong(int dir) {
     if (_songs.isEmpty) return null;
-    final cur = _player.currentIndex;
+    // Automix: the engine's cursor is the truth; the playlist player
+    // is parked on the old index and would peek the wrong track.
+    final cur = _engine != null
+        ? _mixIndex
+        : _player.currentIndex;
     if (cur == null || cur < 0 || cur >= _songs.length) return null;
     final List<int> order;
     if (_player.shuffleModeEnabled && _player.shuffleIndices.isNotEmpty) {
@@ -860,7 +1124,12 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   @override
-  Future<void> stop() => _player.stop();
+  Future<void> stop() async {
+    // Shutdown path: kill the engine first so no fade timer survives.
+    _automixOn = false;
+    await _teardownEngine(resume: false);
+    await _player.stop();
+  }
 
   PlaybackState _toPlaybackState(
     PlaybackEvent event, {

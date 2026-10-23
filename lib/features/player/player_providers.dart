@@ -191,7 +191,13 @@ class AutoMixNotifier extends Notifier<bool> {
 
   Future<void> _sync() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool('arch.automix') ?? false;
+    final v = prefs.getBool('arch.automix') ?? false;
+    state = v;
+    if (v) {
+      try {
+        await ref.read(audioHandlerProvider).setAutomixEnabled(true);
+      } catch (_) {}
+    }
   }
 
   Future<void> toggle() async {
@@ -199,6 +205,9 @@ class AutoMixNotifier extends Notifier<bool> {
     state = v;
     (await SharedPreferences.getInstance()).setBool('arch.automix', v);
     ArchLog.i('player', 'automix=$v');
+    try {
+      await ref.read(audioHandlerProvider).setAutomixEnabled(v);
+    } catch (_) {}
   }
 }
 

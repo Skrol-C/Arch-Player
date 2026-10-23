@@ -29,8 +29,34 @@ class AutomixEngine {
   bool _aActive = true;
 
   Timer? _tick;
+  Completer<bool>? _rampDone;
   bool _disposed = false;
   bool _crossfading = false;
+
+  void _cancelRamp() {
+    _tick?.cancel();
+    _tick = null;
+    final pending = _rampDone;
+    _rampDone = null;
+    if (pending != null && !pending.isCompleted) pending.complete(false);
+  }
+
+  /// Audible-side events only: the handler publishes these as the
+  /// playback state, so the scrubber and notification always read the
+  /// player the user can actually hear.
+  final StreamController<PlaybackEvent> _events =
+      StreamController<PlaybackEvent>.broadcast();
+
+  Stream<PlaybackEvent> get events => _events.stream;
+
+  AutomixEngine() {
+    _a.playbackEventStream.listen((e) {
+      if (_aActive && !_disposed) _events.add(e);
+    });
+    _b.playbackEventStream.listen((e) {
+      if (!_aActive && !_disposed) _events.add(e);
+    });
+  }
 
   AudioPlayer get _active => _aActive ? _a : _b;
   AudioPlayer get _idle => _aActive ? _b : _a;
@@ -39,12 +65,9 @@ class AutomixEngine {
   bool get playing => _active.playing;
   Duration get position => _active.position;
   Duration? get duration => _active.duration;
-
-  /// Stream of the audible side's playback events, for the handler's
-  /// notification + UI state.
-  Stream<PlaybackEvent> get playbackEventStream => _a.playbackEventStream
-      .merge(_b.playbackEventStream)
-      .where((_) => !_disposed);
+  bool get isPreparing =>
+      _active.processingState == ProcessingState.loading ||
+      _active.processingState == ProcessingState.buffering;
 
   /// Load [uri] on the audible player and start it. [at] resumes into
   /// a track (switching automix on mid-song). Returns false when the
@@ -113,6 +136,7 @@ class AutomixEngine {
     final steps = math.max(1, (total / 0.03).round());
     final stepMs = (total * 1000 / steps).round();
     final done = Completer<bool>();
+    _rampDone = done;
     var i = 0;
     final outgoing = _active;
     final incoming = _idle;
@@ -164,8 +188,7 @@ class AutomixEngine {
   /// Hard stop for shutdown or automix-off: cancels any ramp, stops
   /// both sides, resets gains so a later start is clean.
   Future<void> stop() async {
-    _tick?.cancel();
-    _tick = null;
+    _cancelRamp();
     for (final p in [_a, _b]) {
       try {
         await p.stop();
@@ -178,34 +201,13 @@ class AutomixEngine {
 
   Future<void> dispose() async {
     _disposed = true;
-    _tick?.cancel();
-    _tick = null;
+    _cancelRamp();
+    await _events.close();
     try {
       await _a.dispose();
     } catch (_) {}
     try {
       await _b.dispose();
     } catch (_) {}
-  }
-}
-
-extension _MergeStreams<T> on Stream<T> {
-  /// Interleave two streams. Used for the audible-side event feed;
-  /// the handler filters by index/position anyway.
-  Stream<T> merge(Stream<T> other) {
-    late StreamController<T> controller;
-    final subs = <StreamSubscription<T>>[];
-    controller = StreamController<T>(
-      onListen: () {
-        subs.add(listen(controller.add, onError: controller.addError));
-        subs.add(other.listen(controller.add, onError: controller.addError));
-      },
-      onCancel: () async {
-        for (final s in subs) {
-          await s.cancel();
-        }
-      },
-    );
-    return controller.stream;
   }
 }

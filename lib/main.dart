@@ -6,6 +6,8 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'core/log.dart';
 import 'core/theme.dart';
 import 'features/needle/needle_core.dart';
+import 'features/metadata/metadata_providers.dart';
+import 'features/metadata/metadata_service.dart';
 import 'features/player/audio_handler.dart';
 import 'features/player/play_guarded.dart';
 import 'features/player/player_providers.dart';
@@ -33,8 +35,12 @@ Future<void> main() async {
     ArchLog.e('zone', err, stack);
     return true;
   };
+  // One metadata instance for the whole app: the audio handler needs
+  // cached BPM/key for crossfade planning, and the UI providers must
+  // read the same cache (no duplicated disk state, no double writes).
+  final meta = MetadataService();
   final handler = await AudioService.init(
-    builder: () => ArchAudioHandler(),
+    builder: () => ArchAudioHandler(metadata: meta),
       config: const AudioServiceConfig(
         // Fresh channel id (native side pre-creates it silent HIGH):
         // deleted ids resurrect with prior config, so silence needs
@@ -52,7 +58,10 @@ Future<void> main() async {
   LiquidGlassShaders.ensureLoaded().ignore();
   runApp(
     ProviderScope(
-      overrides: [audioHandlerProvider.overrideWithValue(handler)],
+      overrides: [
+        audioHandlerProvider.overrideWithValue(handler),
+        metadataServiceProvider.overrideWithValue(meta),
+      ],
       child: const ArchApp(),
     ),
   );

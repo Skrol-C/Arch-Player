@@ -2154,6 +2154,48 @@ class MetadataService {
   /// GetSongBPM lane (disk-cached across launches). Null = neither
   /// lane knew the track; the on-device DSP fallback covers those.
   /// Partial hits count: an embedded BPM plus a network key merge.
+  /// Warm the musical cache so [musicalInfoCached] can answer
+  /// synchronously. Call once before a playback path needs plans.
+  Future<void> warmMusical() => _loadMusicalDisk();
+
+  /// Cache-only musical lookup: embedded tags plus the disk cache,
+  /// never network and never DSP. This is the automix planning path —
+  /// it must answer in microseconds, so anything unresolved returns
+  /// null and the crossfade falls back to its neutral length.
+  TrackMusicalInfo? musicalInfoCached({
+    required String title,
+    required String artist,
+    String path = '',
+  }) {
+    if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+    double? bpm;
+    var key = '';
+    if (path.isNotEmpty) {
+      try {
+        final tags = readTagFields(path);
+        final raw = double.tryParse((tags[kBpm] ?? '').trim());
+        if (raw != null && raw > 0 && raw <= 300) bpm = raw;
+        key = (tags[kKey] ?? '').trim();
+      } catch (_) {}
+    }
+    final cached =
+        _musicalDisk['${artist.toLowerCase()}\u0000${title.toLowerCase()}'];
+    if (cached != null) {
+      bpm = (cached['bpm'] as num?)?.toDouble() ?? bpm;
+      if (key.isEmpty) key = '${cached['key'] ?? ''}';
+      final open = '${cached['openKey'] ?? ''}';
+      if (bpm == null && key.isEmpty && open.isEmpty) return null;
+      return TrackMusicalInfo(
+        bpm: bpm,
+        keyOf: key,
+        openKey: open,
+        source: '${cached['src'] ?? 'cache'}',
+      );
+    }
+    if (bpm == null && key.isEmpty) return null;
+    return TrackMusicalInfo(bpm: bpm, keyOf: key, source: 'embedded');
+  }
+
   Future<TrackMusicalInfo?> musicalInfoFor({
     required String title,
     required String artist,
