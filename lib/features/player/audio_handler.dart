@@ -154,6 +154,10 @@ class ArchAudioHandler extends BaseAudioHandler {
     // the extra never flaps off and back (that flap is the flicker).
     _player.currentIndexStream.listen((index) {
       if (index == null) return;
+      // While the engine owns transport, its track is the truth. The
+      // parked playlist player still emits index events (stop/seek)
+      // and used to stomp the media item — that was the stale art.
+      if (_engine != null) return;
       final items = queue.value;
       if (index < 0 || index >= items.length) return;
       _setItem(items[index]);
@@ -716,7 +720,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     final engine = AutomixEngine();
     _engine = engine;
     _mixIndex = index;
-    _mixEvents = engine.events.listen(_publishEngine);
+    _mixEvents = engine.events.listen((_) => _publishEngineState());
     // One explicit activation for the app: the engine players do not
     // request focus themselves. Without this they wait on a grant the
     // parked playlist player still holds and play() never returns.
@@ -745,9 +749,13 @@ class ArchAudioHandler extends BaseAudioHandler {
     unawaited(_attachArtFile(song));
     _mixTick?.cancel();
     _mixTick = Timer.periodic(
-      const Duration(milliseconds: 800),
-      (_) => unawaited(_maybeMix()),
+      const Duration(milliseconds: 400),
+      (_) {
+        _publishEngineState();
+        unawaited(_maybeMix());
+      },
     );
+    _publishEngineState();
     ArchLog.i('automix', 'armed idx=$index at=${at.inSeconds}s');
   }
 
@@ -944,13 +952,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     );
   }
 
-  /// Publish the engine's audible state so the scrubber, mini player
-  /// and notification follow the side the user can actually hear.
-  void _publishEngine(PlaybackEvent event) {
+  /// Publish the engine's state from ONE source — the engine itself.
+  /// Two players' event streams interleaving is what made the scrubber
+  /// jump backwards (old track's position, then new track's).
+  void _publishEngineState() {
     final engine = _engine;
     if (engine == null || playbackState.isClosed) return;
     final shuffle = _player.shuffleModeEnabled;
     final loop = _player.loopMode;
+    final states = engine.processingStates;
     playbackState.add(
       PlaybackState(
         controls: [
@@ -976,7 +986,7 @@ class ArchAudioHandler extends BaseAudioHandler {
         ],
         androidCompactActionIndices: const [1, 2, 3],
         systemActions: const {MediaAction.seek},
-        processingState: switch (event.processingState) {
+        processingState: switch (states.$1) {
           ProcessingState.idle => AudioProcessingState.idle,
           ProcessingState.loading => AudioProcessingState.loading,
           ProcessingState.buffering => AudioProcessingState.buffering,
@@ -984,8 +994,8 @@ class ArchAudioHandler extends BaseAudioHandler {
           ProcessingState.completed => AudioProcessingState.completed,
         },
         playing: engine.playing,
-        updatePosition: event.updatePosition,
-        bufferedPosition: event.bufferedPosition,
+        updatePosition: engine.position,
+        bufferedPosition: states.$2,
         speed: 1.0,
         queueIndex: _mixIndex,
       ),

@@ -71,6 +71,11 @@ class AutomixEngine {
       _active.processingState == ProcessingState.completed;
   Duration get position => _active.position;
   Duration? get duration => _active.duration;
+
+  /// Processing state and buffered position of the audible side, for
+  /// the handler's single-source publish tick.
+  (ProcessingState, Duration) get processingStates =>
+      (_active.processingState, _active.bufferedPosition);
   bool get isPreparing =>
       _active.processingState == ProcessingState.loading ||
       _active.processingState == ProcessingState.buffering;
