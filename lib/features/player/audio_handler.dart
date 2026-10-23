@@ -16,6 +16,44 @@ import '../../core/models.dart';
 import '../library/data/art_previews.dart';
 import '../library/data/library_repository.dart';
 
+/// Shuffle order that never repeats itself: every roll is guaranteed
+/// different from the previous one (the 1-in-n! collision re-rolls,
+/// with a forced swap of two non-pinned slots as the paranoid
+/// fallback). [initialIndex] passes straight through so the current
+/// track stays pinned — reshuffle never yanks the song under you.
+/// Insert/remove/clear stay stock; only the roll is guarded.
+class _FreshShuffleOrder extends DefaultShuffleOrder {
+  List<int>? _last;
+
+  _FreshShuffleOrder() : super(random: Random());
+
+  @override
+  void shuffle({int? initialIndex}) {
+    super.shuffle(initialIndex: initialIndex);
+    if (_last != null && indices.length > 1 && _same(indices, _last!)) {
+      super.shuffle(initialIndex: initialIndex);
+    }
+    if (_last != null && indices.length > 1 && _same(indices, _last!)) {
+      final a = initialIndex == null ? 0 : 1;
+      final b = a + 1;
+      if (b < indices.length) {
+        final t = indices[a];
+        indices[a] = indices[b];
+        indices[b] = t;
+      }
+    }
+    _last = List.of(indices);
+  }
+
+  static bool _same(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
 /// Album art for lock-screen/notification, cached on disk. The native side
 /// loads `artCacheFile` preferentially; content URIs resolve via its own
 /// ContentResolver path. Failures degrade to no art, never a crash.
@@ -55,7 +93,8 @@ class NotifArt {
 
 /// Own heartbeat: background playback. UI may crash; this keeps playing.
 class ArchAudioHandler extends BaseAudioHandler {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player =
+      AudioPlayer(shuffleOrder: _FreshShuffleOrder());
   List<Song> _songs = [];
   bool _busy = false;
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
@@ -668,7 +707,10 @@ class ArchAudioHandler extends BaseAudioHandler {
     await _player.setShuffleModeEnabled(enabled);
     if (enabled) await _player.shuffle();
     _republishOrder();
-    ArchLog.i('player', 'shuffle=$enabled');
+    ArchLog.i(
+      'player',
+      'shuffle=$enabled order=${_player.shuffleIndices.take(8).join(',')}',
+    );
   }
 
   Future<void> setLoopMode(LoopMode mode) async {
