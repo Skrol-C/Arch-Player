@@ -746,13 +746,27 @@ class ArchAudioHandler extends BaseAudioHandler {
   Future<void> _maybeMix() async {
     final engine = _engine;
     if (engine == null || !_automixOn || _mixFiring) return;
-    if (engine.isCrossfading || !engine.playing) return;
-    final dur = engine.duration;
-    if (dur == null || dur == Duration.zero) return;
+    if (engine.isCrossfading) return;
+    // A track that already ran out still needs the next one: treat
+    // completion as "window open now" so automix never dies at a
+    // boundary just because a tick landed late.
+    final finished = engine.completed;
+    if (!engine.playing && !finished) return;
+    if (_mixIndex < 0 || _mixIndex >= _songs.length) return;
+    // Engine duration first, queue metadata second: a content:// load
+    // can sit without a duration for a while and silently starve the
+    // mix. The library always knows how long the track is.
+    final known = engine.duration;
+    final fallback = _songs[_mixIndex].duration;
+    final total = (known != null && known > Duration.zero)
+        ? known
+        : (fallback > Duration.zero ? fallback : null);
+    if (total == null) return;
     final next = _mixNeighborIndex(1);
     if (next == null || next == _mixIndex) return;
     final plan = _mixPlan(_mixIndex, next);
-    final remaining = dur - engine.position;
+    final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
+    _mixProbe(engine, total, remaining, next, plan);
     if (remaining > plan.duration) return;
     _mixFiring = true;
     try {
@@ -772,6 +786,28 @@ class ArchAudioHandler extends BaseAudioHandler {
     } finally {
       _mixFiring = false;
     }
+  }
+
+  /// Throttled diagnostic: without it a starved mix is undiagnosable
+  /// (nothing logs when the watcher simply returns early).
+  DateTime _mixProbeAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _mixProbe(
+    AutomixEngine engine,
+    Duration total,
+    Duration remaining,
+    int next,
+    CrossfadePlan plan,
+  ) {
+    final now = DateTime.now();
+    if (now.difference(_mixProbeAt).inSeconds < 5) return;
+    _mixProbeAt = now;
+    ArchLog.i(
+      'automix',
+      'probe total=${total.inSeconds}s pos=${engine.position.inSeconds}s '
+      'left=${remaining.inSeconds}s plan=${plan.seconds.toStringAsFixed(1)}s '
+      'next=$next',
+    );
   }
 
   /// Neighbour of the engine's current index in play order. Honours

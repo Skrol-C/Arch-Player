@@ -63,6 +63,8 @@ class AutomixEngine {
 
   bool get isCrossfading => _crossfading;
   bool get playing => _active.playing;
+  bool get completed =>
+      _active.processingState == ProcessingState.completed;
   Duration get position => _active.position;
   Duration? get duration => _active.duration;
   bool get isPreparing =>
