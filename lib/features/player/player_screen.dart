@@ -65,8 +65,7 @@ class PlayerScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 TextButton(
-                  onPressed: () =>
-                      ref.read(playerOpenProvider.notifier).state = false,
+                  onPressed: () => closePlayer(ref, context),
                   child: const Text(
                     'Back to library',
                     style: TextStyle(
@@ -392,7 +391,7 @@ class _DismissDrag extends ConsumerWidget {
         final v = d.primaryVelocity ?? 0;
         if (v > 400 || dy > 90) {
           HapticFeedback.mediumImpact();
-          ref.read(playerOpenProvider.notifier).state = false;
+          closePlayer(ref, context);
         }
         dy = 0;
       },
@@ -756,7 +755,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
         if (_dragY > 140 || v > 700) {
           // Drag down: dismiss.
           HapticFeedback.mediumImpact();
-          ref.read(playerOpenProvider.notifier).state = false;
+          closePlayer(ref, context);
           if (mounted) setState(() => _dragY = 0);
         } else if (_dragY < -120 || v < -700) {
           // Swipe up: full-screen lyrics.

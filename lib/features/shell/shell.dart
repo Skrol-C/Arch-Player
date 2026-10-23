@@ -59,7 +59,11 @@ class Shell extends ConsumerWidget {
             // replaces the pill, the mini player sits behind it.
             if (!ref.watch(selectionActiveProvider))
               const NowPlayingDock(),
-            if (playerOpen) const PlayerScreen(),
+            // Overlay only when no pushed player route exists: both
+            // mounting PlayerScreen doubles live controllers and trips
+            // element asserts on push/pop.
+            if (playerOpen && !ref.watch(playerRouteOpenProvider))
+              const PlayerScreen(),
             const _GlassWarmer(),
           ],
         ),

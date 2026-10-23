@@ -36,7 +36,7 @@ class MiniPlayer extends ConsumerWidget {
       child: LiquidGlassLens(
         style: ArchGlass.capsule(radius: 34),
         child: GestureDetector(
-          onTap: () => ref.read(playerOpenProvider.notifier).state = true,
+          onTap: () => openPlayer(ref, context),
           child: Container(
             height: 68,
             padding: const EdgeInsets.symmetric(horizontal: 10),

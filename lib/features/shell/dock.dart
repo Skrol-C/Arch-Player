@@ -59,19 +59,53 @@ const _icons = [
 /// expands it. `ScrollMetricsNotification` is the hook that catches a
 /// page landing already-at-top (or a list resizing), which the
 /// user-scroll stream alone never reports.
-class DockScrollReporter extends ConsumerWidget {
+class DockScrollReporter extends ConsumerStatefulWidget {
   final Widget child;
   const DockScrollReporter({super.key, required this.child});
+
+  @override
+  ConsumerState<DockScrollReporter> createState() =>
+      _DockScrollReporterState();
+}
+
+class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
+  /// Sustained-travel accumulator: flips only fire after enough
+  /// same-direction travel, so scroll wobble never restarts the
+  /// 380ms glass choreography mid-flight. Reset on direction change.
+  static const _upThreshold = 48.0;
+  static const _downThreshold = 80.0;
+  double _accum = 0;
+  ScrollDirection? _lastDir;
+
+  /// Travel lock: while the pill morph is running, further flips
+  /// are swallowed instead of restarting the animation + the page
+  /// relayout that rides with it.
+  DateTime _lastFlip = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _lockMs = 380;
+
+  bool _lockOpen() {
+    return DateTime.now().difference(_lastFlip).inMilliseconds < _lockMs;
+  }
 
   void _stage(WidgetRef ref, SearchStage next) {
     final s = ref.read(searchStageProvider.notifier);
     if (s.state == next) return;
     ArchLog.i('nav', 'search ${s.state.name} -> ${next.name}');
     s.state = next;
+    _lastFlip = DateTime.now();
+  }
+
+  void _setCollapsed(WidgetRef ref, bool collapsed, String why) {
+    final c = ref.read(pillCollapsedProvider.notifier);
+    if (c.state == collapsed) return;
+    ArchLog.i('nav', 'pill $why');
+    c.state = collapsed;
+    _lastFlip = DateTime.now();
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: (n) {
         if (n.metrics.axis != Axis.vertical) return false;
@@ -83,19 +117,24 @@ class DockScrollReporter extends ConsumerWidget {
       child: NotificationListener<UserScrollNotification>(
         onNotification: (n) {
           if (n.metrics.axis != Axis.vertical) return false;
-          final collapsed = ref.read(pillCollapsedProvider.notifier);
-          // Sustained downward intent collapses; any upward motion
-          // expands. Small gate (~80px) so flings and drags both count.
-          if (n.direction == ScrollDirection.forward && n.metrics.pixels > 80) {
-            if (!collapsed.state) {
-              ArchLog.i('nav', 'pill collapse (scroll down)');
-              collapsed.state = true;
-            }
-          } else if (n.direction == ScrollDirection.reverse) {
-            if (collapsed.state) {
-              ArchLog.i('nav', 'pill expand (scroll up)');
-              collapsed.state = false;
-            }
+          final dir = n.direction;
+          if (dir == ScrollDirection.idle) return false;
+          if (dir != _lastDir) {
+            _lastDir = dir;
+            _accum = 0;
+          }
+          _accum += (n.metrics.pixels - (_lastPx ?? n.metrics.pixels)).abs();
+          _lastPx = n.metrics.pixels;
+          final locked = _lockOpen();
+          if (dir == ScrollDirection.forward &&
+              n.metrics.pixels > _downThreshold &&
+              _accum >= _downThreshold &&
+              !locked) {
+            _setCollapsed(ref, true, 'collapse (scroll down)');
+          } else if (dir == ScrollDirection.reverse &&
+              _accum >= _upThreshold &&
+              !locked) {
+            _setCollapsed(ref, false, 'expand (scroll up)');
           }
           // Search stage, same stream so it can never desync from the
           // scroll it belongs to. At the top = full field; diving in =
@@ -103,19 +142,26 @@ class DockScrollReporter extends ConsumerWidget {
           final px = n.metrics.pixels;
           if (px <= _searchAtTop) {
             _stage(ref, SearchStage.open);
-          } else if (n.direction == ScrollDirection.reverse && px > 80) {
+          } else if (dir == ScrollDirection.reverse &&
+              px > _downThreshold &&
+              _accum >= _upThreshold &&
+              !locked) {
             _stage(ref, SearchStage.hidden);
-          } else if (n.direction == ScrollDirection.forward) {
+          } else if (dir == ScrollDirection.forward &&
+              _accum >= _downThreshold &&
+              !locked) {
             if (ref.read(searchStageProvider) == SearchStage.hidden) {
               _stage(ref, SearchStage.peek);
             }
           }
           return false;
         },
-        child: child,
+        child: widget.child,
       ),
     );
   }
+
+  double? _lastPx;
 }
 
 /// Search sits at the top of a page within this many pixels.
@@ -554,7 +600,7 @@ class _CompactMini extends ConsumerWidget {
       style: ArchGlass.capsule(radius: 26),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(playerOpenProvider.notifier).state = true,
+        onTap: () => openPlayer(ref, context),
         child: Container(
           height: 52,
           padding: const EdgeInsets.symmetric(horizontal: 6),

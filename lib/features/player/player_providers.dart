@@ -21,6 +21,12 @@ final audioHandlerProvider = Provider<ArchAudioHandler>((ref) {
 
 final playerOpenProvider = StateProvider<bool>((ref) => false);
 
+/// True while the player is out as a pushed fullscreen route above a
+/// pushed page. The shell overlay and the pushed route must never both
+/// mount PlayerScreen: two live players double the lyrics/button
+/// controllers and trip element-lifecycle asserts on pop/push.
+final playerRouteOpenProvider = StateProvider<bool>((ref) => false);
+
 /// Player panel: cover art, full lyrics, or queue. Lyrics and queue
 /// buttons toggle their panel (tap again returns to cover). The art
 /// header morphs between full and compact with the panel - one stage,

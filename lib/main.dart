@@ -7,6 +7,7 @@ import 'core/log.dart';
 import 'core/theme.dart';
 import 'features/needle/needle_core.dart';
 import 'features/player/audio_handler.dart';
+import 'features/player/play_guarded.dart';
 import 'features/player/player_providers.dart';
 import 'features/setup/setup_gate.dart';
 import 'features/shell/shell.dart';
@@ -94,12 +95,16 @@ class _NoGlowBehavior extends ScrollBehavior {
   }
 }
 
-class _CrashCard extends StatelessWidget {
+class _CrashCard extends ConsumerWidget {
   final FlutterErrorDetails details;
   const _CrashCard({required this.details});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // File first: Honor eats logcat, arch.log doesn't. Full exception
+    // + stack so the next one names itself without a device round-trip.
+    ArchLog.e('crash', details.exceptionAsString(), details.stack);
+    final lines = details.exceptionAsString().split('\n').take(5).join('\n');
     return Scaffold(
       backgroundColor: paper,
       body: SafeArea(
@@ -113,15 +118,27 @@ class _CrashCard extends StatelessWidget {
                   style: TextStyle(color: archPink, fontSize: 22, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
-                details.exceptionAsString().split('\n').first,
+                lines,
                 style: const TextStyle(color: inkDim, fontSize: 13),
               ),
+              const SizedBox(height: 4),
+              const Text(
+                'Details saved to arch.log',
+                style: TextStyle(color: inkDim, fontSize: 11),
+              ),
               const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-                },
-                child: const Text('Go back'),
+              Row(
+                children: [
+                  FilledButton(
+                    onPressed: () {
+                      resetPlayerFlags(ref);
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                    child: const Text('Go back'),
+                  ),
+                ],
               ),
             ],
           ),
