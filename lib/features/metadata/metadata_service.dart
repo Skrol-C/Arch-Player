@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/secrets.local.dart' as secrets;
+import '../automix/automix_pcm.dart';
 import '../library/data/tag_fields.dart';
 import '../lyrics/word_lyrics.dart';
 
@@ -2197,6 +2198,30 @@ class MetadataService {
         };
         unawaited(_saveMusicalDisk());
       }
+    }
+    // On-device DSP fallback (Mornye-ported beat grid): covers tracks
+    // no database knows. Confidence-gated; misses stay silent and
+    // uncached so a later retry can still land.
+    if (netBpm == null && path.isNotEmpty) {
+      try {
+        final grid = await analyzeFile(path);
+        if (grid != null && grid.confidence >= 0.55 && grid.bpm > 0) {
+          netBpm = grid.bpm;
+          netSrc = 'dsp';
+          _musicalDisk[cacheKey] = {
+            'bpm': netBpm,
+            'key': netKey,
+            'openKey': netOpen,
+            'src': netSrc,
+          };
+          unawaited(_saveMusicalDisk());
+          ArchLog.i(
+            'meta',
+            'musical dsp: $artist - $title '
+            'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)}',
+          );
+        }
+      } catch (_) {}
     }
     if (netBpm == null && netKey.isEmpty && netOpen.isEmpty) return null;
     return TrackMusicalInfo(
