@@ -2219,6 +2219,12 @@ class MetadataService {
                 'musical dsp tempo: $artist - $title '
                 'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)}',
               );
+            } else {
+              ArchLog.i(
+                'meta',
+                'musical dsp tempo miss: $artist - $title '
+                'conf=${grid.confidence.toStringAsFixed(2)}',
+              );
             }
           }
           if (netKey.isEmpty) {
@@ -2226,7 +2232,9 @@ class MetadataService {
             if (detected != null) {
               netKey = detected.name;
               netOpen = detected.openKey;
-              netSrc = netSrc.isEmpty ? 'dsp' : '$netSrc+dsp';
+              if (!netSrc.contains('dsp')) {
+                netSrc = netSrc.isEmpty ? 'dsp' : '$netSrc+dsp';
+              }
               grew = true;
               ArchLog.i(
                 'meta',
@@ -2234,6 +2242,8 @@ class MetadataService {
                 'key=${detected.name} open=${detected.openKey} '
                 'strength=${detected.strength.toStringAsFixed(2)}',
               );
+            } else {
+              ArchLog.i('meta', 'musical dsp key miss: $artist - $title');
             }
           }
           if (grew) {
