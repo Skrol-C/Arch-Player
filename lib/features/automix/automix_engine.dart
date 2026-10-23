@@ -91,9 +91,18 @@ class AutomixEngine {
       if (at > Duration.zero) {
         await _active.seek(at).timeout(const Duration(seconds: 5));
       }
+      ArchLog.i(
+        'automix',
+        'loaded: state=${_active.processingState} '
+        'dur=${_active.duration?.inSeconds}s',
+      );
       await _active.setVolume(1.0);
       await _active.play().timeout(const Duration(seconds: 10));
-      ArchLog.i('automix', 'engine start ${uri.pathSegments.last}');
+      ArchLog.i(
+        'automix',
+        'engine start ${uri.pathSegments.last} '
+        'playing=${_active.playing}',
+      );
       return true;
     } catch (e) {
       ArchLog.w('automix', 'engine start failed: $e');

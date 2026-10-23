@@ -693,12 +693,20 @@ class ArchAudioHandler extends BaseAudioHandler {
     if (index < 0 || index >= _songs.length) return;
     final song = _songs[index];
     await _teardownEngine(resume: false);
-    // The playlist player must fall silent before the engine speaks,
-    // or both transports play at once.
+    // The playlist player must fully release the output before the
+    // engine speaks. pause() keeps its decoder and session alive,
+    // which is what made the engine's play() wait forever.
     try {
-      await _player.pause();
+      await _player.stop().timeout(const Duration(seconds: 5));
       await _player.setVolume(1.0);
-    } catch (_) {}
+      ArchLog.i(
+        'automix',
+        'parked playlist: state=${_player.processingState} '
+        'playing=${_player.playing}',
+      );
+    } catch (e) {
+      ArchLog.w('automix', 'park failed: $e');
+    }
     final engine = AutomixEngine();
     _engine = engine;
     _mixIndex = index;
