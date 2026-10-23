@@ -215,10 +215,12 @@ final sleepProvider = StreamProvider<Duration?>((ref) {
 
 /// The live queue, resolved to songs by the one rule. Re-maps when
 /// the library reloads so queue rows always have art and titles.
+/// Follows the engine's shuffle permutation while shuffling, true
+/// order otherwise — Up Next shows what will actually play.
 final queueProvider = StreamProvider<List<Song>>((ref) {
   final songs = ref.watch(songsProvider).value ?? [];
   final handler = ref.watch(audioHandlerProvider);
-  return handler.queueStream.map(
+  return handler.effectiveQueueStream.map(
     (items) => [for (final item in items) songFromItem(item, songs)],
   );
 });

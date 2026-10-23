@@ -228,15 +228,6 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Queue as a stream for the queue sheet. Every mutation flows through
   /// [_emitQueue] so the audio_service value and the UI stream stay one
   /// truth - never drift.
-  StreamController<List<MediaItem>>? _queueController;
-
-  Stream<List<MediaItem>> get queueStream {
-    _queueController ??= StreamController<List<MediaItem>>.broadcast(
-      onListen: () => _queueController?.add(List.of(queue.value)),
-    );
-    return _queueController!.stream;
-  }
-
   /// Engine truth for notification-initiated flips: the providers
   /// converge off these same streams the notification icons read.
   Stream<bool> get shuffleModeEnabledStream => _player.shuffleModeEnabledStream;
@@ -244,9 +235,52 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   void _emitQueue(List<MediaItem> items) {
     queue.value = items;
-    if (_queueController?.hasListener ?? false) {
-      _queueController!.add(List.of(items));
+    _republishOrder();
+  }
+
+  /// Up Next order: the engine's shuffle permutation when shuffling,
+  /// true order otherwise. Same MediaItems as the audio_service queue,
+  /// only the order differs — previews and single-source queues ride through
+  /// untouched. Fires on every queue mutation and every shuffle flip
+  /// so the sheet mirrors what the engine will actually play.
+  StreamController<List<MediaItem>>? _orderController;
+
+  Stream<List<MediaItem>> get effectiveQueueStream {
+    _orderController ??= StreamController<List<MediaItem>>.broadcast(
+      onListen: () => _orderController?.add(_currentOrder()),
+    );
+    return _orderController!.stream;
+  }
+
+  List<MediaItem> _currentOrder() {
+    final items = List<MediaItem>.of(queue.value);
+    final idx = _player.shuffleIndices;
+    if (_player.shuffleModeEnabled &&
+        items.isNotEmpty &&
+        idx.length == items.length) {
+      return [for (final i in idx) items[i]];
     }
+    return items;
+  }
+
+  void _republishOrder() {
+    if (_orderController?.hasListener ?? false) {
+      _orderController!.add(_currentOrder());
+    }
+  }
+
+  /// Display position (Up Next) to engine source position. Identity
+  /// unless shuffling with a matching permutation — guards the
+  /// transient where sources rebuilt but indices haven't re-rolled.
+  int _toSource(int display) {
+    final idx = _player.shuffleIndices;
+    if (_player.shuffleModeEnabled &&
+        idx.length == _songs.length &&
+        display >= 0 &&
+        display < idx.length) {
+      return idx[display];
+    }
+    return display;
   }
 
   /// Shuffled tap: sources always land in true order; the engine owns
@@ -315,7 +349,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     // Rollback target: the UI commits optimistically below; on failure
     // it goes back to this instead of stranding on a silent song.
     final prevItem = mediaItem.value;
-    final index = context.indexWhere((s) => s.id == song.id);
+    final sameQueue =
+        _songs.length == context.length &&
+        _songs.every((s) => context.any((c) => c.id == s.id));
+    // Tap-jump from a shuffled Up Next hands display order: resolve
+    // the seek against engine sources when the set matches, against
+    // the context only when it becomes the new queue.
+    final index = sameQueue
+        ? _songs.indexWhere((s) => s.id == song.id)
+        : context.indexWhere((s) => s.id == song.id);
     try {
       ArchLog.i(
         'player',
@@ -325,9 +367,6 @@ class ArchAudioHandler extends BaseAudioHandler {
         ArchLog.w('player', 'tap song missing from context id=${song.id}');
         return;
       }
-      final sameQueue =
-          _songs.length == context.length &&
-          _songs.every((s) => context.any((c) => c.id == s.id));
       if (!sameQueue) {
         // Network previews can stall forever (expired URL, captive
         // portal). Bound it; failure surfaces, never wedges.
@@ -628,6 +667,7 @@ class ArchAudioHandler extends BaseAudioHandler {
   Future<void> setShuffleEnabled(bool enabled) async {
     await _player.setShuffleModeEnabled(enabled);
     if (enabled) await _player.shuffle();
+    _republishOrder();
     ArchLog.i('player', 'shuffle=$enabled');
   }
 
@@ -676,6 +716,10 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Player-level ops (not the deprecated ConcatenatingAudioSource
   /// surface). Names avoid the BaseAudioHandler queue-item overrides.
   Future<void> moveQueueIndex(int oldIndex, int newIndex) async {
+    // Up Next speaks display positions; the engine and mirror move in
+    // source positions. Mapped first so drag-reorder works shuffled.
+    oldIndex = _toSource(oldIndex);
+    newIndex = _toSource(newIndex);
     if (oldIndex == newIndex) return;
     if (oldIndex < 0 ||
         newIndex < 0 ||
@@ -692,6 +736,7 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   Future<void> removeQueueIndex(int index) async {
+    index = _toSource(index);
     if (index < 0 || index >= _songs.length) return;
     if (_songs.length == 1) {
       await clearQueue();
