@@ -125,7 +125,11 @@ class AutomixEngine {
   /// Blend the audible track into [next]. [seconds] comes from
   /// [planCrossfade]. Every await is time-bounded: a stalled load must
   /// degrade to a clean cut, never to a wedged (silent) engine.
-  Future<bool> crossfadeTo(Uri next, {required double seconds}) async {
+  Future<bool> crossfadeTo(
+    Uri next, {
+    required double seconds,
+    Duration startAt = Duration.zero,
+  }) async {
     if (_disposed || _crossfading) return false;
     _crossfading = true;
     try {
@@ -134,6 +138,13 @@ class AutomixEngine {
           .setAudioSource(AudioSource.uri(next))
           .timeout(const Duration(seconds: 12));
       if (_disposed) return false;
+      // Land the blend on music: intros are usually silence or
+      // ambience, which reads as "faded out, then a new song started".
+      if (startAt > Duration.zero) {
+        try {
+          await incoming.seek(startAt).timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
       await incoming.setVolume(0.0);
       if (!await _startPlaying(incoming)) {
         await _cutTo(next);

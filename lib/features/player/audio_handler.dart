@@ -812,10 +812,11 @@ class ArchAudioHandler extends BaseAudioHandler {
     _mixFiring = true;
     try {
       final song = _songs[next];
+      final startAt = _mixStartOffset(next);
       // Belt and braces: the engine bounds its own awaits, but the
       // flag must clear no matter what, or every later tick bails.
       final ok = await engine
-          .crossfadeTo(song.uri, seconds: plan.seconds)
+          .crossfadeTo(song.uri, seconds: plan.seconds, startAt: startAt)
           .timeout(Duration(seconds: plan.seconds.round() + 30))
           .catchError((Object e) {
         ArchLog.w('automix', 'crossfade timeout: $e');
@@ -886,6 +887,36 @@ class ArchAudioHandler extends BaseAudioHandler {
       return order[(p + order.length) % order.length];
     }
     return order[p];
+  }
+
+  /// Where the incoming track should begin. Its first audible sound,
+  /// nudged onto the nearest beat when the grid is known — an intro of
+  /// silence is not something to fade into.
+  Duration _mixStartOffset(int index) {
+    try {
+      final info = _meta?.musicalInfoCached(
+        title: _songs[index].title,
+        artist: _songs[index].artist,
+        path: _songs[index].path,
+      );
+      final first = info?.firstSound;
+      if (first == null || first <= 0.05) return Duration.zero;
+      var offset = first;
+      // Snap to the beat grid so the entrance lands in time.
+      final phase = info?.phase;
+      final bpm = info?.bpm;
+      if (phase != null && bpm != null && bpm > 0) {
+        final period = 60.0 / bpm;
+        final k = ((offset - phase) / period).round();
+        offset = phase + k * period;
+      }
+      if (offset < 0) offset = first;
+      // Never skip more than a few seconds of a track.
+      offset = offset.clamp(0.0, 8.0);
+      return Duration(milliseconds: (offset * 1000).round());
+    } catch (_) {
+      return Duration.zero;
+    }
   }
 
   /// Adaptive blend length from cached musical facts only — no

@@ -322,14 +322,25 @@ class TrackMusicalInfo {
   final String openKey;
   final String source;
 
+  /// Beat-grid phase in track time (seconds) when the on-device DSP
+  /// produced it. Null for tag/network rows — those know no grid.
+  final double? phase;
+
+  /// First audible sound (seconds). Crossfades start the incoming
+  /// track here so the blend lands on music, not on intro silence.
+  final double? firstSound;
+
   const TrackMusicalInfo({
     this.bpm,
     this.keyOf = '',
     this.openKey = '',
     this.source = '',
+    this.phase,
+    this.firstSound,
   });
 
-  bool get isEmpty => bpm == null && keyOf.isEmpty && openKey.isEmpty;
+  bool get isEmpty =>
+      bpm == null && keyOf.isEmpty && openKey.isEmpty;
 }
 
 /// A chart top-track from Deezer. [previewUrl] expires - fetched fresh per

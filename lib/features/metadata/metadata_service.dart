@@ -2190,6 +2190,8 @@ class MetadataService {
         keyOf: key,
         openKey: open,
         source: '${cached['src'] ?? 'cache'}',
+        phase: (cached['phase'] as num?)?.toDouble(),
+        firstSound: (cached['firstSound'] as num?)?.toDouble(),
       );
     }
     if (bpm == null && key.isEmpty) return null;
@@ -2219,12 +2221,16 @@ class MetadataService {
     double? netBpm = bpm;
     var netKey = key;
     var netOpen = '';
+    double? cachedPhase;
+    double? cachedFirstSound;
     var netSrc = bpm != null || key.isNotEmpty ? 'embedded' : '';
     if (cached != null) {
       netBpm = (cached['bpm'] as num?)?.toDouble() ?? bpm;
       if (netKey.isEmpty) netKey = '${cached['key'] ?? ''}';
       netOpen = '${cached['openKey'] ?? ''}';
       netSrc = '${cached['src'] ?? 'getsongbpm'}';
+      cachedPhase = (cached['phase'] as num?)?.toDouble();
+      cachedFirstSound = (cached['firstSound'] as num?)?.toDouble();
       // Collapse legacy doubled tags ('dsp+dsp') on read; the next
       // write persists the clean form.
       netSrc = netSrc.split('+').toSet().join('+');
@@ -2258,6 +2264,10 @@ class MetadataService {
             final grid = won.grid;
             if (grid.confidence >= 0.55 && grid.bpm > 0) {
               netBpm = grid.bpm;
+              // Grid geometry is what makes a blend land on music:
+              // phase (track time) and the first audible sound.
+              cachedPhase = grid.phase;
+              cachedFirstSound = grid.firstSound;
               netSrc = 'dsp';
               grew = true;
               ArchLog.i(
@@ -2302,6 +2312,8 @@ class MetadataService {
               'key': netKey,
               'openKey': netOpen,
               'src': netSrc,
+              'phase': ?cachedPhase,
+              'firstSound': ?cachedFirstSound,
             };
             unawaited(_saveMusicalDisk());
           }
@@ -2314,6 +2326,8 @@ class MetadataService {
       keyOf: netKey,
       openKey: netOpen,
       source: netSrc.isEmpty ? 'getsongbpm' : netSrc,
+      phase: cachedPhase,
+      firstSound: cachedFirstSound,
     );
   }
 
