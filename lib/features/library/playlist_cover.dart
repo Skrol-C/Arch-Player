@@ -421,31 +421,49 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
                     itemBuilder: (context, i) {
                       final s = shown[i];
                       final owned = existing.contains(s.id);
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 2,
-                        ),
-                        leading: FileArtImage(
-                          path: s.path,
-                          albumId: s.albumId,
-                          size: 44,
-                        ),
-                        title: Text(
-                          s.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          s.artist,
-                          maxLines: 1,
+                      return Container(
+                        color: owned
+                            ? archPink.withValues(alpha: 0.06)
+                            : Colors.transparent,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 2,
+                          ),
+                          leading: FileArtImage(
+                            path: s.path,
+                            albumId: s.albumId,
+                            size: 44,
+                          ),
+                          title: Text(
+                            s.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            s.artist,
+                            maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: inkDim),
                         ),
                         trailing: owned
-                            ? const Icon(
-                                CupertinoIcons.checkmark,
-                                color: archPink,
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: archPink.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Already there',
+                                  style: TextStyle(
+                                    color: archPink,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                               )
                             : Checkbox(
                                 value: _picked.contains(s.id),
@@ -467,6 +485,7 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
                                   _picked.add(s.id);
                                 }
                               }),
+                        ),
                       );
                     },
                   ),
