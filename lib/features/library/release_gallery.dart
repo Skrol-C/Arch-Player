@@ -69,16 +69,19 @@ class _ReleaseGalleryState extends ConsumerState<ReleaseGallery> {
     if (queue.isEmpty) return;
     HapticFeedback.mediumImpact();
     final handler = ref.read(audioHandlerProvider);
-    var q = List<Song>.of(queue);
     if (shuffle) {
-      q.shuffle();
-      unawaited(handler.setShuffleEnabled(true));
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playShuffled(queue),
+      );
+    } else {
+      await playAndOpen(
+        ref,
+        context,
+        () => handler.playSong(queue.first, queue),
+      );
     }
-    await playAndOpen(
-      ref,
-      context,
-      () => handler.playSong(q.first, q),
-    );
   }
 
   @override

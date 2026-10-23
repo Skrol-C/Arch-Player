@@ -66,10 +66,11 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
     _play(songs, songs.first);
   }
 
-  void _shuffleAll(List<Song> songs) {
+  Future<void> _shuffleAll(List<Song> songs) async {
     if (songs.isEmpty) return;
-    final queue = List<Song>.of(songs)..shuffle();
-    _play(queue, queue.first);
+    HapticFeedback.mediumImpact();
+    final handler = ref.read(audioHandlerProvider);
+    await playAndOpen(ref, context, () => handler.playShuffled(songs));
   }
 
   /// Hub albums carry the year when the tags know it, else the count.

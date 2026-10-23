@@ -811,17 +811,20 @@ class _Controls extends ConsumerWidget {
     Future<void> play(bool shuffleFirst) async {
       if (members.isEmpty) return;
       final handler = ref.read(audioHandlerProvider);
-      var queue = List<Song>.of(members);
-      if (shuffleFirst) {
-        queue.shuffle();
-        unawaited(handler.setShuffleEnabled(true));
-      }
       HapticFeedback.mediumImpact();
-      await playAndOpen(
-        ref,
-        context,
-        () => handler.playSong(queue.first, queue),
-      );
+      if (shuffleFirst) {
+        await playAndOpen(
+          ref,
+          context,
+          () => handler.playShuffled(members),
+        );
+      } else {
+        await playAndOpen(
+          ref,
+          context,
+          () => handler.playSong(members.first, members),
+        );
+      }
     }
 
     final current = ref.watch(currentSongProvider).value;

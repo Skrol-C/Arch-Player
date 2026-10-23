@@ -71,10 +71,9 @@ class _SongsPageState extends ConsumerState<SongsPage> {
 
   Future<void> _shuffleAll(List<Song> songs) async {
     if (songs.isEmpty) return;
-    final queue = List<Song>.of(songs)..shuffle();
     HapticFeedback.mediumImpact();
     final handler = ref.read(audioHandlerProvider);
-    await playAndOpen(ref, context, () => handler.playSong(queue.first, queue));
+    await playAndOpen(ref, context, () => handler.playShuffled(songs));
   }
 
   Future<void> _pickSort() async {

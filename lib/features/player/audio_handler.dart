@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:audio_service/audio_service.dart';
@@ -248,6 +249,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     }
   }
 
+  /// Shuffled tap: sources always land in true order; the engine owns
+  /// the permutation and the start is a random index. One sequential
+  /// path — no Dart pre-shuffle, no concurrent toggle race.
+  Future<void> playShuffled(List<Song> ordered) async {
+    if (ordered.isEmpty) return;
+    final start = Random().nextInt(ordered.length);
+    await playSong(ordered[start], ordered, shuffleAfterLoad: true);
+  }
+
   Future<void> setQueueSongs(List<Song> songs, {int startIndex = 0}) async {
     _songs = List<Song>.from(songs);
     _emitQueue(_songs.map((s) => s.toMediaItem()).toList());
@@ -265,7 +275,11 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// is verified before it surfaces. Every decision is logged: the
   /// next "it didn't switch" report diagnoses from one tap's lines
   /// instead of a week of guesses.
-  Future<void> playSong(Song song, List<Song> context) async {
+  Future<void> playSong(
+    Song song,
+    List<Song> context, {
+    bool shuffleAfterLoad = false,
+  }) async {
     final now = DateTime.now();
     if (now.difference(_lastTap).inMilliseconds < 400) {
       ArchLog.i('player', 'tap debounced id=${song.id}');
@@ -335,6 +349,15 @@ class ArchAudioHandler extends BaseAudioHandler {
           'player',
           'same-queue seek id=${song.id} index=$index in=${watch.elapsedMilliseconds}ms',
         );
+      }
+      // Shuffle owns nothing until sources land: enabling the engine
+      // before setAudioSources lets the rebuild reset indices to
+      // identity (the old in-order bug). Sources in true order first,
+      // engine shuffle after — one owner, sequential, no race.
+      if (shuffleAfterLoad) {
+        await setShuffleEnabled(true).timeout(const Duration(seconds: 10));
+        if (gen != _playGen) return;
+        ArchLog.i('player', 'shuffle applied id=${song.id}');
       }
       // currentIndexStream fires too, but set it now so the first
       // notification frame is already correct — never one stale behind.

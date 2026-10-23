@@ -16,7 +16,6 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../doctor/doctor_sheet.dart';
 import '../library/artist_page.dart';
-import '../library/library_providers.dart';
 import '../library/album_page.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../lyrics/lyrics_view.dart';
@@ -1461,37 +1460,8 @@ class _QueuePanel extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 16, 8),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _shuffleLibrary(ref, context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: archPink.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          CupertinoIcons.shuffle_medium,
-                          color: archPink,
-                          size: 18,
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Shuffle Library',
-                          style: TextStyle(
-                            color: archPink,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
               TextButton(
                 onPressed: queue.isEmpty
                     ? null
@@ -1613,26 +1583,6 @@ class _QueuePanel extends ConsumerWidget {
     );
   }
 
-  Future<void> _shuffleLibrary(WidgetRef ref, BuildContext context) async {
-    final songs = ref.read(songsProvider).value ?? [];
-    if (songs.isEmpty) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Library is empty')));
-      }
-      return;
-    }
-    final shuffled = List<Song>.from(songs)..shuffle();
-    final handler = ref.read(audioHandlerProvider);
-    HapticFeedback.mediumImpact();
-    await handler.setShuffleEnabled(true);
-    if (!context.mounted) return;
-    await playAndOpen(
-      ref,
-      context,
-      () => handler.playSong(shuffled.first, shuffled),
-    );
-  }
 }
 
 class _PanelModeBtn extends StatelessWidget {

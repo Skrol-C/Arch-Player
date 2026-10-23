@@ -412,16 +412,19 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
     Future<void> play(bool shuffleFirst) async {
       if (ordered.isEmpty) return;
       final handler = ref.read(audioHandlerProvider);
-      var queue = List<Song>.of(ordered);
       if (shuffleFirst) {
-        queue.shuffle();
-        unawaited(handler.setShuffleEnabled(true));
+        await playAndOpen(
+          ref,
+          context,
+          () => handler.playShuffled(ordered),
+        );
+      } else {
+        await playAndOpen(
+          ref,
+          context,
+          () => handler.playSong(ordered.first, ordered),
+        );
       }
-      await playAndOpen(
-        ref,
-        context,
-        () => handler.playSong(queue.first, queue),
-      );
     }
 
     Future<void> addAll() async {
