@@ -79,11 +79,24 @@ class AutomixEngine {
   /// a track (switching automix on mid-song). Returns false when the
   /// media can't be prepared — the caller falls back to the normal
   /// single-player path rather than going silent.
+  /// Start playback without trusting `play()`'s future: on some
+  /// devices the platform never completes that response even though
+  /// audio starts. Poll the real state instead — bounded, honest.
+  Future<bool> _startPlaying(AudioPlayer p) async {
+    unawaited(p.play().catchError((Object _) {}));
+    for (var i = 0; i < 40; i++) {
+      if (p.playing) return true;
+      if (p.processingState == ProcessingState.completed) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return p.playing;
+  }
+
   Future<bool> start(Uri uri, {Duration at = Duration.zero}) async {
     if (_disposed) return false;
     try {
       // Preload inside setAudioSource so the 15s bound covers the
-      // actual decode/load; play() then returns immediately.
+      // actual decode/load.
       await _active
           .setAudioSource(AudioSource.uri(uri))
           .timeout(const Duration(seconds: 15));
@@ -97,13 +110,12 @@ class AutomixEngine {
         'dur=${_active.duration?.inSeconds}s',
       );
       await _active.setVolume(1.0);
-      await _active.play().timeout(const Duration(seconds: 10));
+      final ok = await _startPlaying(_active);
       ArchLog.i(
         'automix',
-        'engine start ${uri.pathSegments.last} '
-        'playing=${_active.playing}',
+        'engine start ${uri.pathSegments.last} playing=${_active.playing}',
       );
-      return true;
+      return ok;
     } catch (e) {
       ArchLog.w('automix', 'engine start failed: $e');
       return false;
@@ -123,7 +135,10 @@ class AutomixEngine {
           .timeout(const Duration(seconds: 12));
       if (_disposed) return false;
       await incoming.setVolume(0.0);
-      await incoming.play().timeout(const Duration(seconds: 8));
+      if (!await _startPlaying(incoming)) {
+        await _cutTo(next);
+        return false;
+      }
       final ok = await _ramp(seconds).timeout(
         Duration(milliseconds: (seconds * 1000).round() + 4000),
       );
@@ -163,7 +178,7 @@ class AutomixEngine {
             .timeout(const Duration(seconds: 12));
       }
       await incoming.setVolume(1.0);
-      await incoming.play().timeout(const Duration(seconds: 8));
+      await _startPlaying(incoming);
       try {
         await _active.pause().timeout(const Duration(seconds: 4));
         await _active.setVolume(1.0);
@@ -220,7 +235,7 @@ class AutomixEngine {
       // audible one is the only voice that should rise.
       await _idle.setVolume(0.0);
       await _active.setVolume(1.0);
-      await _active.play();
+      await _startPlaying(_active);
     } catch (_) {}
   }
 

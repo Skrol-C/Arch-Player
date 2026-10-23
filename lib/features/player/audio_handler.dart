@@ -117,6 +117,10 @@ class ArchAudioHandler extends BaseAudioHandler {
   bool _mixFiring = false;
   StreamSubscription<PlaybackEvent>? _mixEvents;
 
+  /// Bumped on every engine enter/teardown. A start that finishes after
+  /// the user toggled off must not arm a zombie engine.
+  int _mixGen = 0;
+
   /// Fires when the engine can't take over (load failure). The toggle
   /// provider listens and flips itself off, so the UI never claims
   /// automix is on while the playlist is actually driving.
@@ -693,6 +697,8 @@ class ArchAudioHandler extends BaseAudioHandler {
     if (index < 0 || index >= _songs.length) return;
     final song = _songs[index];
     await _teardownEngine(resume: false);
+    // Teardown bumped the generation; this start owns the next one.
+    final gen = ++_mixGen;
     // The playlist player must fully release the output before the
     // engine speaks. pause() keeps its decoder and session alive,
     // which is what made the engine's play() wait forever.
@@ -722,6 +728,12 @@ class ArchAudioHandler extends BaseAudioHandler {
       await _meta?.warmMusical();
     } catch (_) {}
     final ok = await engine.start(song.uri, at: at);
+    if (gen != _mixGen) {
+      // Superseded while loading: drop it, never arm a zombie.
+      await engine.stop();
+      await engine.dispose();
+      return;
+    }
     if (!ok) {
       ArchLog.w('automix', 'engine start failed - staying on playlist');
       _automixOn = false;
@@ -742,6 +754,7 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Park or end the engine. [resume] hands transport back to the
   /// playlist player at the engine's exact position and index.
   Future<void> _teardownEngine({required bool resume}) async {
+    _mixGen++;
     _mixTick?.cancel();
     _mixTick = null;
     final engine = _engine;
