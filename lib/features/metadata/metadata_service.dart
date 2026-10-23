@@ -2183,6 +2183,9 @@ class MetadataService {
       if (netKey.isEmpty) netKey = '${cached['key'] ?? ''}';
       netOpen = '${cached['openKey'] ?? ''}';
       netSrc = '${cached['src'] ?? 'getsongbpm'}';
+      // Collapse legacy doubled tags ('dsp+dsp') on read; the next
+      // write persists the clean form.
+      netSrc = netSrc.split('+').toSet().join('+');
     } else {
       final live = await _gsbMusical(title, artist);
       if (live != null) {
@@ -2249,6 +2252,9 @@ class MetadataService {
             }
           }
           if (grew) {
+            // Dedupe provenance: an older write may already hold a
+            // doubled 'dsp+dsp' — collapse, never accumulate.
+            netSrc = netSrc.split('+').toSet().join('+');
             _musicalDisk[cacheKey] = {
               'bpm': netBpm,
               'key': netKey,
