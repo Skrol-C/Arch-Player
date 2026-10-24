@@ -2,7 +2,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import '../../core/glass.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../player/play_guarded.dart';
@@ -107,17 +109,19 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                         Builder(
                           builder: (buttonContext) => GestureDetector(
                             onTap: () => _openViewMenu(buttonContext),
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: paperRaised,
-                                borderRadius: BorderRadius.circular(22),
-                              ),
-                              child: const Icon(
-                                CupertinoIcons.ellipsis,
-                                color: ink,
-                                size: 20,
+                            child: LiquidGlassLens(
+                              style: ArchGlass.circle(radius: 22),
+                              touch: ArchGlass.lensTouch(),
+                              child: const SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: Center(
+                                  child: Icon(
+                                    CupertinoIcons.ellipsis,
+                                    color: ink,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
