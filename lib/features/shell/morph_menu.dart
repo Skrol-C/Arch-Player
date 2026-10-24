@@ -80,9 +80,13 @@ Future<String?> showMorphMenu({
                         ignoring:
                             t < 0.6 &&
                             animation.status != AnimationStatus.reverse,
+                        // anchoredPop (anchor: null) grows the new blob around
+                        // the held corner — widget.alignment, i.e. the menu
+                        // edge nearest the tapped button — instead of fluid's
+                        // center leap. See LiquidGlassMorphMotion.anchor docs.
                         child: LiquidGlassMorph(
                           alignment: alignment,
-                          motion: LiquidGlassMorphMotion.fluid,
+                          motion: LiquidGlassMorphMotion.anchoredPop,
                           style: ArchGlass.menuMorph(),
                           child: open
                               ? _MorphRows(
