@@ -198,6 +198,11 @@ class ArchAudioHandler extends BaseAudioHandler {
   final Map<String, String> _artFiles = {};
   static const _artCap = 64;
 
+  /// Last song id whose notification art was attached. Index flips
+  /// re-fire per flip (fall-through, seeks) — without this the same
+  /// song re-resolves + re-sets art on every flip (low-RAM killer).
+  int _lastNotifArtSongId = -1;
+
   void _rememberArt(String id, String path) {
     if (id.isEmpty || path.isEmpty) return;
     _artFiles[id] = path;
@@ -558,6 +563,10 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   Future<void> _attachArtFile(Song song) async {
     try {
+      // Dedupe: index flips re-fire per flip for the same song.
+      // Only the first attach per song id does work; real song
+      // changes (different id) still attach as before.
+      if (song.id == _lastNotifArtSongId) return;
       // File-art previews first: instant when warm, exact for owned
       // files, and independent of MediaStore album art (missing for
       // fresh pulls — the old path silently attached nothing there).
@@ -573,6 +582,7 @@ class ArchAudioHandler extends BaseAudioHandler {
               extras: {...?mediaItem.value!.extras, 'artCacheFile': preview},
             ),
           );
+          _lastNotifArtSongId = song.id;
           ArchLog.i('player', 'notif art preview id=${song.id}');
           return;
         }
@@ -591,6 +601,7 @@ class ArchAudioHandler extends BaseAudioHandler {
       _setItem(
         current.copyWith(extras: {...?current.extras, 'artCacheFile': file}),
       );
+      _lastNotifArtSongId = song.id;
       ArchLog.i('player', 'notif art attached id=${song.id}');
     } catch (_) {}
   }
