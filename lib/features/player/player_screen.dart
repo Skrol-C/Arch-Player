@@ -496,6 +496,7 @@ class _TopBar extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: LiquidGlassLens(
               style: ArchGlass.circle(radius: 24),
+              touch: ArchGlass.lensTouch(),
               child: SizedBox(
                 width: 48,
                 height: 48,

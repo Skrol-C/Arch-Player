@@ -7,7 +7,8 @@ import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'artist_hub_page.dart';
 import 'data/history_store.dart';
@@ -30,23 +31,21 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
   bool _grid = true;
 
   Future<void> _openViewMenu(BuildContext buttonContext) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: buttonContext,
-      groups: [
-        [
-          MenuAction(
-            icon: CupertinoIcons.square_grid_2x2,
-            label: 'Grid',
-            value: 'grid',
-            selected: _grid,
-          ),
-          MenuAction(
-            icon: CupertinoIcons.list_bullet,
-            label: 'List',
-            value: 'list',
-            selected: !_grid,
-          ),
-        ],
+      items: [
+        MenuAction(
+          icon: CupertinoIcons.square_grid_2x2,
+          label: 'Grid',
+          value: 'grid',
+          selected: _grid,
+        ),
+        MenuAction(
+          icon: CupertinoIcons.list_bullet,
+          label: 'List',
+          value: 'list',
+          selected: !_grid,
+        ),
       ],
     );
     if (!mounted) return;

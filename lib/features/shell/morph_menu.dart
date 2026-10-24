@@ -10,16 +10,15 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../player/track_menu.dart' show MenuAction, menuAnchor;
 
-/// Morph context menu: the V2 glass experiment.
+/// Morph context menu: the V2 glass experiment, live.
 ///
-/// PARKED, not wired: the artists page uses the house showTrackMenu
-/// again. Kept intact (and analyzer-clean) so the recipe can be
-/// switched back on by importing this file and calling showMorphMenu.
 /// Same contract as showTrackMenu (anchor rect in, tapped value out),
-/// but the menu *grows* out of its anchor like water instead of
-/// appearing — elastic overshoot settle, radial specular sweep,
-/// saturated optical rim. Dismissal sucks back in fast. Reduced
-/// motion gets a plain fade: no bulge, no travel.
+/// but the menu *grows* out of its anchor like water via native
+/// LiquidGlassMorph: a seed dot at the anchor on frame zero, the full
+/// menu every frame after, keyed children so the morph reads the swap.
+/// Elastic fluid settle, radial specular sweep, saturated optical rim.
+/// Dismissal drains back into the seed fast. Reduced motion gets a
+/// plain fade: no morph, no travel.
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
@@ -48,17 +47,18 @@ Future<String?> showMorphMenu({
           builder: (context, _) {
             final t = animation.value;
             final reduced = Motion.reduced(context);
-            // Spring out of the anchor: full elastic overshoot on the
-            // way in, quick linear-ish suck-back on dismiss.
-            final grow = reduced
-                ? 1.0
-                : Curves.elasticOut.transform((t / 0.85).clamp(0.0, 1.0));
-            final show = reduced
-                ? t
-                : Curves.easeOutCubic.transform((t / 0.35).clamp(0.0, 1.0));
             final below =
                 target == null ||
                 target.bottom + 320 <= media.size.height - media.padding.bottom;
+            // The swap the morph flows: a seed dot at the anchor on
+            // frame zero, the menu every frame after. Dismissal swaps
+            // back to the seed so the glass drains instead of sitting
+            // static under the barrier fade. Keyed children - same type
+            // without keys would not read as new.
+            final open =
+                animation.status != AnimationStatus.reverse && t > 0.0;
+            final alignment =
+                below ? Alignment.topCenter : Alignment.bottomCenter;
             return FocusScope(
               canRequestFocus: false,
               skipTraversal: true,
@@ -68,27 +68,35 @@ Future<String?> showMorphMenu({
                   padding: media.padding,
                   below: below,
                 ),
-                child: Transform.scale(
-                  scale: reduced ? 1.0 : (0.35 + 0.65 * grow.clamp(0.0, 1.15)),
-                  alignment: below
-                      ? Alignment.topCenter
-                      : Alignment.bottomCenter,
-                  child: Opacity(
-                    opacity: show.clamp(0.0, 1.0),
-                    child: IgnorePointer(
-                      ignoring:
-                          t < 0.6 &&
-                          animation.status != AnimationStatus.reverse,
-                      child: LiquidGlassLens(
-                        style: ArchGlass.menuV2(),
-                        child: _MorphRows(
-                          items: items,
-                          stagger: reduced ? 1.0 : (t / 0.5).clamp(0.0, 1.0),
+                child: reduced
+                    ? Opacity(
+                        opacity: t.clamp(0.0, 1.0),
+                        child: LiquidGlassLens(
+                          style: ArchGlass.menuMorph(),
+                          child: _MorphRows(items: items, stagger: 1.0),
+                        ),
+                      )
+                    : IgnorePointer(
+                        ignoring:
+                            t < 0.6 &&
+                            animation.status != AnimationStatus.reverse,
+                        child: LiquidGlassMorph(
+                          alignment: alignment,
+                          motion: LiquidGlassMorphMotion.fluid,
+                          style: ArchGlass.menuMorph(),
+                          child: open
+                              ? _MorphRows(
+                                  key: const ValueKey('menu'),
+                                  items: items,
+                                  stagger: 1.0,
+                                )
+                              : const SizedBox(
+                                  key: ValueKey('seed'),
+                                  width: 48,
+                                  height: 48,
+                                ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
               ),
             );
           },
@@ -149,7 +157,11 @@ class _MorphLayout extends SingleChildLayoutDelegate {
 class _MorphRows extends StatelessWidget {
   final List<MenuAction> items;
   final double stagger;
-  const _MorphRows({required this.items, required this.stagger});
+  const _MorphRows({
+    super.key,
+    required this.items,
+    required this.stagger,
+  });
 
   @override
   Widget build(BuildContext context) {

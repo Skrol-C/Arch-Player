@@ -163,4 +163,37 @@ abstract final class ArchGlass {
       refraction: LiquidGlassRefraction(distortion: 0.13, distortionWidth: 14),
     );
   }
+
+  /// Morph entrance: the destination recipe for native
+  /// LiquidGlassMorph (features/shell/morph_menu.dart). Same optical
+  /// family as menuV2 - Snell bend, radial specular sweep, saturated
+  /// rim - but owned by the live entrance, not the parked experiment.
+  /// The morph thickens blur/refraction itself while the glass grows,
+  /// so this authors the rested state only.
+  static LiquidGlassStyle menuMorph({double radius = 28}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1.2,
+      lightMode: LiquidGlassLightMode.radial,
+      borderType: const OpticalBorder(borderSaturation: 1.6, lightSpread: 0.7),
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x66FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+    ),
+    refraction: const LiquidGlassRefraction(
+      refractionType: OpticalRefraction(
+        refraction: 1.5,
+        refractionWidth: 28,
+        depth: 0.24,
+      ),
+    ),
+  );
+
+  /// House touch: every tappable lens answers the finger the same way.
+  /// Subtle by house rule (premium = restraint) - press compresses,
+  /// release wobbles back. Rigid everywhere else: null means no
+  /// gesture listener, no ticker, nothing added to the tree.
+  static LiquidGlassTouch lensTouch() =>
+      const LiquidGlassTouch.flexing(LiquidGlassFlex.subtle());
 }

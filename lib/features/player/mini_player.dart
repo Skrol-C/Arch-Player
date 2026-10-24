@@ -35,6 +35,7 @@ class MiniPlayer extends ConsumerWidget {
       },
       child: LiquidGlassLens(
         style: ArchGlass.capsule(radius: 34),
+        touch: ArchGlass.lensTouch(),
         child: GestureDetector(
           onTap: () => openPlayer(ref, context),
           child: Container(
@@ -157,6 +158,7 @@ class _GlassCircle extends StatelessWidget {
   Widget build(BuildContext context) {
     return LiquidGlassLens(
       style: ArchGlass.circle(radius: 28),
+      touch: ArchGlass.lensTouch(),
       child: SizedBox(
         width: 48,
         height: 48,
