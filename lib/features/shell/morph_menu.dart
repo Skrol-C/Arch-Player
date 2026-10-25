@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -14,11 +15,11 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 ///
 /// Same contract as showTrackMenu (anchor rect in, tapped value out),
 /// but the menu *grows* out of its anchor like water via native
-/// LiquidGlassMorph: a seed dot at the anchor on frame zero, the full
-/// menu every frame after, keyed children so the morph reads the swap.
-/// Elastic fluid settle, radial specular sweep, saturated optical rim.
-/// Dismissal drains back into the seed fast. Reduced motion gets a
-/// plain fade: no morph, no travel.
+/// LiquidGlassMorph: a glass seed-dot held at the anchor ~150ms so the
+/// eye catches the origin, then the full menu on a slowed corner-held
+/// spring (~0.8 s period), keyed children so the morph reads the swap.
+/// Dismissal drains back into the seed over ~0.7 s. Reduced motion gets
+/// a plain fade: no morph, no travel.
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
@@ -38,82 +39,143 @@ Future<String?> showMorphMenu({
       opaque: false,
       transitionDuration: Motion.reduced(context)
           ? Duration.zero
-          : const Duration(milliseconds: 550),
-      reverseTransitionDuration: const Duration(milliseconds: 180),
-      pageBuilder: (context, animation, _) {
-        final media = MediaQuery.of(context);
-        return AnimatedBuilder(
-          animation: animation,
-          builder: (context, _) {
-            final t = animation.value;
-            final reduced = Motion.reduced(context);
-            final below =
-                target == null ||
-                target.bottom + 320 <= media.size.height - media.padding.bottom;
-            // The swap the morph flows: a seed dot at the anchor on
-            // frame zero, the menu every frame after. Dismissal swaps
-            // back to the seed so the glass drains instead of sitting
-            // static under the barrier fade. Keyed children - same type
-            // without keys would not read as new.
-            final open =
-                animation.status != AnimationStatus.reverse && t > 0.0;
-            final alignment =
-                below ? Alignment.topCenter : Alignment.bottomCenter;
-            return FocusScope(
-              canRequestFocus: false,
-              skipTraversal: true,
-              child: CustomSingleChildLayout(
-                delegate: _MorphLayout(
-                  anchor: target,
-                  padding: media.padding,
-                  below: below,
-                ),
-                child: reduced
-                    ? Opacity(
-                        opacity: t.clamp(0.0, 1.0),
-                        child: LiquidGlassLens(
-                          style: ArchGlass.menuMorph(),
-                          child: _MorphRows(items: items, stagger: 1.0),
-                        ),
-                      )
-                    : IgnorePointer(
-                        ignoring:
-                            t < 0.6 &&
-                            animation.status != AnimationStatus.reverse,
-                        // anchoredPop (anchor: null) grows the new blob around
-                        // the held corner — widget.alignment, i.e. the menu
-                        // edge nearest the tapped button — instead of fluid's
-                        // center leap. See LiquidGlassMorphMotion.anchor docs.
-                        child: LiquidGlassMorph(
-                          alignment: alignment,
-                          motion: LiquidGlassMorphMotion.anchoredPop,
-                          style: ArchGlass.menuMorph(),
-                          child: open
-                              ? _MorphRows(
-                                  key: const ValueKey('menu'),
-                                  items: items,
-                                  stagger: 1.0,
-                                )
-                              : const SizedBox(
-                                  key: ValueKey('seed'),
-                                  width: 48,
-                                  height: 48,
-                                ),
-                        ),
-                      ),
-              ),
-            );
-          },
-        );
-      },
+          : const Duration(milliseconds: 950),
+      reverseTransitionDuration: _reverseDuration(context),
+      pageBuilder: (context, animation, _) => _MorphPage(
+        animation: animation,
+        anchor: target,
+        items: items,
+      ),
     ),
   );
+}
+
+/// Reverse clock: long enough for the drain (~0.65 s on the slowed
+/// spring at drainSpeed 1.5) plus a brief seed hold before the fade.
+Duration _reverseDuration(BuildContext context) => Motion.reduced(context)
+    ? const Duration(milliseconds: 180)
+    : const Duration(milliseconds: 700);
+
+/// anchoredPop slowed to a visible ~0.8 s period via the package's own
+/// spring params (duration = 2π/√stiffness): same bounce (zeta 0.70),
+/// same corner-held advanced, period 2π/√61.7 ≈ 0.80 s so the growth
+/// spans ~48 frames instead of leaping in one.
+final _slowPop = LiquidGlassMorphMotion.anchoredPop.copyWith(
+  stiffness: 61.7,
+  damping: 11.0,
+);
+
+class _MorphPage extends StatefulWidget {
+  final Animation<double> animation;
+  final Rect? anchor;
+  final List<MenuAction> items;
+
+  const _MorphPage({
+    required this.animation,
+    required this.anchor,
+    required this.items,
+  });
+
+  @override
+  State<_MorphPage> createState() => _MorphPageState();
+}
+
+class _MorphPageState extends State<_MorphPage> {
+  /// Seed hold: the glass dot sits at the button this long before
+  /// expansion, so the eye catches the origin.
+  static const _seedHold = Duration(milliseconds: 150);
+  bool _seed = true;
+  Timer? _seedTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _seedTimer = Timer(_seedHold, () {
+      if (mounted) setState(() => _seed = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _seedTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    return AnimatedBuilder(
+      animation: widget.animation,
+      builder: (context, _) {
+        final t = widget.animation.value;
+        final reduced = Motion.reduced(context);
+        final anchor = widget.anchor;
+        final below =
+            anchor == null ||
+            anchor.bottom + 320 <= media.size.height - media.padding.bottom;
+        // The swap the morph flows: the seed dot held at the anchor,
+        // the menu after the hold, the seed again on dismiss so the
+        // glass drains instead of sitting static under the barrier
+        // fade. Keyed children - same type without keys would not
+        // read as new.
+        final reverse = widget.animation.status == AnimationStatus.reverse;
+        final seedShown = !reduced && _seed && !reverse;
+        final open = reduced ? !reverse : (!seedShown && !reverse && t > 0.0);
+        final alignment =
+            below ? Alignment.topCenter : Alignment.bottomCenter;
+        return FocusScope(
+          canRequestFocus: false,
+          skipTraversal: true,
+          child: CustomSingleChildLayout(
+            delegate: _MorphLayout(
+              anchor: anchor,
+              padding: media.padding,
+              below: below,
+              seed: seedShown,
+            ),
+            child: reduced
+                ? Opacity(
+                    opacity: t.clamp(0.0, 1.0),
+                    child: LiquidGlassLens(
+                      style: ArchGlass.menuMorph(),
+                      child: _MorphRows(items: widget.items, stagger: 1.0),
+                    ),
+                  )
+                : IgnorePointer(
+                    ignoring: seedShown || (t < 0.6 && !reverse),
+                    // anchoredPop (anchor: null) grows the new blob around
+                    // the held corner — widget.alignment, i.e. the menu
+                    // edge nearest the tapped button — instead of fluid's
+                    // center leap. See LiquidGlassMorphMotion.anchor docs.
+                    child: LiquidGlassMorph(
+                      alignment: alignment,
+                      motion: _slowPop,
+                      style: ArchGlass.menuMorph(),
+                      child: open
+                          ? _MorphRows(
+                              key: const ValueKey('menu'),
+                              items: widget.items,
+                              stagger: 1.0,
+                            )
+                          : const SizedBox(
+                              key: ValueKey('seed'),
+                              width: 48,
+                              height: 48,
+                            ),
+                    ),
+                  ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _MorphLayout extends SingleChildLayoutDelegate {
   final Rect? anchor;
   final EdgeInsets padding;
   final bool below;
+  final bool seed;
   static const _margin = 12.0;
   static const _width = 280.0;
 
@@ -121,6 +183,7 @@ class _MorphLayout extends SingleChildLayoutDelegate {
     required this.anchor,
     required this.padding,
     required this.below,
+    this.seed = false,
   });
 
   @override
@@ -146,6 +209,18 @@ class _MorphLayout extends SingleChildLayoutDelegate {
     if (anchor == null) {
       return Offset((size.width - childSize.width) / 2, size.height * 0.3);
     }
+    if (seed) {
+      // Seed hold: the dot sits centered on the tapped button rect so
+      // the origin reads before expansion. Clamped into the safe area.
+      final x = (anchor!.center.dx - childSize.width / 2).clamp(left, right);
+      final top = padding.top + _margin;
+      final bottom = math.max(
+        top,
+        size.height - padding.bottom - _margin - childSize.height,
+      );
+      final y = (anchor!.center.dy - childSize.height / 2).clamp(top, bottom);
+      return Offset(x, y);
+    }
     final x = (anchor!.center.dx - childSize.width / 2).clamp(left, right);
     final y = below
         ? anchor!.bottom + 8
@@ -155,7 +230,10 @@ class _MorphLayout extends SingleChildLayoutDelegate {
 
   @override
   bool shouldRelayout(_MorphLayout old) =>
-      anchor != old.anchor || padding != old.padding || below != old.below;
+      anchor != old.anchor ||
+      padding != old.padding ||
+      below != old.below ||
+      seed != old.seed;
 }
 
 class _MorphRows extends StatelessWidget {
