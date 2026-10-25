@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
@@ -63,10 +64,11 @@ Future<DetectedKey?> analyzeKey(Uint8List bytes) =>
 DetectedKey? _analyzeKey(Uint8List bytes) => detectMusicalKey(bytes);
 
 /// Multi-window tempo: three 25s slices (start / 40% / 70%) analyzed
-/// in parallel isolates, best confidence wins, middle preferred on
-/// ties. Phase and first-sound map back to track time by adding the
+/// in parallel isolates, octave-folded onto the median with consensus
+/// required — a lone window locked on half/double time no longer decides
+/// alone. Phase and first-sound map back to track time by adding the
 /// winning window's offset. Short tracks (< ~27s) keep the single
-/// start window. Returns the winner, its index, and the window
+/// start window. Returns the consensus, its window, and the window
 /// count for logging — the caller still applies the confidence gate.
 Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   Uint8List pcm,
@@ -88,25 +90,117 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     );
   }
   final grids = await Future.wait(slices.map(analyzeGrid));
-  // Best confidence wins; exact ties prefer the middle window
-  // (arrangement peaks mid-track, intros/outros lie).
-  var best = 0;
-  for (var i = 1; i < grids.length; i++) {
-    if (grids[i].confidence > grids[best].confidence ||
-        (grids[i].confidence == grids[best].confidence && i == 1)) {
-      best = i;
-    }
-  }
+  final consensus = consensusTempo(grids);
+  final best = consensus.winner;
   final offsetSec = starts[best] / (11025 * 2);
   final won = grids[best];
   return (
     grid: AutoMixBeatGrid(
-      bpm: won.bpm,
+      bpm: consensus.bpm,
       phase: won.phase + offsetSec,
-      confidence: won.confidence,
+      confidence: consensus.confidence,
       firstSound: won.firstSound + offsetSec,
     ),
     window: best,
     of: slices.length,
   );
+}
+
+/// Octave folding + consensus across per-window tempo grids.
+///
+/// Each window detects independently, and any single window can lock onto
+/// half, double, or a 4/3 harmonic of the true tempo (strong sub-beat
+/// energy, syncopation). Fold every reading onto the median, then require
+/// agreement — the DAD Mod Manager shape, minus librosa.
+///
+/// Bands (ratio = median / bpm):
+/// - 1.75–2.25 → half-time read, double it.
+/// - 0.45–0.57 → double-time read, halve it.
+/// - 0.65–0.85 → 4/3 read, scale by 3/4.
+/// - 1.20–1.45 → 3/4 read, scale by 4/3.
+///
+/// Returns the consensus bpm, an agreement-shaped confidence, and the
+/// winning window index (which supplies phase/first-sound). No agreement
+/// (std dev > 4 BPM across folded readings, or fewer than two valid
+/// windows) falls back to best-confidence-wins — the caller still applies
+/// the 0.55 publish gate either way.
+({double bpm, double confidence, int winner}) consensusTempo(
+  List<AutoMixBeatGrid> grids,
+) {
+  int bestWins() {
+    var best = 0;
+    for (var i = 1; i < grids.length; i++) {
+      if (grids[i].confidence > grids[best].confidence ||
+          (grids[i].confidence == grids[best].confidence && i == 1)) {
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  final valid = [
+    for (var i = 0; i < grids.length; i++)
+      if (grids[i].bpm > 0) i,
+  ];
+  if (valid.length < 2) {
+    final w = bestWins();
+    return (bpm: grids[w].bpm, confidence: grids[w].confidence, winner: w);
+  }
+  final bpms = [for (final i in valid) grids[i].bpm]..sort();
+  final median = bpms.length.isOdd
+      ? bpms[bpms.length ~/ 2]
+      : (bpms[bpms.length ~/ 2 - 1] + bpms[bpms.length ~/ 2]) / 2.0;
+  final folded = <int, double>{};
+  for (final i in valid) {
+    final b = grids[i].bpm;
+    final ratio = median / b;
+    folded[i] = b *
+        (ratio > 1.75 && ratio < 2.25
+            ? 2.0
+            : ratio > 0.45 && ratio < 0.57
+                ? 0.5
+                : ratio > 0.65 && ratio < 0.85
+                    ? 0.75
+                    : ratio > 1.2 && ratio < 1.45
+                        ? 4.0 / 3.0
+                        : 1.0);
+  }
+  final values = folded.values.toList();
+  final mean = values.reduce((a, b) => a + b) / values.length;
+  final variance =
+      values.map((v) => (v - mean) * (v - mean)).reduce((a, b) => a + b) /
+          values.length;
+  final std = math.sqrt(variance);
+  if (std > 4.0) {
+    final w = bestWins();
+    return (bpm: grids[w].bpm, confidence: grids[w].confidence, winner: w);
+  }
+  final ordered = [...values]..sort();
+  final bpm = ordered.length.isOdd
+      ? ordered[ordered.length ~/ 2]
+      : (ordered[ordered.length ~/ 2 - 1] + ordered[ordered.length ~/ 2]) /
+          2.0;
+  var maxConf = 0.0;
+  for (final i in valid) {
+    maxConf = math.max(maxConf, grids[i].confidence);
+  }
+  // Agreement-shaped confidence: full credit when windows coincide, up
+  // to 0.4 docked as they spread. The 0.55 publish gate downstream is
+  // untouched.
+  final confidence = (maxConf - math.min(0.4, std / 20.0)).clamp(0.0, 1.0);
+  // Winner supplies phase/first-sound: closest to consensus, then most
+  // confident, then the middle window.
+  var winner = valid.first;
+  for (final i in valid.skip(1)) {
+    final dNew = (folded[i]! - bpm).abs();
+    final dOld = (folded[winner]! - bpm).abs();
+    if (dNew < dOld - 1e-9 ||
+        ((dNew - dOld).abs() <= 1e-9 &&
+            (grids[i].confidence > grids[winner].confidence ||
+                (grids[i].confidence == grids[winner].confidence &&
+                    i == 1)))) {
+      winner = i;
+    }
+  }
+  return (bpm: bpm, confidence: confidence, winner: winner);
 }
