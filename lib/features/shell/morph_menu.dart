@@ -16,41 +16,40 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 /// Same contract as showTrackMenu (anchor rect in, tapped value out),
 /// but the menu grows out of its button through native LiquidGlassMorph.
 ///
-/// Edge origin, via the package's own tool: the morph fills the whole
-/// screen and its [LiquidGlassMorph.alignment] is recovered with
-/// [LiquidGlassMorph.alignmentFor] from the rect we actually want —
-/// a 48 px seed centred on the button pixel while held, the menu rect
-/// after. The birth point (`anchor.withinRect(from)`) sits on the
-/// menu's EDGE nearest the button — top edge when the menu opens
-/// below, bottom edge when it opens above, at the button's horizontal
-/// station — and growth flows outward from there instead of leaping
-/// middle-outward. The same edge anchors the drain: shrinking, the old
-/// blob's size collapses first around that edge point while its anchor
-/// lags (stretch + followDelay), so the menu deflates TOWARD the
-/// button and stays tethered through the whole drain instead of
-/// shrinking into a floating detached rectangle. See
-/// `LiquidGlassMorphMotion.anchor` and `LiquidGlassMorph.alignmentFor`
-/// in liquid_glass_easy 4.3.4.
+/// Root cause of the last two near-misses (verified in
+/// liquid_glass_easy 4.3.4, liquid_glass_morph.dart `_retarget` +
+/// `_place`): `LiquidGlassMorph.width` was pinned to the menu width in
+/// EVERY phase, so the "seed dot" was never a dot — `_targetSize`
+/// resolved to (280, 48) and `alignment.inscribe` of that wide bar
+/// under the seed alignment does NOT recover the 48 px seed rect, so
+/// `anchor.withinRect(from)` (the birth point) landed beside the
+/// button and the drain collapsed into the same misplaced bar: the
+/// side-neck open and the detached-rectangle dismiss. The width pin
+/// now only applies while the menu child is shown, so the seed phase
+/// measures a true 48x48 dot snapped exactly onto the button pixel.
 ///
-/// Timing: 0.40 s spring (2π/√246.7), zeta 0.70 for the ripple, with
-/// a slight lead overshoot (leadZeta = zeta − leadBounce = 0.60) for
-/// the liquid snap-back.
-///
-/// Motion is deliberately NOT anchoredPop: per liquid_glass_easy 4.3.4
-/// (liquid_glass_morph_motion.dart, anchoredPop docs) anchor-null means
-/// "the anchor barely travels, so there is no neck". A waist needs a
-/// travelling anchor, so this uses the explicit edge anchor with high
-/// stretch: the new blob is born small inside the seed, its anchor leaps
-/// for the menu edge while its size lags (followDelay), and the seed
-/// drains to a speck (sourceFollows: false) instead of merging — the two
-/// blobs stay distinct mid-flight and the blender's smooth union reads
-/// as a neck. neckRamp 12 brings the fillet in early.
+/// Anchor is the package's droplet geometry: `Alignment.center`, the
+/// same value the `fluid`/`droplet` presets use. Growing, the new
+/// blob is born small inside the seed (`seedScale`) at the button
+/// pixel and its anchor leaps seed-centre -> menu-centre while its
+/// size lags (`stretch` + `followDelay`), dragging a neck out of the
+/// button; shrinking, the roles swap and the menu deflates back along
+/// the same centre line into the waiting seed dot. An edge anchor was
+/// tried and reverted: the hop edge-of-seed -> edge-of-menu is ~30 px,
+/// so the neck barely forms and any placement slack reads as a
+/// side-neck. See `LiquidGlassMorphMotion.anchor` docs: centre leaps
+/// and "drags a neck behind it"; null/corner "barely travels" and
+/// has no neck.
 ///
 /// Content rides the package clock (LiquidGlassMorphAdvanced content
 /// params, same file): it materialises between contentInStart..contentInEnd
 /// of the morph duration, scaling newScaleFrom→1 about the anchor with
 /// contentFollow 1 so it travels inside the growing blob instead of
 /// sitting pinned at full size under small glass.
+///
+/// Timing: 0.40 s spring (2π/√246.7), zeta 0.70 for the ripple, with
+/// a slight lead overshoot (leadZeta = zeta − leadBounce = 0.60) for
+/// the liquid snap-back.
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
@@ -86,19 +85,20 @@ Duration _reverseDuration(BuildContext context) => Motion.reduced(context)
     ? const Duration(milliseconds: 180)
     : const Duration(milliseconds: 450);
 
-/// Liquid morph: born small on the button, anchor leaps for the menu
-/// EDGE nearest the button while size lags (stretch + followDelay),
-/// seed drains to a speck so the mid-flight union keeps a waist.
-/// Content materialises across the full morph (contentInStart..contentInEnd)
-/// from seed scale, riding the growing blob (contentFollow 1).
-/// The edge anchor also governs the drain: same value both directions,
-/// so dismiss deflates toward the button edge instead of detaching.
-LiquidGlassMorphMotion _morphMotion(Alignment edge) => LiquidGlassMorphMotion(
+/// Liquid morph: born small on the button pixel, anchor leaps along the
+/// button-centre -> menu-centre line while size lags (stretch +
+/// followDelay), seed drains to a speck so the mid-flight union keeps
+/// a waist. Content materialises across the full morph
+/// (contentInStart..contentInEnd) from seed scale, riding the growing
+/// blob (contentFollow 1). The centre anchor governs the drain too:
+/// same value both directions, so dismiss deflates back into the
+/// button dot instead of detaching.
+LiquidGlassMorphMotion _morphMotion() => const LiquidGlassMorphMotion(
   stiffness: 246.7,
   damping: 22.0,
   stretch: 0.9,
-  anchor: edge,
-  advanced: const LiquidGlassMorphAdvanced(
+  anchor: Alignment.center,
+  advanced: LiquidGlassMorphAdvanced(
     leadBounce: 0.10,
     followDelay: 0.09,
     seedScale: 0.55,
@@ -119,21 +119,6 @@ LiquidGlassMorphMotion _morphMotion(Alignment edge) => LiquidGlassMorphMotion(
     thickenRefraction: 0.30,
   ),
 );
-
-/// The neck's hinge: the menu edge nearest the button, at the button's
-/// horizontal station — so the union anchors at the edge, not the
-/// middle. Menu below the seed grows around its top edge, above around
-/// its bottom. Null anchor (tall callers, centred menu) has no button:
-/// fall back to the middle.
-Alignment _edgeAnchor(Rect seed, Rect menu) {
-  final x = menu.width <= 0
-      ? 0.0
-      : (((seed.center.dx - menu.left) / menu.width) * 2 - 1)
-            .clamp(-1.0, 1.0)
-            .toDouble();
-  final below = menu.center.dy >= seed.center.dy;
-  return Alignment(x, below ? -1.0 : 1.0);
-}
 
 const _menuWidth = 280.0;
 const _seedSize = 48.0;
@@ -251,9 +236,6 @@ class _MorphPageState extends State<_MorphPage> {
     final menuRect = _menuRect(widget.anchor, estH, field, media.padding);
     final aSeed = LiquidGlassMorph.alignmentFor(seedRect, fieldRect);
     final aMenu = LiquidGlassMorph.alignmentFor(menuRect, fieldRect);
-    final edge = widget.anchor == null
-        ? Alignment.center
-        : _edgeAnchor(seedRect, menuRect);
     return AnimatedBuilder(
       animation: widget.animation,
       builder: (context, _) {
@@ -294,7 +276,7 @@ class _MorphPageState extends State<_MorphPage> {
                     child: LiquidGlassMorph(
                       width: _menuWidth,
                       alignment: alignment,
-                      motion: _morphMotion(edge),
+                      motion: _morphMotion(),
                       smoothness: 48,
                       style: ArchGlass.menuMorph(),
                       child: open
