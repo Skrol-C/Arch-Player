@@ -27,9 +27,24 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 /// in liquid_glass_easy 4.3.4.
 ///
 /// Timing: 0.40 s spring (2π/√246.7), zeta 0.70 for the ripple, with
-/// the lead pair critically damped (leadZeta = zeta − leadBounce =
-/// 1.00) so the hinge stays pinned on open and the drain shrinks
-/// without the overshoot pulse that read as folding/creasing.
+/// a slight lead overshoot (leadZeta = zeta − leadBounce = 0.60) for
+/// the liquid snap-back.
+///
+/// Motion is deliberately NOT anchoredPop: per liquid_glass_easy 4.3.4
+/// (liquid_glass_morph_motion.dart, anchoredPop docs) anchor-null means
+/// "the anchor barely travels, so there is no neck". A waist needs a
+/// travelling anchor, so this uses an explicit centre anchor with high
+/// stretch: the new blob is born small inside the seed, its anchor leaps
+/// for the menu centre while its size lags (followDelay), and the seed
+/// drains to a speck (sourceFollows: false) instead of merging — the two
+/// blobs stay distinct mid-flight and the blender's smooth union reads
+/// as a neck. neckRamp 12 brings the fillet in early.
+///
+/// Content rides the package clock (LiquidGlassMorphAdvanced content
+/// params, same file): it materialises between contentInStart..contentInEnd
+/// of the morph duration, scaling newScaleFrom→1 about the anchor with
+/// contentFollow 1 so it travels inside the growing blob instead of
+/// sitting pinned at full size under small glass.
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
@@ -65,15 +80,35 @@ Duration _reverseDuration(BuildContext context) => Motion.reduced(context)
     ? const Duration(milliseconds: 180)
     : const Duration(milliseconds: 450);
 
-/// anchoredPop retimed to a 0.40 s period (2π/√246.7 ≈ 0.400 s) at the
-/// same zeta 0.70 bounce (22.0 / 2√246.7 ≈ 0.70), so travel stays
-/// visible across frames but never waits. leadBounce −0.30 puts the
-/// lead pair at zeta 1.00: hinge pinned on open, crease-free drain.
-final _popFast = LiquidGlassMorphMotion.anchoredPop.copyWith(
+/// Liquid morph: born small on the button, anchor leaps for the menu
+/// centre while size lags (stretch + followDelay), seed drains to a
+/// speck so the mid-flight union keeps a waist. Content materialises
+/// across the full morph (contentInStart..contentInEnd) from seed scale,
+/// riding the growing blob (contentFollow 1).
+final _morphLiquid = LiquidGlassMorphMotion(
   stiffness: 246.7,
   damping: 22.0,
-  advanced: LiquidGlassMorphMotion.anchoredPop.advanced.copyWith(
-    leadBounce: -0.30,
+  stretch: 0.75,
+  anchor: Alignment.center,
+  advanced: const LiquidGlassMorphAdvanced(
+    leadBounce: 0.10,
+    followDelay: 0.07,
+    seedScale: 0.55,
+    linger: 0.05,
+    drainSpeed: 1.5,
+    drainInward: 0.35,
+    sourceFollows: false,
+    neckRamp: 12,
+    contentOutEnd: 0.40,
+    contentInStart: 0.12,
+    contentInEnd: 1.0,
+    newScaleFrom: 0.55,
+    oldScaleTo: 0.92,
+    contentBlur: 8,
+    contentFollow: 1.0,
+    contentSlide: 0,
+    thickenBlur: 0.35,
+    thickenRefraction: 0.30,
   ),
 );
 
@@ -220,7 +255,7 @@ class _MorphPageState extends State<_MorphPage> {
                       alignment: aMenu,
                       child: LiquidGlassLens(
                         style: ArchGlass.menuMorph(),
-                        child: _MorphRows(items: widget.items, stagger: 1.0),
+                        child: _MorphRows(items: widget.items),
                       ),
                     ),
                   )
@@ -233,13 +268,13 @@ class _MorphPageState extends State<_MorphPage> {
                     child: LiquidGlassMorph(
                       width: _menuWidth,
                       alignment: alignment,
-                      motion: _popFast,
+                      motion: _morphLiquid,
+                      smoothness: 48,
                       style: ArchGlass.menuMorph(),
                       child: open
                           ? _MorphRows(
                               key: const ValueKey('menu'),
                               items: widget.items,
-                              stagger: 1.0,
                             )
                           : const SizedBox(
                               key: ValueKey('seed'),
@@ -257,11 +292,9 @@ class _MorphPageState extends State<_MorphPage> {
 
 class _MorphRows extends StatelessWidget {
   final List<MenuAction> items;
-  final double stagger;
   const _MorphRows({
     super.key,
     required this.items,
-    required this.stagger,
   });
 
   @override
@@ -274,7 +307,6 @@ class _MorphRows extends StatelessWidget {
           for (var i = 0; i < items.length; i++)
             _MorphRow(
               action: items[i],
-              progress: ((stagger * items.length - i).clamp(0.0, 1.0)),
               last: i == items.length - 1,
             ),
         ],
@@ -285,22 +317,15 @@ class _MorphRows extends StatelessWidget {
 
 class _MorphRow extends StatelessWidget {
   final MenuAction action;
-  final double progress;
   final bool last;
   const _MorphRow({
     required this.action,
-    required this.progress,
     required this.last,
   });
 
   @override
   Widget build(BuildContext context) {
-    final p = Curves.easeOutCubic.transform(progress.clamp(0.0, 1.0));
-    return Opacity(
-      opacity: p,
-      child: Transform.translate(
-        offset: Offset(0, 10 * (1 - p)),
-        child: Column(
+    return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             InkWell(
@@ -354,8 +379,6 @@ class _MorphRow extends StatelessWidget {
                 child: Divider(height: 1, color: Color(0x140B0B0D)),
               ),
           ],
-        ),
-      ),
-    );
+        );
   }
 }
