@@ -109,9 +109,12 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                         Builder(
                           builder: (buttonContext) => GestureDetector(
                             onTap: () => _openViewMenu(buttonContext),
+                            // Rigid lens: no flex touch here. Flex listens
+                            // on a raw Listener outside the gesture arena,
+                            // so it deforms through scroll drags and fights
+                            // the CustomScrollView this header rides in.
                             child: LiquidGlassLens(
                               style: ArchGlass.trigger(),
-                              touch: ArchGlass.lensTouch(),
                               child: const SizedBox(
                                 width: 44,
                                 height: 44,

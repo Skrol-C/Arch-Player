@@ -60,26 +60,36 @@ abstract final class ArchGlass {
   /// View-menu trigger (artists `...`): a 44 px button that must read
   /// as GLASS against the flat paper page, so the morph has something
   /// visible to melt out of. Refractive, not lite: Snell bend + radial
-  /// specular + saturated rim at small-surface scale (narrower band
-  /// than the menu so it never swallows the face), brighter tint and
-  /// deeper blur than the shared circle so the lens edge separates
-  /// from paper. Fixed light, like the menu: no sampling flip.
+  /// specular + saturated rim pushed hard at small-surface scale —
+  /// wide bevel band, bright tint, deep blur, solid-leaning rim — so
+  /// the lens edge separates from paper even with nothing behind it
+  /// to bend. Fixed light, like the menu: no sampling flip.
+  ///
+  /// Rigid by design: no flex touch. The flex driver listens on a raw
+  /// Listener that never joins the gesture arena, so inside a
+  /// scrollable it deforms through scroll drags and fights the
+  /// scroll. The tap lives on the outer GestureDetector instead.
   static LiquidGlassStyle trigger({double radius = 22}) => LiquidGlassStyle(
     shape: LiquidGlassShape.continuousRoundedRectangle(
       cornerRadius: radius,
-      borderWidth: 1.4,
+      borderWidth: 2.2,
       lightMode: LiquidGlassLightMode.radial,
-      borderType: const OpticalBorder(borderSaturation: 1.8, lightSpread: 0.8),
+      borderType: const OpticalBorder(
+        borderSaturation: 2.6,
+        ambientIntensity: 1.6,
+        borderSolidity: 0.5,
+        lightSpread: 1.0,
+      ),
     ),
     appearance: const LiquidGlassAppearance(
-      color: Color(0x80FFFFFF),
-      blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+      color: Color(0xA6FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 18, sigmaY: 18),
     ),
     refraction: const LiquidGlassRefraction(
       refractionType: OpticalRefraction(
         refraction: 1.5,
-        refractionWidth: 14,
-        depth: 0.32,
+        refractionWidth: 20,
+        depth: 0.5,
       ),
     ),
   );
