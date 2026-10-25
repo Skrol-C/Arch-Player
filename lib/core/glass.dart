@@ -57,6 +57,33 @@ abstract final class ArchGlass {
     adaptivity: adaptive,
   );
 
+  /// View-menu trigger (artists `...`): a 44 px button that must read
+  /// as GLASS against the flat paper page, so the morph has something
+  /// visible to melt out of. Refractive, not lite: Snell bend + radial
+  /// specular + saturated rim at small-surface scale (narrower band
+  /// than the menu so it never swallows the face), brighter tint and
+  /// deeper blur than the shared circle so the lens edge separates
+  /// from paper. Fixed light, like the menu: no sampling flip.
+  static LiquidGlassStyle trigger({double radius = 22}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1.4,
+      lightMode: LiquidGlassLightMode.radial,
+      borderType: const OpticalBorder(borderSaturation: 1.8, lightSpread: 0.8),
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x80FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+    ),
+    refraction: const LiquidGlassRefraction(
+      refractionType: OpticalRefraction(
+        refraction: 1.5,
+        refractionWidth: 14,
+        depth: 0.32,
+      ),
+    ),
+  );
+
   /// Menus: glassier than the shared capsule - stronger rim bend,
   /// deeper frost, brighter tint. The menu shell never moves (static
   /// region, resolves once), so it can afford the heavier look.

@@ -110,7 +110,7 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                           builder: (buttonContext) => GestureDetector(
                             onTap: () => _openViewMenu(buttonContext),
                             child: LiquidGlassLens(
-                              style: ArchGlass.circle(radius: 22),
+                              style: ArchGlass.trigger(),
                               touch: ArchGlass.lensTouch(),
                               child: const SizedBox(
                                 width: 44,
