@@ -2177,9 +2177,11 @@ class MetadataService {
   static const _dspKeyV = 1;
 
   /// DSP vocal algorithm version. Same contract: v1 = HPSS
-  /// lead-section detection. Runs only when a tempo is known (blends
-  /// need one); scoreless or tempo-less tracks skip the lane.
-  static const _dspVocalV = 1;
+  /// lead-section detection; v2 lowers the entry gate to 0.5 so
+  /// voiced rap counts (GME's spoken intro was missed at 0.6).
+  /// Runs only when a tempo is known (blends need one); scoreless
+  /// or tempo-less tracks skip the lane.
+  static const _dspVocalV = 2;
 
   /// Cache-only musical lookup: embedded tags plus the disk cache,
   /// never network and never DSP. This is the automix planning path —

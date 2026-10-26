@@ -147,11 +147,13 @@ double _median(List<double> v) {
 
 /// Lead-forward sections as (start, end) seconds. Scores each ~0.5s
 /// block by harmonic energy share in the 1–4 kHz band, then applies
-/// hysteresis (enter 0.6, exit 0.4) and merges gaps under 2s. Blips
-/// under a second are dropped — a cough is not a verse.
+/// hysteresis (enter 0.5, exit 0.4) and merges gaps under 2s. Blips
+/// under a second are dropped — a cough is not a verse. The 0.5
+/// entry counts voiced rap (GME's spoken intro); scoreless audio
+/// must stay silent, which the drums-only test guards.
 List<(double, double)> vocalSections(
   Uint8List pcm, {
-  double enter = 0.6,
+  double enter = 0.5,
   double exit = 0.4,
 }) {
   const hop = 512;
