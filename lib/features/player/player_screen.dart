@@ -1699,9 +1699,11 @@ class _QueuePanel extends ConsumerWidget {
 }
 
 /// Camelot key badge per queue row (automix only): the harmonic
-/// credential of each upcoming blend. Reads the analysis cache only —
-/// it never triggers analysis itself, so unanalyzed tracks simply
-/// show no badge instead of kicking off decodes from a list build.
+/// credential of each upcoming blend. Disk cache only — no path, so
+/// no sync tag parse: passing the file path did a full readTagFields
+/// per row per build and stalled queue open by ~a second. It never
+/// triggers analysis itself, so unanalyzed tracks simply show no
+/// badge instead of kicking off decodes from a list build.
 /// Unknown key = no badge, never a guess.
 class _QueueKeyBadge extends ConsumerWidget {
   final Song song;
@@ -1715,7 +1717,6 @@ class _QueueKeyBadge extends ConsumerWidget {
             .musicalCached(
               title: song.title,
               artist: song.artist,
-              path: song.path,
             )
             ?.openKey ??
         '';
