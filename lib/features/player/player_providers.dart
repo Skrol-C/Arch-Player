@@ -263,33 +263,61 @@ class AutoPlayNotifier extends Notifier<bool> {
     ArchLog.i('player', 'autoplay=$v');
   }
 
-  /// Append the next harmonic batch from the library after the queue
-  /// tail. Shuffle on: shuffle the picks (variety over order).
-  /// Unknown tracks are never picked; an all-unknown library just
-  /// keeps stopping, same as before.
+  /// Append the next tracks after the queue tail. Automix OFF:
+  /// random picks - no analysis, no I/O, instant. Automix ON:
+  /// harmonic batch over a capped, cache-only pool (never file
+  /// tag reads: those are sync I/O and wedged the UI for minutes
+  /// on large libraries). Unknowns fall back to random rather
+  /// than stopping the music.
+  bool _filling = false;
+
   Future<void> _fill() async {
     if (!ref.mounted || !state) return;
+    if (_filling) return;
+    _filling = true;
     try {
-      final handler = ref.read(audioHandlerProvider);
-      final all = ref.read(songsProvider).value ?? const <Song>[];
-      if (all.isEmpty) return;
-      final tail = handler.queueTail;
-      if (tail == null) return;
+      await _fillInner().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      ArchLog.w('player', 'autoplay fill failed: $e');
+    } finally {
+      _filling = false;
+    }
+  }
+
+  Future<void> _fillInner() async {
+    final handler = ref.read(audioHandlerProvider);
+    final all = ref.read(songsProvider).value ?? const <Song>[];
+    if (all.isEmpty) return;
+    final tail = handler.queueTail;
+    if (tail == null) return;
+    final queued = handler.queueSongIds.toSet();
+    final eligible = [
+      for (final s in all)
+        if (s.id != tail.id &&
+            !queued.contains(s.id) &&
+            !_recentFillIds.contains(s.id))
+          s,
+    ];
+    if (eligible.isEmpty) return;
+    List<Song> picks;
+    if (!handler.automixOn) {
+      eligible.shuffle();
+      picks = eligible.take(5).toList();
+    } else {
       final meta = ref.read(metadataServiceProvider);
-      TrackMusicalInfo? infoOf(Song s) => meta.musicalInfoCached(
-        title: s.title,
-        artist: s.artist,
-        path: s.path,
-      );
-      final queued = handler.queueSongIds.toSet();
-      final pool = [
-        tail,
-        for (final s in all)
-          if (s.id != tail.id &&
-              !queued.contains(s.id) &&
-              !_recentFillIds.contains(s.id))
-            s,
-      ];
+      // Disk cache only (no path): file tag reads are sync I/O.
+      // Memoized: scoring touches every pair without this.
+      final memo = <int, TrackMusicalInfo?>{};
+      TrackMusicalInfo? infoOf(Song s) => memo.putIfAbsent(
+            s.id,
+            () => meta.musicalInfoCached(
+              title: s.title,
+              artist: s.artist,
+            ),
+          );
+      // Capped: scoring is O(k*n) and must stay millisecond-scale.
+      // The recent/queued exclusions rotate variety across fills.
+      final pool = [tail, ...eligible.take(300)];
       final ids = pickHarmonicBatch(
         songs: pool,
         infoOf: infoOf,
@@ -297,21 +325,28 @@ class AutoPlayNotifier extends Notifier<bool> {
         recentIds: {...queued, ..._recentFillIds},
         k: 5,
       );
-      if (ids.isEmpty) return;
-      final picks = [for (final id in ids) pool.firstWhere((s) => s.id == id)];
-      if (ref.read(shuffleProvider)) picks.shuffle();
-      _recentFillIds.addAll([for (final p in picks) p.id]);
-      while (_recentFillIds.length > 60) {
-        _recentFillIds.removeAt(0);
+      if (ids.isEmpty) {
+        eligible.shuffle();
+        picks = eligible.take(5).toList();
+        ArchLog.i(
+          'automix',
+          'autoplay harmonic found nothing - random fallback',
+        );
+      } else {
+        picks = [for (final id in ids) pool.firstWhere((s) => s.id == id)];
       }
-      ArchLog.i(
-        'automix',
-        'autoplay append ${picks.length} after ${tail.id}',
-      );
-      await handler.appendToQueue(picks);
-    } catch (e) {
-      ArchLog.w('player', 'autoplay fill failed: $e');
     }
+    if (picks.isEmpty) return;
+    if (ref.read(shuffleProvider)) picks.shuffle();
+    _recentFillIds.addAll([for (final p in picks) p.id]);
+    while (_recentFillIds.length > 60) {
+      _recentFillIds.removeAt(0);
+    }
+    ArchLog.i(
+      'automix',
+      'autoplay append ${picks.length} after ${tail.id}',
+    );
+    await handler.appendToQueue(picks);
   }
 }
 

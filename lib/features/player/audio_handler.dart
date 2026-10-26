@@ -123,7 +123,17 @@ class ArchAudioHandler extends BaseAudioHandler {
   static const _tapFadeIn = Duration(milliseconds: 600);
 
   /// Single gain choke point: handler-owned ramps and snaps.
+  /// Snaps cancel in-flight ramps (last writer wins): without this
+  /// a stale fade-out keeps writing the gain after a newer fade-in
+  /// started, and the app sits silent with the seekbar moving.
   Future<void> _setVolume(double v) async {
+    _fadeGen++;
+    await _applyVolume(v);
+  }
+
+  /// Raw gain write: ramps use this so they do not cancel
+  /// themselves. Only [_setVolume] and [_rampTo] call it.
+  Future<void> _applyVolume(double v) async {
     _vol = v.clamp(0.0, 1.0);
     final engine = _engine;
     try {
@@ -144,7 +154,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     final step = Duration(milliseconds: (over.inMilliseconds / steps).round());
     for (var i = 1; i <= steps; i++) {
       if (gen != _fadeGen) return;
-      await _setVolume(start + (target - start) * (i / steps));
+      await _applyVolume(start + (target - start) * (i / steps));
       if (i < steps) await Future<void>.delayed(step);
     }
   }
@@ -202,6 +212,10 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Queue contents for autoplay fills (ids + tail), in play order.
   List<int> get queueSongIds => [for (final s in _songs) s.id];
   Song? get queueTail => _songs.isEmpty ? null : _songs.last;
+
+  /// Read by the autoplay fill: random when automix is off,
+  /// harmonic only when it is on.
+  bool get automixOn => _automixOn;
 
   Future<void> setAutoplayEnabled(bool on) async {
     _autoplayOn = on;
@@ -317,6 +331,20 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// song re-resolves + re-sets art on every flip (low-RAM killer).
   int _lastNotifArtSongId = -1;
 
+  /// Song ids that already logged an art miss: misses repeat on
+  /// every index flip, and the log must name the gap once, not
+  /// spam it.
+  final Set<int> _artMissIds = {};
+
+  void _logArtMiss(Song song) {
+    if (!_artMissIds.add(song.id)) return;
+    while (_artMissIds.length > 128) {
+      _artMissIds.remove(_artMissIds.first);
+    }
+    ArchLog.w('player', 'notif art miss id=${song.id} '
+        'album=${song.albumId} pathEmpty=${song.path.isEmpty}');
+  }
+
   void _rememberArt(String id, String path) {
     if (id.isEmpty || path.isEmpty) return;
     _artFiles[id] = path;
@@ -325,7 +353,27 @@ class ArchAudioHandler extends BaseAudioHandler {
     }
   }
 
+  /// Same frame re-emitted (index storms, art re-resolves) must
+  /// not churn the notification: audio_service reposts on every
+  /// assignment, so a no-change write reads as flicker or a new
+  /// notification on button presses.
+  bool _sameItem(MediaItem a, MediaItem b) {
+    final ea = a.extras ?? const <String, dynamic>{};
+    final eb = b.extras ?? const <String, dynamic>{};
+    return a.id == b.id &&
+        a.title == b.title &&
+        a.artist == b.artist &&
+        a.album == b.album &&
+        a.duration == b.duration &&
+        '${ea['songId']}' == '${eb['songId']}' &&
+        '${ea['albumId']}' == '${eb['albumId']}' &&
+        '${ea['artCacheFile']}' == '${eb['artCacheFile']}' &&
+        '${ea['coverUrl']}' == '${eb['coverUrl']}';
+  }
+
   void _setItem(MediaItem item) {
+    final cur = mediaItem.value;
+    if (cur != null && _sameItem(cur, item)) return;
     var extras = item.extras;
     final has = (extras?['artCacheFile'] as String?) ?? '';
     if (has.isNotEmpty) {
@@ -440,13 +488,20 @@ class ArchAudioHandler extends BaseAudioHandler {
     if (!_automixOn || _engine == null || _songs.length < 2) return;
     if (_harmonicBatch.isNotEmpty) return;
     final k = _player.shuffleModeEnabled ? 5 : 1;
-    final picked = ho.pickHarmonicBatch(
-      songs: _songs,
-      infoOf: (s) => _meta?.musicalInfoCached(
+    // One lookup per song per refill: scoring touches every pair,
+    // and every lookup does sync file tag I/O without this.
+    final memo = <int, TrackMusicalInfo?>{};
+    TrackMusicalInfo? infoOf(Song s) => memo.putIfAbsent(
+      s.id,
+      () => _meta?.musicalInfoCached(
         title: s.title,
         artist: s.artist,
         path: s.path,
       ),
+    );
+    final picked = ho.pickHarmonicBatch(
+      songs: _songs,
+      infoOf: infoOf,
       fromId: (_mixIndex >= 0 && _mixIndex < _songs.length)
           ? _songs[_mixIndex].id
           : -1,
@@ -867,12 +922,18 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
           return;
         }
       }
-      if (song.albumId <= 0) return;
+      if (song.albumId <= 0) {
+        _logArtMiss(song);
+        return;
+      }
       final id = song.uri.toString();
       if (mediaItem.value?.id != id) return;
       final bytes = await ArtCache.of(song.albumId)
           .timeout(const Duration(seconds: 8));
-      if (bytes == null || bytes.isEmpty) return;
+      if (bytes == null || bytes.isEmpty) {
+        _logArtMiss(song);
+        return;
+      }
       if (mediaItem.value?.id != id) return;
       final file = await NotifArt.cacheBytes(bytes, 'album_${song.albumId}');
       if (file == null || mediaItem.value?.id != id) return;
@@ -998,7 +1059,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     if (engine != null) {
       await engine.resumeAt(_vol);
     } else {
-      await _player.setVolume(_vol);
+      await _applyVolume(_vol);
       await _player.play();
     }
     await _fadeIn();
