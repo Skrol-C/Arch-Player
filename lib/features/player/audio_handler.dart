@@ -1342,18 +1342,25 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     if (_bridge == null && !_rendering) {
       unawaited(_renderBridgeFor(_mixIndex, next));
     }
+    // The window follows the waiting bridge, not the live plan: a
+    // 16-bar file fires ~30s out, not at the 10s live clamp. Firing
+    // a long bridge at the short window jumps A backward instead of
+    // blending — the live plan must never time a baked file.
+    final pair = '${_songs[_mixIndex].id}>${_songs[next].id}';
+    final job = (_bridgeValid() && _bridgePair == pair) ? _bridge! : null;
     final plan = _mixPlan(_mixIndex, next);
+    final window = job != null
+        ? Duration(milliseconds: (job.seconds * 1000).round())
+        : plan.duration;
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
-    _mixProbe(engine, total, remaining, next, plan);
-    if (remaining > plan.duration) return;
+    _mixProbe(engine, total, remaining, next, plan, window);
+    if (remaining > window) return;
     _mixFiring = true;
     try {
       final song = _songs[next];
       // Baked bridge first: the file holds the overlap, the joins
       // are same-waveform and the clock stays B-mapped. Anything
       // missing or stale falls through to the live fade below.
-      final pair = '${_songs[_mixIndex].id}>${song.id}';
-      final job = (_bridgeValid() && _bridgePair == pair) ? _bridge! : null;
       if (job != null) {
         ArchLog.i(
           'automix',
@@ -1436,6 +1443,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     Duration remaining,
     int next,
     CrossfadePlan plan,
+    Duration window,
   ) {
     final now = DateTime.now();
     if (now.difference(_mixProbeAt).inSeconds < 5) return;
@@ -1444,7 +1452,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       'automix',
       'probe total=${total.inSeconds}s pos=${engine.position.inSeconds}s '
       'left=${remaining.inSeconds}s plan=${plan.seconds.toStringAsFixed(1)}s '
-      'next=$next',
+      'win=${window.inSeconds}s next=$next',
     );
   }
 
