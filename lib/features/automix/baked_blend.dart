@@ -34,6 +34,12 @@ class BlendSpec {
   final double? phaseB;
   final double? firstSoundB;
 
+  /// Vocal sections in track time, both sides ([null] = unknown).
+  /// Unknown A counts as always-vocal: the renderer protects the
+  /// incoming vocal rather than gambling on an unanalyzed outro.
+  final List<(double, double)>? vocalA;
+  final List<(double, double)>? vocalB;
+
   /// A window ends here instead of at end-of-file (mix-out point).
   /// Null = file end. The caller falls back to the tail when the
   /// groove runs too close to the start to fit the window.
@@ -50,9 +56,44 @@ class BlendSpec {
     this.phaseA,
     this.phaseB,
     this.firstSoundB,
+    this.vocalA,
+    this.vocalB,
     this.endA,
     this.bars = 8,
   });
+}
+
+/// File-time intervals where BOTH tracks sing: the duck zones.
+/// Unknown A vocals ([null]) counts as always-vocal — protect the
+/// incoming vocal. Known-but-empty A means no clash. B windows map
+/// through the atempo stretch + entry delay and clip to the bridge;
+/// a B intro vocal that ends before the mix-in never enters at all.
+List<(double, double)> vocalDuckWindows({
+  required List<(double, double)>? vocalA,
+  required List<(double, double)>? vocalB,
+  required double aStart,
+  required double bStart,
+  required double delay,
+  required double rate,
+  required double length,
+}) {
+  if (vocalB == null || vocalB.isEmpty) return const [];
+  final out = <(double, double)>[];
+  final aWins = vocalA ?? const [(0.0, double.infinity)];
+  for (final b in vocalB) {
+    var bs = delay + (b.$1 - bStart) / rate;
+    var be = delay + (b.$2 - bStart) / rate;
+    if (be <= 0 || bs >= length) continue;
+    bs = bs.clamp(0.0, length);
+    be = be.clamp(0.0, length);
+    for (final a in aWins) {
+      final s = math.max(bs, a.$1 - aStart);
+      final e = math.min(be, a.$2 - aStart);
+      if (e > s) out.add((s, e));
+    }
+  }
+  out.sort((x, y) => x.$1.compareTo(y.$1));
+  return out;
 }
 
 /// One rendered bridge: the filter graph plus the geometry that built
@@ -73,12 +114,16 @@ class BlendPlan {
   /// atempo factor applied to B (A's tempo / B's tempo).
   final double tempoRatio;
 
+  /// Vocal-duck windows applied (file-time [start, end]).
+  final List<(double, double)> ducks;
+
   const BlendPlan({
     required this.filter,
     required this.seconds,
     required this.entryDelay,
     required this.startB,
     required this.tempoRatio,
+    this.ducks = const [],
   });
 }
 
@@ -121,11 +166,32 @@ BlendPlan? buildBlend(BlendSpec s) {
   final needInputB = (overlap - entryDelay) * ratio;
   if (startB + needInputB > s.durB - 0.5) return null;
 
+  // Vocal ducking: where BOTH tracks sing, A dips 6dB under B's vocal
+  // (0.5s cosine-ish ramps). Unknown A counts as vocal — protect the
+  // incoming vocal rather than gambling on an unanalyzed outro.
+  final ducks = vocalDuckWindows(
+    vocalA: s.vocalA,
+    vocalB: s.vocalB,
+    aStart: aOffset,
+    bStart: startB,
+    delay: entryDelay,
+    rate: ratio,
+    length: overlap,
+  );
   final d = overlap.toStringAsFixed(3);
   // A exits over the last sixth of the bridge (v2's 65% dropped out
   // too early); B rises across the whole bridge. Equal-power shapes,
   // biased exit.
   final fadeA = (overlap * 0.85).toStringAsFixed(3);
+  var aVol = 'cos(PI/2*min(t/$fadeA\\,1))';
+  if (ducks.isNotEmpty) {
+    final terms = ducks.map((w) {
+      final rs = (w.$1 - 0.5).toStringAsFixed(3);
+      final re = (w.$2 + 0.5).toStringAsFixed(3);
+      return 'min(max((t-$rs)/0.5\\,0)\\,1)*min(max(($re-t)/0.5\\,0)\\,1)';
+    }).join('+');
+    aVol = '($aVol)*(1-0.5*($terms))';
+  }
   final ta = aOffset.toStringAsFixed(3);
   final tb = startB.toStringAsFixed(3);
   final tbDur = needInputB.toStringAsFixed(3);
@@ -136,7 +202,7 @@ BlendPlan? buildBlend(BlendSpec s) {
   final filter = '[0:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$ta:duration=$d,asetpts=PTS-STARTPTS,'
       'highpass=f=160:poles=2,'
-      "volume='cos(PI/2*min(t/$fadeA\\,1))':eval=frame[a];"
+      "volume='$aVol':eval=frame[a];"
       '[1:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$tb:duration=$tbDur,asetpts=PTS-STARTPTS,'
       'atempo=$r,adelay=$delayMs|$delayMs,'
@@ -149,6 +215,7 @@ BlendPlan? buildBlend(BlendSpec s) {
     entryDelay: entryDelay,
     startB: startB,
     tempoRatio: ratio,
+    ducks: ducks,
   );
 }
 
@@ -216,6 +283,8 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
         phaseA: spec.phaseA,
         phaseB: spec.phaseB,
         firstSoundB: firstB,
+        vocalA: spec.vocalA,
+        vocalB: spec.vocalB,
         endA: endA,
         bars: spec.bars,
       ),
@@ -259,7 +328,8 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
       'automix',
       'blend rendered ${plan.seconds.toStringAsFixed(1)}s '
       'entry=${plan.entryDelay.toStringAsFixed(3)}s '
-      'ratio=${plan.tempoRatio.toStringAsFixed(4)} -> $out',
+      'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
+      'ducks=${plan.ducks.length} -> $out',
     );
     return out;
   } catch (e) {

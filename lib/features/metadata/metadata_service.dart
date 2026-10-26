@@ -2183,8 +2183,31 @@ class MetadataService {
   /// or tempo-less tracks skip the lane.
   static const _dspVocalV = 2;
 
-  /// Cache-only musical lookup: embedded tags plus the disk cache,
-  /// never network and never DSP. This is the automix planning path —
+  /// Cache-only vocal sections: track-time [start, end] pairs, or
+  /// null when unknown. Never triggers analysis — unknown means the
+  /// renderer treats the track as vocal throughout (protect the other
+  /// side), never as proven instrumental.
+  List<(double, double)>? vocalSectionsCached({
+    required String title,
+    required String artist,
+  }) {
+    if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+    final cached =
+        _musicalDisk['${artist.toLowerCase()}\x00${title.toLowerCase()}'];
+    final raw = cached?['vocals'];
+    if (raw is! List) return null;
+    final out = <(double, double)>[];
+    for (final e in raw) {
+      if (e is List && e.length >= 2) {
+        final s = (e[0] as num?)?.toDouble();
+        final t = (e[1] as num?)?.toDouble();
+        if (s != null && t != null && t > s && s >= 0) out.add((s, t));
+      }
+    }
+    return out;
+  }
+
+  /// Cache-only musical lookup: embedded tags plus the disk cache,  /// never network and never DSP. This is the automix planning path —
   /// it must answer in microseconds, so anything unresolved returns
   /// null and the crossfade falls back to its neutral length.
   TrackMusicalInfo? musicalInfoCached({

@@ -160,8 +160,7 @@ void main() {
     expect(findMixOut(pcm, 120.0, 0.0, 60.0), closeTo(60.0, 0.01));
   });
 
-  test('bridge window ends at the mix-out point', () {
-    const spec = BlendSpec(
+  test('bridge window ends at the mix-out point', () {    const spec = BlendSpec(
       aPath: '/a',
       bPath: '/b',
       durA: 260.0,
@@ -179,7 +178,125 @@ void main() {
     // 8 bars at 120 BPM = 16s window ending at 240 -> starts at 224.
     expect(plan!.filter, contains('start=224.000'));
   });
+
+  test('vocal windows map both grids into file time', () {
+    // A sings track-time 235-238 of a window starting at 224
+    // (-> file 11-14). B sings 12-14, starting at 0.5 with no
+    // stretch and 0.2s entry (-> file 11.7-13.7). Overlap ducks.
+    final windows = vocalDuckWindows(
+      vocalA: const [(235.0, 238.0)],
+      vocalB: const [(12.0, 14.0)],
+      aStart: 224.0,
+      bStart: 0.5,
+      delay: 0.2,
+      rate: 1.0,
+      length: 16.0,
+    );
+    expect(windows, hasLength(1));
+    expect(windows.single.$1, closeTo(11.7, 0.01));
+    expect(windows.single.$2, closeTo(13.7, 0.01));
+  });
+
+  test('B windows map through the atempo stretch', () {
+    // Same geometry at 1.25x: (12.5-0.5)/1.25 + 0.2 = 9.8 start.
+    final windows = vocalDuckWindows(
+      vocalA: null,
+      vocalB: const [(12.5, 16.5)],
+      aStart: 224.0,
+      bStart: 0.5,
+      delay: 0.2,
+      rate: 1.25,
+      length: 16.0,
+    );
+    expect(windows, hasLength(1));
+    expect(windows.single.$1, closeTo(9.8, 0.01));
+    expect(windows.single.$2, closeTo(13.0, 0.01));
+  });
+
+  test('overlapping vocal windows intersect', () {
+    // A sings file-time 6-8; B lands its 12-14 on the same span.
+    final windows = vocalDuckWindows(
+      vocalA: const [(230.0, 232.0)],
+      vocalB: const [(12.0, 14.0)],
+      aStart: 224.0,
+      bStart: 6.0,
+      delay: 0.0,
+      rate: 1.0,
+      length: 16.0,
+    );
+    expect(windows, hasLength(1));
+    expect(windows.single.$1, closeTo(6.0, 0.001));
+    expect(windows.single.$2, closeTo(8.0, 0.001));
+  });
+
+  test('unknown A vocals duck the whole B window', () {
+    final windows = vocalDuckWindows(
+      vocalA: null,
+      vocalB: const [(12.0, 14.0)],
+      aStart: 224.0,
+      bStart: 0.5,
+      delay: 0.2,
+      rate: 1.0,
+      length: 16.0,
+    );
+    expect(windows, hasLength(1));
+    expect(windows.single.$1, closeTo(11.7, 0.001));
+    expect(windows.single.$2, closeTo(13.7, 0.001));
+  });
+
+  test('known instrumental A never ducks', () {
+    final windows = vocalDuckWindows(
+      vocalA: const [],
+      vocalB: const [(12.0, 14.0)],
+      aStart: 224.0,
+      bStart: 0.5,
+      delay: 0.2,
+      rate: 1.0,
+      length: 16.0,
+    );
+    expect(windows, isEmpty);
+  });
+
+  test('ducking enters the A filter only on clash', () {
+    const base = BlendSpec(
+      aPath: '/a',
+      bPath: '/b',
+      durA: 260.0,
+      durB: 251.0,
+      bpmA: 120.0,
+      bpmB: 120.0,
+      phaseA: 0.0,
+      phaseB: 0.0,
+      firstSoundB: 0.0,
+      bars: 8,
+    );
+    // No vocals anywhere: plain equal-power exit.
+    final plain = buildBlend(base);
+    expect(planHasDuck(plain!), isFalse);
+    // B sings 2-6 (track time, from mix-in at 0): A unknown -> duck.
+    final ducked = buildBlend(
+      const BlendSpec(
+        aPath: '/a',
+        bPath: '/b',
+        durA: 260.0,
+        durB: 251.0,
+        bpmA: 120.0,
+        bpmB: 120.0,
+        phaseA: 0.0,
+        phaseB: 0.0,
+        firstSoundB: 0.0,
+        vocalB: [(2.0, 6.0)],
+        bars: 8,
+      ),
+    );
+    expect(ducked, isNotNull);
+    expect(planHasDuck(ducked!), isTrue);
+    expect(ducked.ducks, hasLength(1));
+  });
 }
+
+/// The dip marker distinguishes a ducked A exit from plain equal-power.
+bool planHasDuck(BlendPlan p) => p.filter.contains('1-0.5*(');
 
 /// Low thumps after [silentSecs] of digital silence: intros that lie.
 Uint8List _silenceThenThumps(double bpm, double silentSecs, double totalSecs) {

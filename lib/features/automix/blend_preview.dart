@@ -78,9 +78,18 @@ Future<void> renderBlendPreview(
     durA: current.duration.inMilliseconds / 1000.0,
     durB: target.duration.inMilliseconds / 1000.0,
   );
+  final va = meta.vocalSectionsCached(
+    title: current.title,
+    artist: current.artist,
+  );
+  final vb = meta.vocalSectionsCached(
+    title: target.title,
+    artist: target.artist,
+  );
   ArchLog.i(
     'automix',
-    'blend lab bars=$bars ${current.title} -> ${target.title}',
+    'blend lab bars=$bars vocalsA=${va?.length} vocalsB=${vb?.length} '
+    '${current.title} -> ${target.title}',
   );
   final out = await renderBlend(
     BlendSpec(
@@ -93,6 +102,8 @@ Future<void> renderBlendPreview(
       phaseA: a?.phase,
       phaseB: b?.phase,
       firstSoundB: b?.firstSound,
+      vocalA: va,
+      vocalB: vb,
       bars: bars,
     ),
     tag: '${current.id}_${target.id}',
