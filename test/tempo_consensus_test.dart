@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:arch_player/features/automix/automix_pcm.dart';
@@ -80,4 +83,58 @@ void main() {
     expect(c.agreed, isTrue);
     expect(c.confidence, closeTo(0.75, 0.01));
   });
+
+  test('halved minority is reported for the tie-break', () {
+    // The remix on device: majority half-time, one window right.
+    final c = consensusTempo([_g(77.5, 0.8), _g(77.6, 0.85), _g(155.1, 0.7)]);
+    expect(c.agreed, isTrue);
+    expect(c.bpm, closeTo(77.6, 0.05));
+    expect(c.halved, hasLength(1));
+    expect(c.halved.single, closeTo(155.1, 0.01));
+  });
+
+  test('preferDouble demands kick-band support', () {
+    // Four-on-the-floor counted at half: both grids carried.
+    expect(preferDouble(0.95, 0.92), isTrue);
+    // Genuine half-time feel: faster grid explains half the beats.
+    expect(preferDouble(0.9, 0.5), isFalse);
+    // Weak faster grid, however relatively close, never flips.
+    expect(preferDouble(0.7, 0.65), isFalse);
+  });
+
+  test('low band coverage separates octaves', () {
+    // 155 BPM low thumps: both the 155 and 77.5 grids are carried.
+    final fast = _thumps(155.0, 8.0);
+    final covFast = lowBandCoverage(fast, 155.0, 0.0);
+    final covSlow = lowBandCoverage(fast, 77.5, 0.0);
+    expect(covFast, greaterThan(0.8));
+    expect(covSlow, greaterThan(0.8));
+    expect(preferDouble(covSlow, covFast), isTrue);
+    // 70 BPM low thumps (half-time pattern): the 140 grid starves.
+    final slow = _thumps(70.0, 8.0);
+    final cov70 = lowBandCoverage(slow, 70.0, 0.0);
+    final cov140 = lowBandCoverage(slow, 140.0, 0.0);
+    expect(cov70, greaterThan(0.8));
+    expect(cov140, lessThan(0.7));
+    expect(preferDouble(cov70, cov140), isFalse);
+  });
+}
+
+/// Low thumps on a [bpm] grid: 90 Hz sine bursts, 8s unless told
+/// otherwise. Kicks by construction — the coverage probe's home turf.
+Uint8List _thumps(double bpm, double seconds) {
+  final pcm = <int>[];
+  final total = (11025 * seconds).round();
+  final period = 60.0 / bpm;
+  for (var i = 0; i < total; i++) {
+    final time = i / 11025.0;
+    final since = time % period;
+    final transient = math.exp(-since * 60.0);
+    final value = 0.8 * transient * math.sin(time * 2.0 * math.pi * 90.0);
+    final s = (value * 32767.0).round().clamp(-32768, 32767);
+    pcm
+      ..add(s & 0xFF)
+      ..add((s >> 8) & 0xFF);
+  }
+  return Uint8List.fromList(pcm);
 }

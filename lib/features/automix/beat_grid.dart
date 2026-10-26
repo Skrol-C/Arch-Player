@@ -197,3 +197,68 @@ AutoMixBeatGrid analyzeAutomixPcm(Uint8List pcm) {
     firstSound: firstSound,
   );
 }
+
+/// Low-band-only beat coverage: fraction of grid beats (at [bpm]
+/// from [phase], seconds) that carry a low-end transient. Same one-pole
+/// low band as the tempo detector (~130 Hz cutoff), so hats and
+/// sibilance don't vote — only kicks, bass drops and low toms.
+///
+/// Used for the octave tie-break: when a minority window hears ~2x the
+/// consensus, strong low-band coverage at the faster grid means the
+/// track is really at the faster tempo (four-on-the-floor counted at
+/// half time); weak coverage means a genuine half-time feel.
+double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
+  if (bpm <= 0) return 0.0;
+  final frames = pcm.length ~/ (2 * _hop);
+  if (frames < _fps * 2.0) return 0.0;
+  final data =
+      ByteData.view(pcm.buffer, pcm.offsetInBytes, pcm.lengthInBytes);
+  final onset = List<double>.filled(frames, 0.0);
+  var low = 0.0;
+  var prevLow = 0.0;
+  for (var frame = 0; frame < frames; frame++) {
+    var loEnergy = 0.0;
+    for (var index = 0; index < _hop; index++) {
+      final byte = (frame * _hop + index) * 2;
+      final value = data.getInt16(byte, Endian.little) / 32768.0;
+      low += 0.075 * (value - low);
+      loEnergy += low * low;
+    }
+    final lo = math.log(1.0 + loEnergy * 100.0 / _hop);
+    onset[frame] = math.max(lo - prevLow, 0.0);
+    prevLow = lo;
+  }
+  final period = _fps * 60.0 / bpm;
+  final start = (phase * _fps).round();
+  var score = 0.0;
+  var beats = 0;
+  var beat = start.toDouble();
+  while (beat < frames - 1) {
+    score += onset[beat.round().clamp(0, frames - 1)];
+    beats++;
+    beat += period;
+  }
+  if (beats == 0) return 0.0;
+  score /= beats;
+  if (score <= 0.0) return 0.0;
+  var hits = 0;
+  var total = 0;
+  beat = start.toDouble();
+  while (beat < frames - 2) {
+    final index = beat.round().clamp(1, frames - 2);
+    final peak = math.max(
+      onset[index],
+      math.max(onset[index - 1], onset[index + 1]),
+    );
+    if (peak >= score * 0.3) hits++;
+    total++;
+    beat += period;
+  }
+  return hits / math.max(total, 1);
+}
+
+/// Octave tie-break: take the faster octave only when the low band
+/// carries it nearly as well as the slower one. Deliberately strict —
+/// a wrong flip-up is worse than a held half.
+bool preferDouble(double covSlow, double covFast) =>
+    covFast >= 0.7 && covFast >= covSlow * 0.85;

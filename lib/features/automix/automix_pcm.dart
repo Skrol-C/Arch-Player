@@ -75,7 +75,9 @@ _analyzeKey(Uint8List bytes) => detectMusicalKey(bytes);
 /// Multi-window tempo: three 25s slices (start / 40% / 70%) analyzed
 /// in parallel isolates, octave-folded onto the median with consensus
 /// required — a lone window locked on half/double time no longer decides
-/// alone. Phase and first-sound map back to track time by adding the
+/// alone. A halved minority (majority-half lock) gets a low-band
+/// tie-break: the faster octave wins only when the kicks carry it.
+/// Phase and first-sound map back to track time by adding the
 /// winning window's offset. Short tracks (< ~27s) keep the single
 /// start window. Returns the consensus, its window, and the window
 /// count for logging — the caller still applies the confidence gate.
@@ -101,20 +103,40 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   final grids = await Future.wait(slices.map(analyzeGrid));
   final consensus = consensusTempo(grids);
   final best = consensus.winner;
+  final offsetSec = starts[best] / (11025 * 2);
+  final won = grids[best];
+  var bpm = consensus.bpm;
+  // Octave tie-break: a halved minority heard the faster octave. Take
+  // it only when the kick band carries it — four-on-the-floor counted
+  // at half time flips up; genuine half-time feels hold. Majority-half
+  // is the one case median folding can't survive, and this is it.
+  if (consensus.agreed && consensus.halved.isNotEmpty) {
+    final trackPhase = won.phase + offsetSec;
+    final covSlow = lowBandCoverage(pcm, consensus.bpm, trackPhase);
+    final covFast = lowBandCoverage(pcm, consensus.bpm * 2.0, trackPhase);
+    if (preferDouble(covSlow, covFast)) {
+      bpm = consensus.bpm * 2.0;
+      ArchLog.i(
+        'automix',
+        'tempo octave up ${consensus.bpm.toStringAsFixed(2)} -> '
+        '${bpm.toStringAsFixed(2)} '
+        'slow=${covSlow.toStringAsFixed(2)} '
+        'fast=${covFast.toStringAsFixed(2)}',
+      );
+    }
+  }
   // One line per analysis: proves the folding code is live on-device
   // and shows exactly what it did (raw -> folded -> verdict).
   ArchLog.i(
     'automix',
     'tempo consensus raw=${grids.map((g) => g.bpm.toStringAsFixed(1)).join(',')} '
     'folded=${consensus.folded.map((b) => b.toStringAsFixed(1)).join(',')} '
-    'bpm=${consensus.bpm.toStringAsFixed(2)} agree=${consensus.agreed} '
+    'bpm=${bpm.toStringAsFixed(2)} agree=${consensus.agreed} '
     'win=${best + 1}/${slices.length}',
   );
-  final offsetSec = starts[best] / (11025 * 2);
-  final won = grids[best];
   return (
     grid: AutoMixBeatGrid(
-      bpm: consensus.bpm,
+      bpm: bpm,
       phase: won.phase + offsetSec,
       confidence: consensus.confidence,
       firstSound: won.firstSound + offsetSec,
@@ -139,16 +161,19 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
 ///
 /// Returns the consensus bpm, an agreement-shaped confidence, the
 /// winning window index (which supplies phase/first-sound), whether the
-/// windows agreed, and the folded per-window readings (for logging).
-/// No agreement (std dev > 4 BPM across folded readings, or fewer than
-/// two valid windows) falls back to best-confidence-wins — the caller
-/// still applies the 0.55 publish gate either way.
+/// windows agreed, the folded per-window readings (for logging), and the
+/// raw readings that were folded DOWN by half ([halved]) — the octave
+/// tie-break candidates. No agreement (std dev > 4 BPM across folded
+/// readings, or fewer than two valid windows) falls back to
+/// best-confidence-wins — the caller still applies the 0.55 publish
+/// gate either way.
 ({
   double bpm,
   double confidence,
   int winner,
   bool agreed,
   List<double> folded,
+  List<double> halved,
 }) consensusTempo(
   List<AutoMixBeatGrid> grids,
 ) {
@@ -175,6 +200,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       winner: w,
       agreed: false,
       folded: [for (final g in grids) g.bpm],
+      halved: const <double>[],
     );
   }
   final bpms = [for (final i in valid) grids[i].bpm]..sort();
@@ -182,19 +208,22 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       ? bpms[bpms.length ~/ 2]
       : (bpms[bpms.length ~/ 2 - 1] + bpms[bpms.length ~/ 2]) / 2.0;
   final folded = <int, double>{};
+  final halved = <double>[];
   for (final i in valid) {
     final b = grids[i].bpm;
     final ratio = median / b;
-    folded[i] = b *
-        (ratio > 1.75 && ratio < 2.25
-            ? 2.0
-            : ratio > 0.45 && ratio < 0.57
-                ? 0.5
-                : ratio > 0.65 && ratio < 0.85
-                    ? 0.75
-                    : ratio > 1.2 && ratio < 1.45
-                        ? 4.0 / 3.0
-                        : 1.0);
+    final factor = ratio > 1.75 && ratio < 2.25
+        ? 2.0
+        : ratio > 0.45 && ratio < 0.57
+            ? 0.5
+            : ratio > 0.65 && ratio < 0.85
+                ? 0.75
+                : ratio > 1.2 && ratio < 1.45
+                    ? 4.0 / 3.0
+                    : 1.0;
+    folded[i] = b * factor;
+    // A halved window heard the faster octave: tie-break candidate.
+    if (factor == 0.5) halved.add(b);
   }
   final values = folded.values.toList();
   final mean = values.reduce((a, b) => a + b) / values.length;
@@ -212,6 +241,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       // Log what folding attempted, not the raw readings — otherwise
       // the verdict line reads as if no folding ran at all.
       folded: [for (var i = 0; i < grids.length; i++) folded[i] ?? grids[i].bpm],
+      halved: const <double>[],
     );
   }
   final ordered = [...values]..sort();
@@ -252,5 +282,6 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     winner: winner,
     agreed: true,
     folded: [for (final i in valid) folded[i]!],
+    halved: halved,
   );
 }
