@@ -230,12 +230,14 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Pair key that already logged its skip reason: the kick runs
   /// every tick, but the log names each gap once, not 150 times.
   String _renderSkipPair = '';
-  /// Pair key that failed post-decode (geometry/ratio) or crashed:
-  /// never re-render the same pair — ticks would burn a full
-  /// decode + scan set every 400ms. Cleared on transport change.
-  /// Pre-decode skips (no tempo, no path) keep retrying: analysis
-  /// warming in the background can heal them mid-track.
-  String _bridgeDeadPair = '';
+  /// Refused pairs (aId>bId): failed post-decode (geometry/ratio/
+  /// clash) or crashed. Never re-rendered — ticks would burn a full
+  /// decode + scan set every 400ms — and never re-picked by the
+  /// harmonic walk, so ordering stops offering pairs the renderer
+  /// refuses. Cleared on transport change. Pre-decode skips (no
+  /// tempo, no path) keep retrying: background analysis can heal
+  /// them mid-track.
+  final Set<String> _deadPairs = {};
 
   void _renderSkip(String pair, String reason) {
     if (pair == _renderSkipPair) return;
@@ -582,13 +584,23 @@ class ArchAudioHandler extends BaseAudioHandler {
         path: s.path,
       ),
     );
+    final fromId = (_mixIndex >= 0 && _mixIndex < _songs.length)
+        ? _songs[_mixIndex].id
+        : -1;
+    // Refused nexts are banned for this position: ordering stops
+    // offering pairs the renderer already rejected (vocal clash,
+    // geometry, ratio). Data-driven refusals only — heals (tempo
+    // arriving late) were never dead, so they still retry.
+    final deadNext = <int>{
+      for (final p in _deadPairs)
+        if (p.startsWith('$fromId>'))
+          int.tryParse(p.split('>').last) ?? -1,
+    }..remove(-1);
     final picked = ho.pickHarmonicBatch(
       songs: _songs,
       infoOf: infoOf,
-      fromId: (_mixIndex >= 0 && _mixIndex < _songs.length)
-          ? _songs[_mixIndex].id
-          : -1,
-      recentIds: Set<int>.of(_harmonicRecentIds),
+      fromId: fromId,
+      recentIds: {..._harmonicRecentIds, ...deadNext},
       k: k,
     );
     _harmonicBatch = [
@@ -1264,7 +1276,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     // Abandon the pipeline with the phase: the render guard and
     // the landing wait both bail on the generation/flag.
     _dropBridgeFile();
-    _bridgeDeadPair = '';
+    _deadPairs.clear();
     _landing = false;
     _mixTick?.cancel();
     _mixTick = null;
@@ -1513,7 +1525,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     final b = _songs[bIdx];
     final pair = '${a.id}>${b.id}';
     if (pair == _bridgePair && _bridge != null) return;
-    if (pair == _bridgeDeadPair) return;
+    if (_deadPairs.contains(pair)) return;
     if (meta == null || !_automixOn || _engine == null) {
       _renderSkip(pair, 'not ready');
       return;
@@ -1544,11 +1556,11 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         return;
       }
       // Same band as the renderer: hopeless pairs die here, before
-      // paying for decodes — and stay dead (see _bridgeDeadPair).
+      // paying for decodes — and stay dead (see _deadPairs).
       final ratio = ia!.bpm! / ib!.bpm!;
       if (ratio < 0.94 || ratio > 1.06) {
         _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
-        _bridgeDeadPair = pair;
+        _deadPairs.add(pair);
         return;
       }
       final rb = await renderBridge(
@@ -1584,7 +1596,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         return;
       }
       if (rb == null) {
-        _bridgeDeadPair = pair;
+        _deadPairs.add(pair);
         return;
       }
       // Queue moved under the render: same orphan rule.
@@ -1617,7 +1629,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       );
     } catch (e) {
       ArchLog.w('automix', 'bridge render failed: $e');
-      _bridgeDeadPair = pair;
+      _deadPairs.add(pair);
     } finally {
       _rendering = false;
     }
