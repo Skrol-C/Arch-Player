@@ -201,7 +201,9 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       confidence: grids[w].confidence,
       winner: w,
       agreed: false,
-      folded: [for (final g in grids) g.bpm],
+      // Log what folding attempted, not the raw readings — otherwise
+      // the verdict line reads as if no folding ran at all.
+      folded: [for (var i = 0; i < grids.length; i++) folded[i] ?? grids[i].bpm],
     );
   }
   final ordered = [...values]..sort();

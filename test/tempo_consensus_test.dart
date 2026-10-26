@@ -42,6 +42,15 @@ void main() {
     expect(c.agreed, isFalse);
   });
 
+  test('fallback still reports what folding attempted', () {
+    // Wee Gee on device: median poisoned, no pair agrees.
+    final c = consensusTempo([_g(169.6, 0.5), _g(91.3, 0.44), _g(138.2, 0.4)]);
+    expect(c.agreed, isFalse);
+    expect(c.folded[0], closeTo(127.2, 0.05));
+    expect(c.folded[1], closeTo(91.3, 0.01));
+    expect(c.folded[2], closeTo(138.2, 0.01));
+  });
+
   test('single valid window keeps best-wins', () {
     final c = consensusTempo([_g(0, 0), _g(128, 0.8), _g(0, 0)]);
     expect(c.bpm, closeTo(128.0, 0.01));
