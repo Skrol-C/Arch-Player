@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'beat_grid.dart';
 import 'musical_key.dart';
+import 'vocal_lane.dart' show vocalSections;
 import '../../core/log.dart';
 
 /// Decode to mono 16-bit 11,025 Hz PCM. Clipped mode caps at 25s
@@ -105,6 +106,15 @@ bool feelDouble(double bpm, double midSlow, double midFast, double lowFast) {
 /// octaves as equivalent regardless.
 double meterPrior(double bpm, double confidence) =>
     (bpm < 80 && confidence >= 0.55) ? bpm * 2.0 : bpm;
+
+/// Vocal sections in an isolate. Verdict only — the caller decides
+/// what a miss means (silence and instrumental tracks simply have
+/// no lead sections, which is information, not failure).
+Future<List<(double, double)>> analyzeVocals(Uint8List bytes) =>
+    compute(_analyzeVocals, bytes);
+
+List<(double, double)> _analyzeVocals(Uint8List bytes) =>
+    vocalSections(bytes);
 
 /// Musical key in an isolate. Verdict plus miss evidence — silence
 /// returns null key with zeroed stats.

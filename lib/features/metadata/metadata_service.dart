@@ -2176,6 +2176,11 @@ class MetadataService {
   /// per key-algorithm rev instead of decoding on every play.
   static const _dspKeyV = 1;
 
+  /// DSP vocal algorithm version. Same contract: v1 = HPSS
+  /// lead-section detection. Runs only when a tempo is known (blends
+  /// need one); scoreless or tempo-less tracks skip the lane.
+  static const _dspVocalV = 1;
+
   /// Cache-only musical lookup: embedded tags plus the disk cache,
   /// never network and never DSP. This is the automix planning path —
   /// it must answer in microseconds, so anything unresolved returns
@@ -2293,6 +2298,15 @@ class MetadataService {
     final prevKeyV = (cached?['keyV'] as num?)?.toInt() ?? 0;
     final needKey = netKey.isEmpty;
     final keySettled = cached != null && prevKeyV == _dspKeyV;
+    // Vocal lane runs only when a tempo is known: without one there
+    // is no blend to arrange, so lead sections would sit unused.
+    final prevVocalV = (cached?['vocalV'] as num?)?.toInt() ?? 0;
+    final prevVocals = cached?['vocals'];
+    // Vocal lane runs only when a tempo is known: without one there
+    // is no blend to arrange, so lead sections would sit unused.
+    // Checked pre-block (settled tracks re-enter for the lane) and
+    // post-tempo (fresh hits qualify in the same pass).
+    final vocalSettled = cached != null && prevVocalV == _dspVocalV;
     if (tempoStale) {
       // Drop the stale DSP tempo verdict; embedded tags survive (null
       // here by construction, kept general). The key lane keeps its
@@ -2310,12 +2324,15 @@ class MetadataService {
         );
       }
     }
-    // On-device DSP (Mornye-ported beat grid, hand-rolled chroma key):
-    // one full decode feeds a 3-window tempo sweep plus whole-track
-    // key, all in parallel isolates. Both lanes stamp their detector
-    // version on verdict — hit or miss — so a settled track never pays
-    // for another full decode until a lane revs.
-    if (((netBpm == null && !tempoSettled) || (needKey && !keySettled)) &&
+    // On-device DSP (Mornye-ported beat grid, hand-rolled chroma key,
+    // HPSS lead-section detection): one full decode feeds a 3-window
+    // tempo sweep plus whole-track key and vocal sections, all in
+    // parallel isolates. Every lane stamps its detector version on
+    // verdict — hit or miss — so a settled track never pays for
+    // another full decode until a lane revs.
+    if (((netBpm == null && !tempoSettled) ||
+            (needKey && !keySettled) ||
+            (netBpm != null && !vocalSettled)) &&
         path.isNotEmpty) {
       try {
         final bytes = await decodeMono11k(path, full: true);
@@ -2323,6 +2340,7 @@ class MetadataService {
           var grew = false;
           var tempoRan = false;
           var keyTried = false;
+          var vocalRan = false;
           if (netBpm == null && !tempoSettled) {
             tempoRan = true;
             final won = await analyzeTempoWindows(bytes);
@@ -2376,7 +2394,29 @@ class MetadataService {
               );
             }
           }
-          if (grew || tempoRan || keyTried) {
+          // Lead sections matter only where a blend can happen: tempo
+          // known. Scoreless or tempo-less tracks skip the lane — and a
+          // track with no lead sections simply records none, which the
+          // renderer reads as "no constraint", never as a failure.
+          // Re-checked here (not hoisted): a tempo hit earlier in this
+          // same pass qualifies the lane immediately.
+          List<List<double>>? vocalSections;
+          if (netBpm != null && !vocalSettled) {
+            vocalRan = true;
+            final watch = Stopwatch()..start();
+            final found = await analyzeVocals(bytes);
+            vocalSections = [
+              for (final s in found) [s.$1, s.$2],
+            ];
+            ArchLog.i(
+              'meta',
+              'musical dsp vocals: $artist - $title '
+              'sections=${found.length} '
+              '${found.map((s) => '${s.$1.toStringAsFixed(0)}-${s.$2.toStringAsFixed(0)}s').join(',')} '
+              'in=${watch.elapsedMilliseconds}ms',
+            );
+          }
+          if (grew || tempoRan || keyTried || vocalRan) {
             // Dedupe provenance: an older write may already hold a
             // doubled 'dsp+dsp' — collapse, never accumulate.
             netSrc = netSrc.split('+').toSet().join('+');
@@ -2389,6 +2429,10 @@ class MetadataService {
               // a current stamp for a lane that didn't run.
               'tempoV': tempoRan ? _dspTempoV : cachedTempoV,
               'keyV': keyTried ? _dspKeyV : prevKeyV,
+              'vocalV': vocalRan ? _dspVocalV : prevVocalV,
+              // Fresh sections win; otherwise the previous verdict
+              // rides along untouched (or absent on first analysis).
+              'vocals': ?(vocalSections ?? prevVocals),
               'phase': ?cachedPhase,
               'firstSound': ?cachedFirstSound,
             };
