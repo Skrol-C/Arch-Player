@@ -38,6 +38,50 @@ const _maxPcmBytes = 11025 * 2 * 25;
 const _hop = 128;
 const _fps = 11025.0 / _hop;
 
+/// Autocorrelation tempo sweep shared by the full-band and low-band
+/// estimators: coarse quarter-BPM grid over 60–180 with a gentle 120
+/// prior, then a ±0.25 fine refine. Extracted verbatim from the Mornye
+/// port — identical arithmetic, not rewritten — so the oracle tests
+/// below keep guarding both callers.
+({double bpm, double score}) sweepTempo(
+  List<double> onset,
+  double Function(double lag) correlation,
+) {
+  double weighted(double bpm, double score) {
+    // Verbatim shape: the exp binds to the inner term, i.e.
+    // score * (0.96 + 0.04 * exp(-d*d)) — a gentle ±2% preference
+    // centered on 120 BPM, not a 2.6x boost. One misplaced paren
+    // here cost a day; the oracle numbers prove this form.
+    final d = (bpm - 120.0) / 45.0;
+    return score * (0.96 + 0.04 * math.exp(-d * d));
+  }
+
+  var bestBpm = 0.0;
+  var bestScore = 0.0;
+  for (var quarterBpm = 240; quarterBpm <= 720; quarterBpm++) {
+    final bpm = quarterBpm / 4.0;
+    final score = correlation(_fps * 60.0 / bpm);
+    final w = weighted(bpm, score);
+    if (w > bestScore) {
+      bestScore = w;
+      bestBpm = bpm;
+    }
+  }
+  if (bestBpm == 0.0) return (bpm: 0.0, score: 0.0);
+  final coarseBpm = bestBpm;
+  for (var step = -25; step <= 25; step++) {
+    final bpm = coarseBpm + step * 0.01;
+    if (bpm < 60.0 || bpm > 180.0) continue;
+    final score = correlation(_fps * 60.0 / bpm);
+    final w = weighted(bpm, score);
+    if (w > bestScore) {
+      bestScore = w;
+      bestBpm = bpm;
+    }
+  }
+  return (bpm: bestBpm, score: bestScore);
+}
+
 AutoMixBeatGrid analyzeAutomixPcm(Uint8List pcm) {
   if (pcm.length > _maxPcmBytes) {
     throw ArgumentError('AutoMix PCM exceeds the size limit');
@@ -125,38 +169,10 @@ AutoMixBeatGrid analyzeAutomixPcm(Uint8List pcm) {
     return dot / math.sqrt(math.max(left * right, 0.000000001));
   }
 
-  double weighted(double bpm, double score) {
-    // Verbatim shape: the exp binds to the inner term, i.e.
-    // score * (0.96 + 0.04 * exp(-d*d)) — a gentle ±2% preference
-    // centered on 120 BPM, not a 2.6x boost. One misplaced paren
-    // here cost a day; the oracle numbers prove this form.
-    final d = (bpm - 120.0) / 45.0;
-    return score * (0.96 + 0.04 * math.exp(-d * d));
-  }
-
-  var bestBpm = 0.0;
-  var bestScore = 0.0;
-  for (var quarterBpm = 240; quarterBpm <= 720; quarterBpm++) {
-    final bpm = quarterBpm / 4.0;
-    final score = correlation(_fps * 60.0 / bpm);
-    final w = weighted(bpm, score);
-    if (w > bestScore) {
-      bestScore = w;
-      bestBpm = bpm;
-    }
-  }
+  final swept = sweepTempo(onset, correlation);
+  final bestBpm = swept.bpm;
+  final bestScore = swept.score;
   if (bestBpm == 0.0) return const AutoMixBeatGrid();
-  final coarseBpm = bestBpm;
-  for (var step = -25; step <= 25; step++) {
-    final bpm = coarseBpm + step * 0.01;
-    if (bpm < 60.0 || bpm > 180.0) continue;
-    final score = correlation(_fps * 60.0 / bpm);
-    final w = weighted(bpm, score);
-    if (w > bestScore) {
-      bestScore = w;
-      bestBpm = bpm;
-    }
-  }
   final period = _fps * 60.0 / bestBpm;
   var bestPhase = 0.0;
   var phaseScore = 0.0;
@@ -198,19 +214,12 @@ AutoMixBeatGrid analyzeAutomixPcm(Uint8List pcm) {
   );
 }
 
-/// Low-band-only beat coverage: fraction of grid beats (at [bpm]
-/// from [phase], seconds) that carry a low-end transient. Same one-pole
-/// low band as the tempo detector (~130 Hz cutoff), so hats and
-/// sibilance don't vote — only kicks, bass drops and low toms.
-///
-/// Used for the octave tie-break: when a minority window hears ~2x the
-/// consensus, strong low-band coverage at the faster grid means the
-/// track is really at the faster tempo (four-on-the-floor counted at
-/// half time); weak coverage means a genuine half-time feel.
-double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
-  if (bpm <= 0) return 0.0;
+/// Low-band-only onset envelope: one-pole low band (~130 Hz cutoff),
+/// log-scaled positive flux. Hats and sibilance don't vote — only
+/// kicks, bass drops and low toms. Shared by the coverage probe and
+/// the second-opinion tempo estimator.
+List<double> lowBandOnset(Uint8List pcm) {
   final frames = pcm.length ~/ (2 * _hop);
-  if (frames < _fps * 2.0) return 0.0;
   final data =
       ByteData.view(pcm.buffer, pcm.offsetInBytes, pcm.lengthInBytes);
   final onset = List<double>.filled(frames, 0.0);
@@ -228,6 +237,50 @@ double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
     onset[frame] = math.max(lo - prevLow, 0.0);
     prevLow = lo;
   }
+  return onset;
+}
+
+/// Second-opinion tempo from the low band alone: same sweep as the
+/// full-band estimator, kicks only. Used to confirm weak full-band
+/// readings — a real backbeat shows up down low even when a dense
+/// master saturates the full onset envelope. Scoreless audio has no
+/// low-end pulse, so it can't launder a silence into a publish.
+({double bpm, double score}) lowBandTempo(Uint8List pcm) {
+  final onset = lowBandOnset(pcm);
+  final frames = onset.length;
+  if (frames < _fps * 6.0) return (bpm: 0.0, score: 0.0);
+  double correlation(double lag) {
+    var dot = 0.0;
+    var left = 0.0;
+    var right = 0.0;
+    for (var index = lag.ceil(); index < frames; index++) {
+      final source = index - lag;
+      final previous = source.floor();
+      final fraction = source - previous;
+      final delayed = onset[previous] * (1.0 - fraction) +
+          onset[math.min(previous + 1, frames - 1)] * fraction;
+      dot += onset[index] * delayed;
+      left += onset[index] * onset[index];
+      right += delayed * delayed;
+    }
+    return dot / math.sqrt(math.max(left * right, 0.000000001));
+  }
+
+  return sweepTempo(onset, correlation);
+}
+
+/// Low-band-only beat coverage: fraction of grid beats (at [bpm]
+/// from [phase], seconds) that carry a low-end transient.
+///
+/// Used for the octave tie-break: when a minority window hears ~2x the
+/// consensus, strong low-band coverage at the faster grid means the
+/// track is really at the faster tempo (four-on-the-floor counted at
+/// half time); weak coverage means a genuine half-time feel.
+double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
+  if (bpm <= 0) return 0.0;
+  final frames = pcm.length ~/ (2 * _hop);
+  if (frames < _fps * 2.0) return 0.0;
+  final onset = lowBandOnset(pcm);
   final period = _fps * 60.0 / bpm;
   final start = (phase * _fps).round();
   var score = 0.0;

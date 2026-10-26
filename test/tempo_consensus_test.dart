@@ -139,8 +139,7 @@ void main() {
     expect(preferDouble(0.7, 0.65), isFalse);
   });
 
-  test('low band coverage separates octaves', () {
-    // 155 BPM low thumps: both the 155 and 77.5 grids are carried.
+  test('low band coverage separates octaves', () {    // 155 BPM low thumps: both the 155 and 77.5 grids are carried.
     final fast = _thumps(155.0, 8.0);
     final covFast = lowBandCoverage(fast, 155.0, 0.0);
     final covSlow = lowBandCoverage(fast, 77.5, 0.0);
@@ -154,6 +153,34 @@ void main() {
     expect(cov70, greaterThan(0.8));
     expect(cov140, lessThan(0.7));
     expect(preferDouble(cov70, cov140), isFalse);
+  });
+
+  test('low band tempo hears kicks alone', () {
+    // Halves of these fall outside the 60-180 sweep, so the octave is
+    // forced: this proves the estimator hears kicks, not that it
+    // resolves octaves (uniform trains tie toward half — same as the
+    // full-band detector; real downbeat accents break those ties).
+    final ninety = lowBandTempo(_thumps(90.0, 8.0));
+    expect(ninety.bpm, closeTo(90.0, 1.0));
+    expect(ninety.score, greaterThanOrEqualTo(0.5));
+    final seventy = lowBandTempo(_thumps(70.0, 8.0));
+    expect(seventy.bpm, closeTo(70.0, 1.0));
+    expect(seventy.score, greaterThanOrEqualTo(0.5));
+  });
+
+  test('kick-confirm rescues starved true readings', () {
+    // Sunlight on device: window right at 116.4, score starved at 0.38.
+    expect(kickConfirm(0.38, 116.4, 116.2, 0.7), closeTo(0.65, 0.01));
+    // AISHA on device: right at 111.09, one point under the gate.
+    expect(kickConfirm(0.54, 111.09, 111.3, 0.6), closeTo(0.65, 0.01));
+    // Already-confident readings pass through untouched.
+    expect(kickConfirm(0.9, 120.0, 120.5, 0.8), closeTo(0.9, 0.01));
+    // Weak low-band pulse never launders a silence (I'm Big shape).
+    expect(kickConfirm(0.35, 102.4, 98.0, 0.4), closeTo(0.35, 0.01));
+    // Disagreeing low band stays out of the way.
+    expect(kickConfirm(0.4, 100.0, 150.0, 0.8), closeTo(0.4, 0.01));
+    // Silence in, silence out.
+    expect(kickConfirm(0.0, 0.0, 0.0, 0.0), closeTo(0.0, 0.01));
   });
 }
 

@@ -58,6 +58,31 @@ Future<AutoMixBeatGrid> analyzeGrid(Uint8List bytes) =>
 
 AutoMixBeatGrid _analyzeGrid(Uint8List bytes) => analyzeAutomixPcm(bytes);
 
+/// Low-band second opinion in an isolate. Verdict only — the caller
+/// decides what it confirms.
+Future<({double bpm, double score})> analyzeLowBand(Uint8List bytes) =>
+    compute(_analyzeLowBand, bytes);
+
+({double bpm, double score}) _analyzeLowBand(Uint8List bytes) =>
+    lowBandTempo(bytes);
+
+/// Kick-confirm rule: when the low band independently hears the same
+/// tempo with real strength, the full-band reading is trustworthy even
+/// if the dense master starved its absolute score. Floor 0.65 clears
+/// the 0.55 gate with margin but never outranks true agreement.
+/// Scoreless audio has no low-end pulse (low score), so a silence can
+/// never be laundered into a publish.
+double kickConfirm(
+  double confidence,
+  double bpm,
+  double lowBpm,
+  double lowScore,
+) {
+  if (bpm <= 0 || lowBpm <= 0 || lowScore < 0.5) return confidence;
+  if ((lowBpm - bpm).abs() / bpm > 0.03) return confidence;
+  return math.max(confidence, 0.65);
+}
+
 /// Musical key in an isolate. Verdict plus miss evidence — silence
 /// returns null key with zeroed stats.
 Future<({DetectedKey? key, double bestR, double margin, String best, String runner})>
@@ -101,7 +126,35 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     );
   }
   final grids = await Future.wait(slices.map(analyzeGrid));
-  final consensus = consensusTempo(grids);
+  final lows = await Future.wait(slices.map(analyzeLowBand));
+  // Kick-confirm: a low-band second opinion rescues true readings whose
+  // absolute scores starved on dense masters. Scoreless slices can't
+  // confirm (no low-end pulse), so silence stays silent.
+  final confirmed = <AutoMixBeatGrid>[];
+  final notes = <String>[];
+  for (var i = 0; i < grids.length; i++) {
+    final g = grids[i];
+    final lb = lows[i];
+    final boosted = kickConfirm(g.confidence, g.bpm, lb.bpm, lb.score);
+    if (boosted != g.confidence) {
+      notes.add(
+        'w${i + 1}:${g.bpm.toStringAsFixed(1)}'
+        '/lb${lb.bpm.toStringAsFixed(1)}',
+      );
+    }
+    confirmed.add(
+      AutoMixBeatGrid(
+        bpm: g.bpm,
+        phase: g.phase,
+        confidence: boosted,
+        firstSound: g.firstSound,
+      ),
+    );
+  }
+  if (notes.isNotEmpty) {
+    ArchLog.i('automix', 'tempo kick-confirm ${notes.join(' ')}');
+  }
+  final consensus = consensusTempo(confirmed);
   final best = consensus.winner;
   final offsetSec = starts[best] / (11025 * 2);
   final won = grids[best];
