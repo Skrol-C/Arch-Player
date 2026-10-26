@@ -106,6 +106,60 @@ class ArchAudioHandler extends BaseAudioHandler {
   int _playGen = 0;
   int _skipGen = 0;
 
+  /// Audible gain, tracked here because neither transport reports it.
+  /// Invariant: equals the audible player's gain whenever nothing is
+  /// fading. Every gain change funnels through [_setVolume] so a
+  /// superseded fade can never leave the app quieter — or louder —
+  /// than intended.
+  double _vol = 1.0;
+  int _fadeGen = 0;
+
+  /// Fade shapes, tuned by ear: pause-out slow enough to feel
+  /// intentional, play-in quick enough to feel responsive, tap
+  /// crossfades in between.
+  static const _pauseFade = Duration(seconds: 2);
+  static const _playFade = Duration(seconds: 1);
+  static const _tapFadeOut = Duration(milliseconds: 300);
+  static const _tapFadeIn = Duration(milliseconds: 600);
+
+  /// Single gain choke point: handler-owned ramps and snaps.
+  Future<void> _setVolume(double v) async {
+    _vol = v.clamp(0.0, 1.0);
+    final engine = _engine;
+    try {
+      if (engine != null) {
+        await engine.setVolume(_vol);
+      } else {
+        await _player.setVolume(_vol);
+      }
+    } catch (_) {}
+  }
+
+  /// Volume ramp on the audible transport. Superseded calls abort;
+  /// the newest fade always wins.
+  Future<void> _rampTo(double target, Duration over) async {
+    final gen = ++_fadeGen;
+    final start = _vol;
+    const steps = 12;
+    final step = Duration(milliseconds: (over.inMilliseconds / steps).round());
+    for (var i = 1; i <= steps; i++) {
+      if (gen != _fadeGen) return;
+      await _setVolume(start + (target - start) * (i / steps));
+      if (i < steps) await Future<void>.delayed(step);
+    }
+  }
+
+  Future<void> _fadeOut([Duration? over]) =>
+      _rampTo(0.0, over ?? _pauseFade);
+
+  Future<void> _fadeIn([Duration? over]) async {
+    if (_vol >= 0.99) {
+      await _setVolume(1.0);
+      return;
+    }
+    await _rampTo(1.0, over ?? _playFade);
+  }
+
   /// Automix: when on, the dual-player engine owns transport so the
   /// next track can fade in under the current one. The single-player
   /// playlist stays the queue authority — parked, never closed — so
@@ -552,7 +606,12 @@ class ArchAudioHandler extends BaseAudioHandler {
     // to rebuild the queue, then the engine takes over at the new
     // track. Never leave two transports running.
     final wasEngine = _engine != null;
-    if (wasEngine) await _teardownEngine(resume: false);
+    if (wasEngine) {
+      // Manual crossfade out of the engine: fade before the hard
+      // teardown so a tap bends out of the mix instead of cutting it.
+      await _rampTo(0.0, _tapFadeOut);
+      await _teardownEngine(resume: false);
+    }
     try {
       await _playSongImpl(song, context, shuffleAfterLoad: shuffleAfterLoad);
     } finally {
@@ -603,6 +662,11 @@ class ArchAudioHandler extends BaseAudioHandler {
     // Rollback target: the UI commits optimistically below; on failure
     // it goes back to this instead of stranding on a silent song.
     final prevItem = mediaItem.value;
+    // Manual crossfade: fade the outgoing track out *while* the new
+    // queue loads, so a tap bends into the next track instead of
+    // cutting mid-word. Fire-and-forget: the fade-in below re-owns
+    // the gain when the new track starts.
+    unawaited(_fadeOut(_tapFadeOut));
     final sameQueue =
         _songs.length == context.length &&
         _songs.every((s) => context.any((c) => c.id == s.id));
@@ -619,6 +683,8 @@ class ArchAudioHandler extends BaseAudioHandler {
       );
       if (index < 0) {
         ArchLog.w('player', 'tap song missing from context id=${song.id}');
+        // The fade-out above already ran: restore audibility.
+        await _setVolume(1.0);
         return;
       }
       if (!sameQueue) {
@@ -655,7 +721,13 @@ class ArchAudioHandler extends BaseAudioHandler {
       // currentIndexStream fires too, but set it now so the first
       // notification frame is already correct — never one stale behind.
       _setItem(song.toMediaItem());
+      // Manual crossfade, second half: the new track starts silent
+      // (whatever survived of the fade-out is irrelevant now) and
+      // rises into the mix.
+      await _setVolume(0.0);
       await _player.play().timeout(const Duration(seconds: 10));
+      if (gen != _playGen) return;
+      await _fadeIn(_tapFadeIn);
       if (gen != _playGen) return;
       // Audibility gate: seek resolving is not playback — with lazy
       // sources the engine can sit silent for seconds, then fall
@@ -685,6 +757,10 @@ class ArchAudioHandler extends BaseAudioHandler {
     } catch (e) {
       // Superseded: silent by design, the newer tap owns the UI now.
       if (gen != _playGen) return;
+      // Whatever failed, the gain must be whole again: a failed
+      // tap must never strand the old track faded out, nor the
+      // new one faded in-but-broken.
+      await _setVolume(1.0);
       // Late success beats the error: if the engine actually sounds
       // the requested index, a toast would be a lie. Log and swallow.
       if (_player.playing && _player.currentIndex == index) {
@@ -717,8 +793,56 @@ class ArchAudioHandler extends BaseAudioHandler {
     return _player.playing && _player.currentIndex == index;
   }
 
-  Future<void> _attachArtFile(Song song) async {
-    try {
+  /// Bounded fast pass over the warm caches (memory + disk, no
+/// network): when art is already around, the first notification
+/// carries it instead of posting artless and hoping a later
+/// re-set fixes it. Returns true when it attached anything.
+Future<bool> _attachArtFast(Song song, String id) async {
+  try {
+    if (song.path.isNotEmpty) {
+      final preview = await ArtPreviews.previewFor(song.path)
+          .timeout(const Duration(milliseconds: 300));
+      if (preview != null && preview.isNotEmpty) {
+        if (mediaItem.value?.id != id) return false;
+        _setItem(
+          mediaItem.value!.copyWith(
+            extras: {...?mediaItem.value!.extras,
+                'artCacheFile': preview},
+          ),
+        );
+        _lastNotifArtSongId = song.id;
+        return true;
+      }
+    }
+    if (song.albumId > 0) {
+      final bytes = await ArtCache.of(song.albumId)
+          .timeout(const Duration(milliseconds: 300));
+      if (bytes != null && bytes.isNotEmpty) {
+        if (mediaItem.value?.id != id) return false;
+        final file = await NotifArt.cacheBytes(bytes, 'album_${song.albumId}')
+            .timeout(const Duration(seconds: 2));
+        if (file == null || mediaItem.value?.id != id) return false;
+        _setItem(
+          mediaItem.value!.copyWith(
+            extras: {...?mediaItem.value!.extras,
+                'artCacheFile': file},
+          ),
+        );
+        _lastNotifArtSongId = song.id;
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
+Future<void> _attachArtFile(Song song, {bool retry = true}) async {
+  try {
+    // Warm cache first: when art is already on disk this attaches
+    // before the first notification posts (no 8s fetch on the
+    // first paint). Cold art falls through to the slow path.
+    final fastId = song.uri.toString();
+    if (await _attachArtFast(song, fastId)) return;
       // Dedupe: index flips re-fire per flip for the same song.
       // Only the first attach per song id does work; real song
       // changes (different id) still attach as before.
@@ -759,7 +883,32 @@ class ArchAudioHandler extends BaseAudioHandler {
       );
       _lastNotifArtSongId = song.id;
       ArchLog.i('player', 'notif art attached id=${song.id}');
-    } catch (_) {}
+    } catch (_) {
+      // A tap storm can abort every attach attempt for the current
+      // track and leave the notification artless with nobody left
+      // to retry. One bounded retry, re-reading the CURRENT item
+      // (not the stale caller arg), then silence.
+      if (retry && !playbackState.isClosed) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!playbackState.isClosed) {
+          final cur = mediaItem.value;
+          final art = cur?.extras?['artCacheFile'] as String?;
+          if (cur != null && (art == null || art.isEmpty)) {
+            final id = cur.extras?['songId'] as int?;
+            Song? again;
+            if (id != null) {
+              for (final t in _songs) {
+                if (t.id == id) {
+                  again = t;
+                  break;
+                }
+              }
+            }
+            await _attachArtFile(again ?? song, retry: false);
+          }
+        }
+      }
+    }
   }
 
   /// Preview with cover art: item + audio go first so the first
@@ -809,6 +958,9 @@ class ArchAudioHandler extends BaseAudioHandler {
       );
       _songs = [];
       _emitQueue([item]);
+      // Previews promise instant audible playback: never inherit
+      // a faded-out gain from an interrupted pause.
+      await _setVolume(1.0);
       await _player
           .setAudioSource(AudioSource.uri(uri), preload: false)
           .timeout(const Duration(seconds: 20));
@@ -838,7 +990,19 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   @override
-  Future<void> play() => _engine?.resume() ?? _player.play();
+  /// Play with a fade-in: resuming from a faded pause rises instead
+  /// of punching in, and a cold start blooms instead of cracking in.
+  /// A no-op when already at full gain.
+  Future<void> play() async {
+    final engine = _engine;
+    if (engine != null) {
+      await engine.resumeAt(_vol);
+    } else {
+      await _player.setVolume(_vol);
+      await _player.play();
+    }
+    await _fadeIn();
+  }
 
   /// Turn automix on/off. On: the engine takes over transport at the
   /// current song and position. Off: the playlist player resumes there.
@@ -875,7 +1039,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     // which is what made the engine's play() wait forever.
     try {
       await _player.stop().timeout(const Duration(seconds: 5));
-      await _player.setVolume(1.0);
+      await _setVolume(1.0);
       ArchLog.i(
         'automix',
         'parked playlist: state=${_player.processingState} '
@@ -964,7 +1128,11 @@ class ArchAudioHandler extends BaseAudioHandler {
       await _player.seek(pos, index: idx);
       // Hand back the transport in the state the user left it: a
       // paused engine must not start playing on toggle-off.
-      if (wasPlaying) await _player.play();
+      if (wasPlaying) {
+        await _player.play();
+        await _setVolume(_vol);
+        await _fadeIn();
+      }
       _setItem(_songs[idx].toMediaItem());
     } catch (e) {
       ArchLog.w('automix', 'handback failed: $e');
@@ -1075,12 +1243,14 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Neighbour of the engine's current index in play order. Honours
   /// the engine's shuffle permutation and loop-all wrap; null at the
   /// end with loop off (the mix simply stops, like a playlist would).
-  /// Next/previous while the engine owns transport. Forward follows
-  /// the harmonic batch (refilled on demand); backward keeps the
-  /// legacy behavior — history has no harmonic walk to replay.
+  /// Next/previous while the engine owns transport. Forward prefers
+  /// the harmonic batch and falls back to the legacy order when
+  /// nothing is known enough to order (unanalyzed libraries play
+  /// exactly like before); backward keeps the legacy behavior —
+  /// history has no harmonic walk to replay.
   int? _mixNeighborIndex(int delta) {
     if (_automixOn && _engine != null && delta > 0) {
-      return _harmonicPeek();
+      return _harmonicPeek() ?? _mixNeighborIndexAt(_mixIndex, delta);
     }
     return _mixNeighborIndexAt(_mixIndex, delta);
   }
@@ -1256,7 +1426,17 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   @override
-  Future<void> pause() => _engine?.pause() ?? _player.pause();
+  /// Pause with a fade-out: hard stops read as glitches next to
+  /// blended transitions. Skips the ramp when already silent.
+  Future<void> pause() async {
+    final playing = _engine?.playing ?? _player.playing;
+    if (playing) await _rampTo(0.0, _pauseFade);
+    if (_engine != null) {
+      await _engine!.pause();
+    } else {
+      await _player.pause();
+    }
+  }
 
   @override
   Future<void> seek(Duration position) =>
@@ -1271,8 +1451,13 @@ class ArchAudioHandler extends BaseAudioHandler {
     // Automix: skipping restarts the engine at the neighbour. The
     // engine's own index is the truth here, not the parked playlist.
     if (_engine != null) {
+      // Refill first: a tap right after another tap can land while
+      // the batch is still cleared, and a silent no-op reads broken.
+      _ensureHarmonicBatch();
       final target = _mixNeighborIndex(dir > 0 ? 1 : -1);
       if (target == null) return;
+      ArchLog.i('automix', 'skip fade-out, then jump');
+      await _rampTo(0.0, _tapFadeOut);
       ArchLog.i('automix', 'skip ${dir > 0 ? 'next' : 'prev'} -> $target');
       await _enterEngineAt(target);
       return;

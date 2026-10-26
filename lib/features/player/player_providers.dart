@@ -306,9 +306,9 @@ class AutoPlayNotifier extends Notifier<bool> {
       }
       ArchLog.i(
         'automix',
-        'autoplay fill ${picks.length} after ${tail.id}',
+        'autoplay append ${picks.length} after ${tail.id}',
       );
-      await handler.insertNextAll(picks);
+      await handler.appendToQueue(picks);
     } catch (e) {
       ArchLog.w('player', 'autoplay fill failed: $e');
     }

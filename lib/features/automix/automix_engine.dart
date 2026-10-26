@@ -238,19 +238,31 @@ class AutomixEngine {
     return done.future;
   }
 
+  /// Volume for pause/play fades. Handler-owned ramps call this; the
+  /// engine itself always ends blends at full gain, so a fresh start
+  /// never inherits a faded level.
+  Future<void> setVolume(double v) async {
+    if (_disposed) return;
+    try {
+      await _active.setVolume(v);
+    } catch (_) {}
+  }
+
   Future<void> pause() async {
     try {
       await _active.pause();
     } catch (_) {}
   }
 
-  Future<void> resume() async {
+  /// Resume at an explicit gain (instead of forcing full volume): the
+  /// handler fades back in itself, so a resume never punches in loud.
+  /// Muting the idle side first preserves the old dual-tail behavior —
+  /// a crossfade interrupted mid-blend must not come back doubled.
+  Future<void> resumeAt(double volume) async {
     if (_disposed) return;
     try {
-      // Both sides may hold a tail from an interrupted blend; the
-      // audible one is the only voice that should rise.
       await _idle.setVolume(0.0);
-      await _active.setVolume(1.0);
+      await _active.setVolume(volume.clamp(0.0, 1.0));
       await _startPlaying(_active);
     } catch (_) {}
   }
