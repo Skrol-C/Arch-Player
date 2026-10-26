@@ -352,3 +352,50 @@ double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
 /// a wrong flip-up is worse than a held half.
 bool preferDouble(double covSlow, double covFast) =>
     covFast >= 0.7 && covFast >= covSlow * 0.85;
+
+/// Mix-in point: the first beat that actually grooves. Intros are
+/// often silence, ambience, or a lone pickup — first-sound lands
+/// there, but a blend should start where the drums do. Scans the
+/// low-band envelope for the first grid beat at/after [firstSound]
+/// whose transient peak reaches 40% of the excerpt's strongest beat.
+/// Dense-from-bar-one resolves to first-sound snapped to grid; sparse
+/// intros fast-forward to the groove. Returns seconds, track time —
+/// the caller snaps nothing further.
+double findMixIn(
+  Uint8List pcm,
+  double bpm,
+  double phase,
+  double firstSound,
+) {
+  if (bpm <= 0) return firstSound;
+  final onset = lowBandOnset(pcm);
+  final frames = onset.length;
+  if (frames < _fps * 2.0) return firstSound;
+  final period = 60.0 / bpm;
+  double peakAt(double beatTime) {
+    final i = (beatTime * _fps).round().clamp(1, frames - 2);
+    return math.max(onset[i], math.max(onset[i - 1], onset[i + 1]));
+  }
+
+  // Strongest beat in the excerpt sets the bar.
+  var peakMax = 0.0;
+  var j = 0;
+  while (true) {
+    final t = phase + j * period;
+    if (t * _fps >= frames - 2) break;
+    peakMax = math.max(peakMax, peakAt(t));
+    j++;
+    if (j > 10000) break;
+  }
+  if (peakMax <= 0) return firstSound;
+  // First groove beat at/after first sound.
+  j = 0;
+  while (true) {
+    final t = phase + j * period;
+    if (t * _fps >= frames - 2) break;
+    if (t >= firstSound - 1e-9 && peakAt(t) >= 0.4 * peakMax) return t;
+    j++;
+    if (j > 10000) break;
+  }
+  return firstSound;
+}

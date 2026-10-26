@@ -17,6 +17,8 @@ import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
+import 'automix_pcm.dart' show decodeMono11k;
+import 'beat_grid.dart' show findMixIn;
 
 /// Everything the renderer needs. Durations in seconds; phases and
 /// first-sound in track time (the cached grid geometry). Null geometry
@@ -90,7 +92,9 @@ BlendPlan? buildBlend(BlendSpec s) {
   if (s.durA < overlap + 1.0) return null;
 
   // B enters on its first grid beat at/after first sound. Unknown
-  // geometry starts at zero — degraded, never invented.
+  // geometry starts at zero — degraded, never invented. Callers pass
+  // the mix-in scan (first groove beat) as firstSoundB when they have
+  // audio; the raw first-sound otherwise.
   final phaseB = s.phaseB ?? 0.0;
   final firstB = s.firstSoundB ?? 0.0;
   final j0 = math.max(0, ((firstB - phaseB) / periodB).ceil());
@@ -108,15 +112,18 @@ BlendPlan? buildBlend(BlendSpec s) {
   if (startB + needInputB > s.durB - 0.5) return null;
 
   final d = overlap.toStringAsFixed(3);
+  final fadeA = (overlap * 0.65).toStringAsFixed(3);
   final ta = aOffset.toStringAsFixed(3);
   final tb = startB.toStringAsFixed(3);
   final tbDur = needInputB.toStringAsFixed(3);
   final delayMs = (entryDelay * 1000).round();
   final r = ratio.toStringAsFixed(6);
+  // A exits in the first two-thirds (the pile-up window is the tail);
+  // B rises across the whole bridge. Equal-power shapes, biased exit.
   final filter = '[0:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$ta:duration=$d,asetpts=PTS-STARTPTS,'
-      'highpass=f=120,'
-      "volume='cos(PI/2*t/$d)':eval=frame[a];"
+      'highpass=f=160:poles=2,'
+      "volume='cos(PI/2*min(t/$fadeA\\,1))':eval=frame[a];"
       '[1:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$tb:duration=$tbDur,asetpts=PTS-STARTPTS,'
       'atempo=$r,adelay=$delayMs|$delayMs,'
@@ -137,7 +144,43 @@ BlendPlan? buildBlend(BlendSpec s) {
 /// the lab trigger can stay fire-and-forget.
 Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
   try {
-    final plan = buildBlend(spec);
+    // Mix-in scan: start B where the drums do, not where the file
+    // makes its first sound. A 25s head is plenty — intros longer
+    // than that are arrangements, not pickups.
+    var firstB = spec.firstSoundB ?? 0.0;
+    try {
+      final head = await decodeMono11k(spec.bPath);
+      if (head != null) {
+        final groove = findMixIn(
+          head,
+          spec.bpmB,
+          spec.phaseB ?? 0.0,
+          firstB,
+        );
+        if (groove > firstB) {
+          ArchLog.i(
+            'automix',
+            'blend mixin first=${firstB.toStringAsFixed(2)} '
+            'groove=${groove.toStringAsFixed(2)}',
+          );
+          firstB = groove;
+        }
+      }
+    } catch (_) {}
+    final plan = buildBlend(
+      BlendSpec(
+        aPath: spec.aPath,
+        bPath: spec.bPath,
+        durA: spec.durA,
+        durB: spec.durB,
+        bpmA: spec.bpmA,
+        bpmB: spec.bpmB,
+        phaseA: spec.phaseA,
+        phaseB: spec.phaseB,
+        firstSoundB: firstB,
+        bars: spec.bars,
+      ),
+    );
     if (plan == null) {
       ArchLog.w('automix', 'blend unplannable (tempo/geometry/duration)');
       return null;

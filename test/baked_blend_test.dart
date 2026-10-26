@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:arch_player/features/automix/baked_blend.dart';
+import 'package:arch_player/features/automix/beat_grid.dart';
 
 /// Prototype pair numbers: BLOODY STREAM (131.31) -> Give Me Everything
 /// (130.76). Same key, 0.4% gap.
@@ -35,12 +39,14 @@ void main() {
     // Bridge grids coincide: B beats land on A beats.
     final periodBs = (60.0 / 130.76) / p.tempoRatio;
     expect(periodBs, closeTo(periodA, 0.000001));
-    // Filter carries the whole recipe.
-    expect(p.filter, contains('highpass=f=120'));
+    // Filter carries the whole recipe: steep bass cut on A, biased
+    // exit, tempo-matched B delayed onto an A beat.
+    expect(p.filter, contains('highpass=f=160'));
     expect(p.filter, contains('atempo='));
     expect(p.filter, contains('adelay='));
     expect(p.filter, contains('amix=inputs=2'));
     expect(p.filter, contains('alimiter'));
+    expect(p.filter, contains('min(t/'));
   });
 
   test('unknown geometry degrades to zero-start', () {
@@ -58,8 +64,7 @@ void main() {
     expect(plan.tempoRatio, closeTo(1.0, 0.000001));
   });
 
-  test('unbridgeable pairs return null, never garbage', () {
-    // Missing tempo.
+  test('unbridgeable pairs return null, never garbage', () {    // Missing tempo.
     expect(
       buildBlend(
         const BlendSpec(
@@ -118,4 +123,44 @@ void main() {
       isNull,
     );
   });
+
+  test('mix-in skips intro silence to the groove', () {
+    // 4s of silence, then 120 BPM low thumps: groove starts at 4.0s.
+    final pcm = _silenceThenThumps(120.0, 4.0, 12.0);
+    expect(findMixIn(pcm, 120.0, 0.0, 0.0), closeTo(4.0, 0.05));
+  });
+
+  test('mix-in stays put when the groove starts at zero', () {
+    final pcm = _silenceThenThumps(120.0, 0.0, 8.0);
+    expect(findMixIn(pcm, 120.0, 0.0, 0.0), closeTo(0.0, 0.05));
+  });
+
+  test('mix-in never precedes first sound', () {
+    final pcm = _silenceThenThumps(90.0, 2.0, 10.0);
+    // First sound at 2.0 is ambience-free here, so the groove is it.
+    expect(findMixIn(pcm, 90.0, 0.0, 2.0), closeTo(2.0, 0.1));
+  });
+}
+
+/// Low thumps after [silentSecs] of digital silence: intros that lie.
+Uint8List _silenceThenThumps(double bpm, double silentSecs, double totalSecs) {
+  final pcm = <int>[];
+  final total = (11025 * totalSecs).round();
+  final period = 60.0 / bpm;
+  for (var i = 0; i < total; i++) {
+    final time = i / 11025.0;
+    var value = 0.0;
+    if (time >= silentSecs) {
+      final since = (time - silentSecs) % period;
+      // Snap groove to the grid: first thump exactly at silentSecs
+      // when it divides evenly (test picks values that do).
+      final transient = math.exp(-since * 60.0);
+      value = 0.8 * transient * math.sin(time * 2.0 * math.pi * 90.0);
+    }
+    final s = (value * 32767.0).round().clamp(-32768, 32767);
+    pcm
+      ..add(s & 0xFF)
+      ..add((s >> 8) & 0xFF);
+  }
+  return Uint8List.fromList(pcm);
 }
