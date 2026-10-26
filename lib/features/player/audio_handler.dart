@@ -227,6 +227,15 @@ class ArchAudioHandler extends BaseAudioHandler {
   String _bridgePair = '';
   /// One render at a time: ticks retry while this is set.
   bool _rendering = false;
+  /// Pair key that already logged its skip reason: the kick runs
+  /// every tick, but the log names each gap once, not 150 times.
+  String _renderSkipPair = '';
+
+  void _renderSkip(String pair, String reason) {
+    if (pair == _renderSkipPair) return;
+    _renderSkipPair = pair;
+    ArchLog.i('automix', 'bridge skip $pair ($reason)');
+  }
   /// One landing flight at a time.
   bool _landing = false;
 
@@ -1482,16 +1491,25 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
   /// files with known tempo only; anything else stays live.
   Future<void> _renderBridgeFor(int aIdx, int bIdx) async {
     if (_rendering) return;
-    final meta = _meta;
-    if (meta == null || !_automixOn || _engine == null) return;
     if (aIdx < 0 || bIdx < 0) return;
     if (aIdx >= _songs.length || bIdx >= _songs.length) return;
+    final meta = _meta;
     final a = _songs[aIdx];
     final b = _songs[bIdx];
     final pair = '${a.id}>${b.id}';
     if (pair == _bridgePair && _bridge != null) return;
-    if (a.path.isEmpty || b.path.isEmpty) return;
-    if (!a.path.startsWith('/') || !b.path.startsWith('/')) return;
+    if (meta == null || !_automixOn || _engine == null) {
+      _renderSkip(pair, 'not ready');
+      return;
+    }
+    if (a.path.isEmpty || b.path.isEmpty) {
+      _renderSkip(pair, 'no file path');
+      return;
+    }
+    if (!a.path.startsWith('/') || !b.path.startsWith('/')) {
+      _renderSkip(pair, 'non-file uri');
+      return;
+    }
     final gen = _mixGen;
     _rendering = true;
     try {
@@ -1505,11 +1523,17 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         artist: b.artist,
         path: b.path,
       );
-      if (ia?.bpm == null || ib?.bpm == null) return;
+      if (ia?.bpm == null || ib?.bpm == null) {
+        _renderSkip(pair, 'no tempo');
+        return;
+      }
       // Renderer gates 0.94-1.06; loose pre-check skips hopeless
       // pairs before paying for decodes.
       final ratio = ia!.bpm! / ib!.bpm!;
-      if (ratio < 0.90 || ratio > 1.10) return;
+      if (ratio < 0.90 || ratio > 1.10) {
+        _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
+        return;
+      }
       final rb = await renderBridge(
         BlendSpec(
           aPath: a.path,
