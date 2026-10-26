@@ -14,6 +14,7 @@ import '../metadata/metadata_providers.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import 'baked_blend.dart';
+import 'crossfade.dart' show blendBars;
 
 /// Render current -> [target] and play the bridge. Fire-and-forget.
 Future<void> renderBlendPreview(
@@ -69,6 +70,18 @@ Future<void> renderBlendPreview(
     return;
   }
   say('Rendering blend…');
+  final bars = blendBars(
+    openA: a?.openKey,
+    openB: b?.openKey,
+    bpmA: bpmA,
+    bpmB: bpmB,
+    durA: current.duration.inMilliseconds / 1000.0,
+    durB: target.duration.inMilliseconds / 1000.0,
+  );
+  ArchLog.i(
+    'automix',
+    'blend lab bars=$bars ${current.title} -> ${target.title}',
+  );
   final out = await renderBlend(
     BlendSpec(
       aPath: current.path,
@@ -80,6 +93,7 @@ Future<void> renderBlendPreview(
       phaseA: a?.phase,
       phaseB: b?.phase,
       firstSoundB: b?.firstSound,
+      bars: bars,
     ),
     tag: '${current.id}_${target.id}',
   );

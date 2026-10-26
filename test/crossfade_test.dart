@@ -86,4 +86,69 @@ void main() {
     expect(crossfadeGains(-1).out, 1.0);
     expect(crossfadeGains(2).in_, 1.0);
   });
+
+  test('blend bars follow harmony, tempo, and room', () {
+    // Same key, locked tempo, room for days: the full 32.
+    expect(
+      blendBars(
+        openA: '5m',
+        openB: '5m',
+        bpmA: 130.76,
+        bpmB: 131.31,
+        durA: 251.0,
+        durB: 260.0,
+      ),
+      32,
+    );
+    // Same key but drifting grids: a full 32 would flam.
+    expect(
+      blendBars(
+        openA: '5m',
+        openB: '5m',
+        bpmA: 120.0,
+        bpmB: 126.0,
+        durA: 251.0,
+        durB: 260.0,
+      ),
+      16,
+    );
+    // Clashing grids: short no matter the harmony.
+    expect(
+      blendBars(
+        openA: '5m',
+        openB: '5m',
+        bpmA: 100.0,
+        bpmB: 150.0,
+        durA: 251.0,
+        durB: 260.0,
+      ),
+      4,
+    );
+    // Unknowns fall back to 8, never to 32.
+    expect(blendBars(durA: 200.0, durB: 200.0), 8);
+    // Far around the wheel: short blend.
+    expect(
+      blendBars(
+        openA: '5m',
+        openB: '8d',
+        bpmA: 120.0,
+        bpmB: 120.0,
+        durA: 200.0,
+        durB: 200.0,
+      ),
+      4,
+    );
+    // Short tracks step the pick down to what fits.
+    expect(
+      blendBars(
+        openA: '5m',
+        openB: '5m',
+        bpmA: 130.0,
+        bpmB: 130.0,
+        durA: 40.0,
+        durB: 60.0,
+      ),
+      16,
+    );
+  });
 }

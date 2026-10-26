@@ -18,7 +18,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/log.dart';
 import 'automix_pcm.dart' show decodeMono11k;
-import 'beat_grid.dart' show findMixIn;
+import 'beat_grid.dart' show findMixIn, findMixOut;
 
 /// Everything the renderer needs. Durations in seconds; phases and
 /// first-sound in track time (the cached grid geometry). Null geometry
@@ -33,6 +33,11 @@ class BlendSpec {
   final double? phaseA;
   final double? phaseB;
   final double? firstSoundB;
+
+  /// A window ends here instead of at end-of-file (mix-out point).
+  /// Null = file end. The caller falls back to the tail when the
+  /// groove runs too close to the start to fit the window.
+  final double? endA;
   final int bars;
 
   const BlendSpec({
@@ -45,6 +50,7 @@ class BlendSpec {
     this.phaseA,
     this.phaseB,
     this.firstSoundB,
+    this.endA,
     this.bars = 8,
   });
 }
@@ -89,7 +95,11 @@ BlendPlan? buildBlend(BlendSpec s) {
   final periodA = 60.0 / s.bpmA;
   final periodB = 60.0 / s.bpmB;
   final overlap = s.bars * 4 * periodA;
-  if (s.durA < overlap + 1.0) return null;
+  // A window ends at the mix-out point (or file end): the bridge
+  // covers [aEnd - overlap, aEnd] so the exit lands on groove.
+  final aEnd = s.endA ?? s.durA;
+  if (aEnd <= 0 || aEnd > s.durA) return null;
+  if (aEnd < overlap + 1.0) return null;
 
   // B enters on its first grid beat at/after first sound. Unknown
   // geometry starts at zero — degraded, never invented. Callers pass
@@ -100,10 +110,10 @@ BlendPlan? buildBlend(BlendSpec s) {
   final j0 = math.max(0, ((firstB - phaseB) / periodB).ceil());
   final startB = phaseB + j0 * periodB;
 
-  // A beats in file time: file t maps to A time (durA - overlap + t).
+  // A beats in file time: file t maps to A time (aEnd - overlap + t).
   // B's entry beat lands on the first A beat: delay < one period.
   final phaseA = s.phaseA ?? 0.0;
-  final aOffset = s.durA - overlap;
+  final aOffset = aEnd - overlap;
   final entryDelay = ((phaseA - aOffset) % periodA + periodA) % periodA;
 
   // B must cover the file from its entry to the end, in input time
@@ -112,7 +122,10 @@ BlendPlan? buildBlend(BlendSpec s) {
   if (startB + needInputB > s.durB - 0.5) return null;
 
   final d = overlap.toStringAsFixed(3);
-  final fadeA = (overlap * 0.65).toStringAsFixed(3);
+  // A exits over the last sixth of the bridge (v2's 65% dropped out
+  // too early); B rises across the whole bridge. Equal-power shapes,
+  // biased exit.
+  final fadeA = (overlap * 0.85).toStringAsFixed(3);
   final ta = aOffset.toStringAsFixed(3);
   final tb = startB.toStringAsFixed(3);
   final tbDur = needInputB.toStringAsFixed(3);
@@ -167,6 +180,31 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
         }
       }
     } catch (_) {}
+    // Mix-out scan: end A where the drums do, not at dead air.
+    // Falls back to the tail when the groove runs too close to the
+    // start to fit the window — an early groove plus a long tail
+    // still beats a dropout.
+    var endA = spec.durA;
+    try {
+      final full = await decodeMono11k(spec.aPath, full: true);
+      if (full != null) {
+        final out = findMixOut(
+          full,
+          spec.bpmA,
+          spec.phaseA ?? 0.0,
+          spec.durA,
+        );
+        final earliest = spec.bars * 4 * 60.0 / spec.bpmA + 1.0;
+        if (out < spec.durA - 0.5 && out >= earliest) {
+          ArchLog.i(
+            'automix',
+            'blend mixout tail=${spec.durA.toStringAsFixed(1)} '
+            'groove=${out.toStringAsFixed(1)}',
+          );
+          endA = out;
+        }
+      }
+    } catch (_) {}
     final plan = buildBlend(
       BlendSpec(
         aPath: spec.aPath,
@@ -178,6 +216,7 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
         phaseA: spec.phaseA,
         phaseB: spec.phaseB,
         firstSoundB: firstB,
+        endA: endA,
         bars: spec.bars,
       ),
     );

@@ -140,6 +140,45 @@ void main() {
     // First sound at 2.0 is ambience-free here, so the groove is it.
     expect(findMixIn(pcm, 90.0, 0.0, 2.0), closeTo(2.0, 0.1));
   });
+
+  test('mix-out cuts trailing dead air at the groove', () {
+    // Groove to 8.0s, then silence. The cut zeroes the boundary
+    // thump itself, so the last intact groove beat is 7.5s.
+    final pcm = _thumpsThenSilence(120.0, 8.0, 12.0);
+    expect(findMixOut(pcm, 120.0, 0.0, 12.0), closeTo(7.5, 0.05));
+  });
+
+  test('mix-out holds through groove to the end', () {
+    final pcm = _thumpsThenSilence(120.0, 8.0, 8.0);
+    expect(findMixOut(pcm, 120.0, 0.0, 8.0), closeTo(7.5, 0.05));
+  });
+
+  test('mix-out keeps absurdly long outros', () {
+    // Groove ends at 10s but the file runs a minute: live ending or
+    // applause — don't time-travel, keep the tail.
+    final pcm = _thumpsThenSilence(120.0, 10.0, 60.0);
+    expect(findMixOut(pcm, 120.0, 0.0, 60.0), closeTo(60.0, 0.01));
+  });
+
+  test('bridge window ends at the mix-out point', () {
+    const spec = BlendSpec(
+      aPath: '/a',
+      bPath: '/b',
+      durA: 260.0,
+      durB: 251.0,
+      bpmA: 120.0,
+      bpmB: 120.0,
+      phaseA: 0.0,
+      phaseB: 0.0,
+      firstSoundB: 0.0,
+      endA: 240.0,
+      bars: 8,
+    );
+    final plan = buildBlend(spec);
+    expect(plan, isNotNull);
+    // 8 bars at 120 BPM = 16s window ending at 240 -> starts at 224.
+    expect(plan!.filter, contains('start=224.000'));
+  });
 }
 
 /// Low thumps after [silentSecs] of digital silence: intros that lie.
@@ -163,4 +202,18 @@ Uint8List _silenceThenThumps(double bpm, double silentSecs, double totalSecs) {
       ..add((s >> 8) & 0xFF);
   }
   return Uint8List.fromList(pcm);
+}
+
+/// Groove until [grooveSecs], then digital silence: dead outros.
+Uint8List _thumpsThenSilence(
+  double bpm,
+  double grooveSecs,
+  double totalSecs,
+) {
+  final pcm = _silenceThenThumps(bpm, 0.0, totalSecs);
+  final cut = (11025 * grooveSecs).round() * 2;
+  for (var i = cut; i < pcm.length; i++) {
+    pcm[i] = 0;
+  }
+  return pcm;
 }

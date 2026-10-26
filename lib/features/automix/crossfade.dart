@@ -83,6 +83,51 @@ CrossfadePlan planCrossfade({
 
 enum _KeyRel { same, relative, adjacent, energy, far, unknown }
 
+/// Blend length in bars for a baked bridge. Same inputs as the live
+/// planner, longer windows: the closer the harmonic fit, the longer
+/// the blend can breathe. Unknowns fall back to 8, never to 32 —
+/// a bad 30-second blend is worse than a bad 8-bar one.
+/// Arrangement room steps the pick down ([32,16,8,4]) so short tracks
+/// never force a window they can't fill.
+int blendBars({
+  String? openA,
+  String? openB,
+  double? bpmA,
+  double? bpmB,
+  double durA = 0,
+  double durB = 0,
+}) {
+  final keyRel = _camelotRelation(openA, openB);
+  final tempoGap = _tempoGap(bpmA, bpmB);
+  // Grids diverge: keep it short no matter the harmony.
+  if (tempoGap != null && tempoGap > _tempoGapLimit) return 4;
+  var bars = switch (keyRel) {
+    _KeyRel.same => 32,
+    _KeyRel.relative => 8,
+    _KeyRel.adjacent => 8,
+    _KeyRel.energy => 4,
+    _KeyRel.far => 4,
+    _KeyRel.unknown => 8,
+  };
+  // Same key but drifting grids: a full 32 bars would flam.
+  if (keyRel == _KeyRel.same &&
+      tempoGap != null &&
+      tempoGap > 0.02) {
+    bars = 16;
+  }
+  // Room check: A must hold the window plus a breath; B needs the
+  // window plus intro headroom for the mix-in scan to skip.
+  if (bpmA != null && bpmA > 0) {
+    for (final b in [32, 16, 8, 4]) {
+      if (b > bars) continue;
+      final d = b * 4 * 60.0 / bpmA;
+      if (durA >= d + 1.0 && durB >= d + 12.0) return b;
+    }
+    return 4;
+  }
+  return bars;
+}
+
 _KeyRel _camelotRelation(String? a, String? b) {
   final pa = _parseOpen(a);
   final pb = _parseOpen(b);

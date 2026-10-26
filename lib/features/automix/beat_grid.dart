@@ -353,7 +353,57 @@ double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
 bool preferDouble(double covSlow, double covFast) =>
     covFast >= 0.7 && covFast >= covSlow * 0.85;
 
-/// Mix-in point: the first beat that actually grooves. Intros are
+/// Mix-out point: the last beat that still grooves. Outros are often
+/// dead air, ambience, or a lone pickup — the live window ends at
+/// end-of-file and fades through nothing, which reads as a dropout.
+/// Scans backwards from the end for the last grid beat whose transient
+/// peak reaches 40% of the excerpt's strongest beat. Dense-to-the-end
+/// resolves to the file end; sparse outros cut at the groove. Returns
+/// seconds, track time. Caps the skip: an outro gap longer than 45s is
+/// kept as-is (live endings, applause) rather than time-travelled.
+double findMixOut(
+  Uint8List pcm,
+  double bpm,
+  double phase,
+  double duration,
+) {
+  if (bpm <= 0 || duration <= 0) return duration;
+  final onset = lowBandOnset(pcm);
+  final frames = onset.length;
+  if (frames < _fps * 2.0) return duration;
+  final period = 60.0 / bpm;
+  double peakAt(double beatTime) {
+    final i = (beatTime * _fps).round().clamp(1, frames - 2);
+    return math.max(onset[i], math.max(onset[i - 1], onset[i + 1]));
+  }
+
+  var peakMax = 0.0;
+  var j = 0;
+  while (true) {
+    final t = phase + j * period;
+    if (t * _fps >= frames - 2) break;
+    peakMax = math.max(peakMax, peakAt(t));
+    j++;
+    if (j > 10000) break;
+  }
+  if (peakMax <= 0) return duration;
+  j = 0;
+  while (true) {
+    final t = phase + j * period;
+    if (t * _fps >= frames - 2) break;
+    j++;
+    if (j > 10000) break;
+  }
+  // Walk back from the last grid beat to the last grooving one.
+  for (var k = j - 1; k >= 0; k--) {
+    final t = phase + k * period;
+    if (peakAt(t) >= 0.4 * peakMax) {
+      if (duration - t > 45.0) return duration;
+      return t;
+    }
+  }
+  return duration;
+}
 /// often silence, ambience, or a lone pickup — first-sound lands
 /// there, but a blend should start where the drums do. Scans the
 /// low-band envelope for the first grid beat at/after [firstSound]
