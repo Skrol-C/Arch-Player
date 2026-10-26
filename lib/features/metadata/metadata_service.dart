@@ -2163,9 +2163,15 @@ class MetadataService {
   /// This is the backfill: coverage compounds as the library is heard.
   /// v1 = pre-folding best-wins; v2 = octave folding + agreement-shaped
   /// confidence; v3 adds the low-band octave tie-break for
-  /// majority-half locks. Misses stamp the version too, so a hopeless
-  /// track doesn't burn a full decode on every play.
-  static const _dspTempoV = 3;
+  /// majority-half locks; v4 = pair agreement + folded-pair tolerance.
+  /// Misses stamp the version too, so a hopeless track doesn't burn a
+  /// full decode on every play.
+  static const _dspTempoV = 4;
+
+  /// DSP key algorithm version. Same backfill contract as tempo:
+  /// v1 = relative-tie waiver. Key misses stamp it so they retry once
+  /// per key-algorithm rev instead of decoding on every play.
+  static const _dspKeyV = 1;
 
   /// Cache-only musical lookup: embedded tags plus the disk cache,
   /// never network and never DSP. This is the automix planning path —
@@ -2278,18 +2284,21 @@ class MetadataService {
         cachedTempoV == _dspTempoV &&
         bpm == null &&
         netBpm == null;
+    // Same contract for key: a stamped miss doesn't retry until the
+    // key detector revs. Old hits keep working untouched — the waiver
+    // only converts misses, so nothing earned is ever re-litigated.
+    final prevKeyV = (cached?['keyV'] as num?)?.toInt() ?? 0;
+    final needKey = netKey.isEmpty;
+    final keySettled = cached != null && prevKeyV == _dspKeyV;
     if (tempoStale) {
-      // Drop the stale DSP verdict; embedded tags survive (null here by
-      // construction, kept general). Fresh analysis re-earns provenance.
-      // Read pre-reset: netBpm/netSrc still carry the cached verdict.
+      // Drop the stale DSP tempo verdict; embedded tags survive (null
+      // here by construction, kept general). The key lane keeps its
+      // provenance — a tempo rerun doesn't invalidate an earned key.
+      // Read pre-reset: netBpm still carries the cached verdict.
       final hadDspVerdict = netBpm != null || netSrc.contains('dsp');
       netBpm = bpm;
       cachedPhase = null;
       cachedFirstSound = null;
-      netSrc = netSrc
-          .split('+')
-          .where((s) => s != 'dsp' && s.isNotEmpty)
-          .join('+');
       if (hadDspVerdict) {
         ArchLog.i(
           'meta',
@@ -2300,16 +2309,19 @@ class MetadataService {
     }
     // On-device DSP (Mornye-ported beat grid, hand-rolled chroma key):
     // one full decode feeds a 3-window tempo sweep plus whole-track
-    // key, all in parallel isolates. Tempo misses stamp the version so
-    // they retry only when the detector revs; key misses still retry.
-    if (((netBpm == null && !tempoSettled) || netKey.isEmpty) &&
+    // key, all in parallel isolates. Both lanes stamp their detector
+    // version on verdict — hit or miss — so a settled track never pays
+    // for another full decode until a lane revs.
+    if (((netBpm == null && !tempoSettled) || (needKey && !keySettled)) &&
         path.isNotEmpty) {
       try {
         final bytes = await decodeMono11k(path, full: true);
         if (bytes != null) {
           var grew = false;
-          var tempoTried = false;
+          var tempoRan = false;
+          var keyTried = false;
           if (netBpm == null && !tempoSettled) {
+            tempoRan = true;
             final won = await analyzeTempoWindows(bytes);
             final grid = won.grid;
             if (grid.confidence >= 0.55 && grid.bpm > 0) {
@@ -2329,7 +2341,6 @@ class MetadataService {
             } else {
               // Recorded miss at this detector version: stamp it so the
               // next play doesn't pay for another full decode.
-              tempoTried = true;
               ArchLog.i(
                 'meta',
                 'musical dsp tempo miss: $artist - $title '
@@ -2337,7 +2348,8 @@ class MetadataService {
               );
             }
           }
-          if (netKey.isEmpty) {
+          if (needKey && !keySettled) {
+            keyTried = true;
             final detected = await analyzeKey(bytes);
             if (detected.key != null) {
               netKey = detected.key!.name;
@@ -2361,7 +2373,7 @@ class MetadataService {
               );
             }
           }
-          if (grew || tempoTried) {
+          if (grew || tempoRan || keyTried) {
             // Dedupe provenance: an older write may already hold a
             // doubled 'dsp+dsp' — collapse, never accumulate.
             netSrc = netSrc.split('+').toSet().join('+');
@@ -2370,7 +2382,10 @@ class MetadataService {
               'key': netKey,
               'openKey': netOpen,
               'src': netSrc,
-              'tempoV': _dspTempoV,
+              // Stamps reflect lanes that ran this pass — never inherit
+              // a current stamp for a lane that didn't run.
+              'tempoV': tempoRan ? _dspTempoV : cachedTempoV,
+              'keyV': keyTried ? _dspKeyV : prevKeyV,
               'phase': ?cachedPhase,
               'firstSound': ?cachedFirstSound,
             };
