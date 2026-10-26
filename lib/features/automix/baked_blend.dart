@@ -205,9 +205,11 @@ BlendPlan? buildBlend(BlendSpec s) {
   if (s.bpmA <= 0 || s.bpmB <= 0) return null;
   if (s.durA <= 0 || s.durB <= 0) return null;
   final ratio = s.bpmA / s.bpmB;
-  // atempo lane: gentle correction only. Anything bigger is a
+  // atempo lane: DJ-standard pitch range (±8%). atempo preserves
+  // pitch, so this reads as slight smear, not chipmunks — and it
+  // is exactly what the lane is for. Anything bigger is a
   // different track, not a blend.
-  if (ratio < 0.94 || ratio > 1.06) {
+  if (ratio < 0.92 || ratio > 1.08) {
     ArchLog.w(
       'automix',
       'blend gate ratio ${ratio.toStringAsFixed(3)} bars=${s.bars}',

@@ -239,7 +239,16 @@ class AutomixEngine {
         await _cutTo(nextUri);
         return false;
       }
+      // Micro-fade, not a hard pause: the fresh source needs a
+      // beat to sound, and cutting A first reads as a dropout.
+      // Both sides carry the same waveform here, so 150ms of
+      // overlap under a fade is inaudible.
       try {
+        for (var i = 1; i <= 5; i++) {
+          if (_disposed || !_bridging) return false;
+          await _active.setVolume(1.0 - i / 5);
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        }
         await _active.pause().timeout(const Duration(seconds: 4));
         await _active.setVolume(1.0);
       } catch (_) {}
@@ -281,29 +290,34 @@ class AutomixEngine {
               .timeout(const Duration(seconds: 4));
         } catch (_) {}
       }
+      // Prime only: prepared and paused. Playing now would silently
+      // consume B under the bridge tail and land mid-song.
       await landing.setVolume(0.0);
-      // Start muted under the bridge tail; the flip lands on
-      // completion, so the join is exact instead of early.
+      // Wait until ~250ms before file end, then join: anticipation
+      // absorbs completion-detection latency, and the primed B
+      // starts in milliseconds. Aborted by any interrupt.
+      final deadline = DateTime.now().add(
+        Duration(seconds: _bridgeSeconds.round() + 30),
+      );
+      const lead = Duration(milliseconds: 250);
+      while (!_disposed && _bridging) {
+        final d = _active.duration;
+        final p = _active.position;
+        if (d != null && d > Duration.zero && d - p <= lead) break;
+        if (_active.processingState == ProcessingState.completed) break;
+        if (DateTime.now().isAfter(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      if (!_bridging || _disposed) return false;
       if (!await _startPlaying(landing)) {
         await _cutTo(nextUri);
         return false;
       }
-      // Wait out the file: bounded by its own length, aborted by
-      // any interrupt. Skips and toggles clear _bridging via stop.
-      final deadline = DateTime.now().add(
-        Duration(seconds: _bridgeSeconds.round() + 30),
-      );
-      while (!_disposed && _bridging) {
-        if (_active.processingState == ProcessingState.completed) break;
-        if (DateTime.now().isAfter(deadline)) break;
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-      if (!_bridging || _disposed) return false;
+      await landing.setVolume(1.0);
       try {
         await _active.pause().timeout(const Duration(seconds: 4));
         await _active.setVolume(1.0);
       } catch (_) {}
-      await landing.setVolume(1.0);
       _aActive = !_aActive;
       _bridging = false;
       ArchLog.i(

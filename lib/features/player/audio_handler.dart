@@ -1555,10 +1555,11 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         _renderSkip(pair, 'no tempo');
         return;
       }
-      // Same band as the renderer: hopeless pairs die here, before
-      // paying for decodes — and stay dead (see _deadPairs).
+      // Same band as the renderer (±8% DJ pitch range): hopeless
+      // pairs die here, before paying for decodes — and stay dead
+      // (see _deadPairs).
       final ratio = ia!.bpm! / ib!.bpm!;
-      if (ratio < 0.94 || ratio > 1.06) {
+      if (ratio < 0.92 || ratio > 1.08) {
         _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
         _deadPairs.add(pair);
         return;
