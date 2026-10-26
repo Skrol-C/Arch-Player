@@ -83,6 +83,19 @@ double kickConfirm(
   return math.max(confidence, 0.65);
 }
 
+/// Feel-double rule: unanimous half-time locks have no minority
+/// witness, so neither folding nor the tie-break can see them. When
+/// the quarters are carried by non-kick content (mid band: snare body,
+/// claps, synth stabs, guitar chops) while kicks sit out, the track
+/// moves at double: flip. Deliberately strict — a wrong flip-up is
+/// worse than a held half — and fully logged either way.
+bool feelDouble(double bpm, double midSlow, double midFast, double lowFast) {
+  if (bpm >= 100) return false;
+  if (midFast < 0.8) return false;
+  if (lowFast >= 0.55) return false;
+  return midFast >= midSlow * 0.85;
+}
+
 /// Musical key in an isolate. Verdict plus miss evidence — silence
 /// returns null key with zeroed stats.
 Future<({DetectedKey? key, double bestR, double margin, String best, String runner})>
@@ -163,11 +176,12 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   // it only when the kick band carries it — four-on-the-floor counted
   // at half time flips up; genuine half-time feels hold. Majority-half
   // is the one case median folding can't survive, and this is it.
+  var up = false;
   if (consensus.agreed && consensus.halved.isNotEmpty) {
     final trackPhase = won.phase + offsetSec;
     final covSlow = lowBandCoverage(pcm, consensus.bpm, trackPhase);
     final covFast = lowBandCoverage(pcm, consensus.bpm * 2.0, trackPhase);
-    final up = preferDouble(covSlow, covFast);
+    up = preferDouble(covSlow, covFast);
     ArchLog.i(
       'automix',
       'tempo octave check base=${consensus.bpm.toStringAsFixed(2)} '
@@ -179,6 +193,34 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       ArchLog.i(
         'automix',
         'tempo octave up ${consensus.bpm.toStringAsFixed(2)} -> '
+        '${bpm.toStringAsFixed(2)}',
+      );
+    }
+  }
+  // Feel-double: unanimous half-time locks (Walking On A Dream,
+  // Let Me Hit It, Happy Dictator on device — no minority witness
+  // anywhere). When mid-band quarters are strong while kicks sit out,
+  // the track moves at double regardless of what the drums imply.
+  // Runs on agreed/pair verdicts only; contested readings stay out.
+  if (!up && (consensus.agreed || consensus.pair) && bpm < 100) {
+    final trackPhase = won.phase + offsetSec;
+    final mid = midBandOnset(pcm);
+    final midSlow = gridCoverage(mid, bpm, trackPhase);
+    final midFast = gridCoverage(mid, bpm * 2.0, trackPhase);
+    final lowFast = lowBandCoverage(pcm, bpm * 2.0, trackPhase);
+    final feelUp = feelDouble(bpm, midSlow, midFast, lowFast);
+    ArchLog.i(
+      'automix',
+      'tempo feel-double base=${bpm.toStringAsFixed(2)} '
+      'midSlow=${midSlow.toStringAsFixed(2)} '
+      'midFast=${midFast.toStringAsFixed(2)} '
+      'lowFast=${lowFast.toStringAsFixed(2)} ${feelUp ? 'UP' : 'hold'}',
+    );
+    if (feelUp) {
+      bpm = bpm * 2.0;
+      ArchLog.i(
+        'automix',
+        'tempo feel-double up ${(bpm / 2).toStringAsFixed(2)} -> '
         '${bpm.toStringAsFixed(2)}',
       );
     }

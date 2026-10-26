@@ -182,6 +182,24 @@ void main() {
     // Silence in, silence out.
     expect(kickConfirm(0.0, 0.0, 0.0, 0.0), closeTo(0.0, 0.01));
   });
+
+  test('mid band carries quarter-note content', () {
+    // Burst attacks are broadband: the mid slice (snare/clap/chop
+    // territory) must see the same grid as the low slice.
+    final mid = midBandOnset(_thumps(90.0, 8.0));
+    expect(gridCoverage(mid, 90.0, 0.0), greaterThan(0.5));
+  });
+
+  test('feel-double flips half-time drums, holds the genuine slow', () {
+    // Walking On A Dream shape: quarters carried upstairs, kicks out.
+    expect(feelDouble(63.4, 0.9, 0.85, 0.3), isTrue);
+    // Genuine slow: off-quarters starved, nothing to flip to.
+    expect(feelDouble(70.0, 0.9, 0.5, 0.3), isFalse);
+    // Kicks carry the double: tie-break territory, not feel-double.
+    expect(feelDouble(65.0, 0.9, 0.85, 0.7), isFalse);
+    // Normal ranges never flip.
+    expect(feelDouble(120.0, 0.9, 0.9, 0.3), isFalse);
+  });
 }
 
 /// Low thumps on a [bpm] grid: 90 Hz sine bursts, 8s unless told

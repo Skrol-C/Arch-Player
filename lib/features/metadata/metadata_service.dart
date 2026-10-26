@@ -2163,10 +2163,11 @@ class MetadataService {
   /// This is the backfill: coverage compounds as the library is heard.
   /// v1 = pre-folding best-wins; v2 = octave folding + agreement-shaped
   /// confidence; v3 adds the low-band octave tie-break for
-  /// majority-half locks; v4 = pair agreement + folded-pair tolerance.
+  /// majority-half locks; v4 = pair agreement + folded-pair tolerance;
+  /// v5 adds the mid-band feel-double for unanimous half-time locks.
   /// Misses stamp the version too, so a hopeless track doesn't burn a
   /// full decode on every play.
-  static const _dspTempoV = 4;
+  static const _dspTempoV = 5;
 
   /// DSP key algorithm version. Same backfill contract as tempo:
   /// v1 = relative-tie waiver. Key misses stamp it so they retry once

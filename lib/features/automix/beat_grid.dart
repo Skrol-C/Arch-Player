@@ -269,18 +269,41 @@ List<double> lowBandOnset(Uint8List pcm) {
   return sweepTempo(onset, correlation);
 }
 
-/// Low-band-only beat coverage: fraction of grid beats (at [bpm]
-/// from [phase], seconds) that carry a low-end transient.
-///
-/// Used for the octave tie-break: when a minority window hears ~2x the
-/// consensus, strong low-band coverage at the faster grid means the
-/// track is really at the faster tempo (four-on-the-floor counted at
-/// half time); weak coverage means a genuine half-time feel.
-double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
-  if (bpm <= 0) return 0.0;
+/// Mid-band onset envelope: the 130–790 Hz slice (snare body, claps,
+/// synth stabs, guitar chops) — where quarter-note content lives when
+/// kicks sit out on half notes. Hats (>6 kHz) don't reach it.
+List<double> midBandOnset(Uint8List pcm) {
   final frames = pcm.length ~/ (2 * _hop);
-  if (frames < _fps * 2.0) return 0.0;
-  final onset = lowBandOnset(pcm);
+  final data =
+      ByteData.view(pcm.buffer, pcm.offsetInBytes, pcm.lengthInBytes);
+  final onset = List<double>.filled(frames, 0.0);
+  var low = 0.0;
+  var mid = 0.0;
+  var prevBand = 0.0;
+  for (var frame = 0; frame < frames; frame++) {
+    var bandEnergy = 0.0;
+    for (var index = 0; index < _hop; index++) {
+      final byte = (frame * _hop + index) * 2;
+      final value = data.getInt16(byte, Endian.little) / 32768.0;
+      low += 0.075 * (value - low);
+      mid += 0.45 * (value - mid);
+      final band = mid - low;
+      bandEnergy += band * band;
+    }
+    final benv = math.log(1.0 + bandEnergy * 100.0 / _hop);
+    onset[frame] = math.max(benv - prevBand, 0.0);
+    prevBand = benv;
+  }
+  return onset;
+}
+
+/// Grid coverage over a precomputed onset envelope: fraction of grid
+/// beats (at [bpm] from [phase], seconds) that carry a transient.
+/// Shared by the low-band tie-break and the mid-band feel check —
+/// extracted verbatim, so the coverage tests guard both callers.
+double gridCoverage(List<double> onset, double bpm, double phase) {
+  final frames = onset.length;
+  if (bpm <= 0 || frames < 2) return 0.0;
   final period = _fps * 60.0 / bpm;
   final start = (phase * _fps).round();
   var score = 0.0;
@@ -308,6 +331,20 @@ double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
     beat += period;
   }
   return hits / math.max(total, 1);
+}
+
+/// Low-band-only beat coverage: fraction of grid beats (at [bpm]
+/// from [phase], seconds) that carry a low-end transient.
+///
+/// Used for the octave tie-break: when a minority window hears ~2x the
+/// consensus, strong low-band coverage at the faster grid means the
+/// track is really at the faster tempo (four-on-the-floor counted at
+/// half time); weak coverage means a genuine half-time feel.
+double lowBandCoverage(Uint8List pcm, double bpm, double phase) {
+  if (bpm <= 0) return 0.0;
+  final frames = pcm.length ~/ (2 * _hop);
+  if (frames < _fps * 2.0) return 0.0;
+  return gridCoverage(lowBandOnset(pcm), bpm, phase);
 }
 
 /// Octave tie-break: take the faster octave only when the low band
