@@ -20,6 +20,7 @@ import '../library/library_providers.dart';
 import '../library/playlists_providers.dart' show playlistsProvider;
 import '../library/song_row.dart' show fmtDuration;
 import '../song/song_page.dart';
+import '../automix/blend_preview.dart' show renderBlendPreview;
 import 'morph_icon.dart';
 
 /// One row in a context menu. Tap pops [value] back to the caller -
@@ -469,6 +470,11 @@ Future<void> showSongMenu(
           subtitle: '${song.title} - ${song.artist}',
           value: 'share',
         ),
+        const MenuAction(
+          icon: CupertinoIcons.sparkles,
+          label: 'Blend preview (lab)',
+          value: 'blend_lab',
+        ),
       ],
     ],
   );
@@ -495,6 +501,9 @@ Future<void> showSongMenu(
       SharePlus.instance.share(
         ShareParams(text: '${song.title} - ${song.artist}'),
       );
+      break;
+    case 'blend_lab':
+      unawaited(renderBlendPreview(ref, context, song));
       break;
     case 'details':
       showModalBottomSheet(
