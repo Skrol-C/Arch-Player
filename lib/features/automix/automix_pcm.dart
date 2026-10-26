@@ -96,6 +96,16 @@ bool feelDouble(double bpm, double midSlow, double midFast, double lowFast) {
   return midFast >= midSlow * 0.85;
 }
 
+/// Metrical prior, last word on octaves: DJs count quarters, and
+/// dance libraries live near 120-130. Below 80 with a publishable
+/// reading, the counted tempo is almost certainly the double — every
+/// disputed sub-80 case on device resolved that way (63->127, 64->128,
+/// 65->130, 67.8->136, 77.5->155), while every genuine-slow keeper
+/// sits at 80+. Logged as prior, not evidence; the mixer treats
+/// octaves as equivalent regardless.
+double meterPrior(double bpm, double confidence) =>
+    (bpm < 80 && confidence >= 0.55) ? bpm * 2.0 : bpm;
+
 /// Musical key in an isolate. Verdict plus miss evidence — silence
 /// returns null key with zeroed stats.
 Future<({DetectedKey? key, double bestR, double margin, String best, String runner})>
@@ -226,6 +236,18 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
         '${bpm.toStringAsFixed(2)}',
       );
     }
+  }
+  // Metrical prior, applied last: doubled values exceed 80, so this
+  // can never double-flip. The consensus line below prints the final
+  // verdict.
+  final metered = meterPrior(bpm, consensus.confidence);
+  if (metered != bpm) {
+    ArchLog.i(
+      'automix',
+      'tempo meter up ${bpm.toStringAsFixed(2)} -> '
+      '${metered.toStringAsFixed(2)} (prior)',
+    );
+    bpm = metered;
   }
   // One line per analysis: proves the folding code is live on-device
   // and shows exactly what it did (raw -> folded -> verdict).

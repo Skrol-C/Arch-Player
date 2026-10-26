@@ -200,6 +200,17 @@ void main() {
     // Normal ranges never flip.
     expect(feelDouble(120.0, 0.9, 0.9, 0.3), isFalse);
   });
+
+  test('metrical prior counts quarters below 80', () {
+    expect(meterPrior(63.44, 0.70), closeTo(126.88, 0.01));
+    expect(meterPrior(77.5, 0.90), closeTo(155.0, 0.01));
+    // Genuine-slow keepers sit at 80+.
+    expect(meterPrior(89.91, 0.90), closeTo(89.91, 0.01));
+    expect(meterPrior(86.83, 0.75), closeTo(86.83, 0.01));
+    // Unpublished readings stay untouched.
+    expect(meterPrior(64.0, 0.49), closeTo(64.0, 0.01));
+    expect(meterPrior(116.4, 0.38), closeTo(116.4, 0.01));
+  });
 }
 
 /// Low thumps on a [bpm] grid: 90 Hz sine bursts, 8s unless told

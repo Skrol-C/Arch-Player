@@ -2165,10 +2165,11 @@ class MetadataService {
   /// confidence; v3 adds the low-band octave tie-break for
   /// majority-half locks; v4 = pair agreement + folded-pair tolerance;
   /// v5 adds the mid-band feel-double for unanimous half-time locks;
-  /// v6 runs it on every sub-100 verdict, not just agreed/pair ones.
+  /// v6 runs it on every sub-100 verdict, not just agreed/pair ones;
+  /// v7 adds the metrical prior: sub-80 publishes count quarters.
   /// Misses stamp the version too, so a hopeless track doesn't burn a
   /// full decode on every play.
-  static const _dspTempoV = 6;
+  static const _dspTempoV = 7;
 
   /// DSP key algorithm version. Same backfill contract as tempo:
   /// v1 = relative-tie waiver. Key misses stamp it so they retry once
