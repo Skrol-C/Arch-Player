@@ -2162,9 +2162,10 @@ class MetadataService {
   /// entries stamped older re-analyze once, lazily, on next play.
   /// This is the backfill: coverage compounds as the library is heard.
   /// v1 = pre-folding best-wins; v2 = octave folding + agreement-shaped
-  /// confidence. Misses stamp the version too, so a hopeless track
-  /// doesn't burn a full decode on every play.
-  static const _dspTempoV = 2;
+  /// confidence; v3 adds the low-band octave tie-break for
+  /// majority-half locks. Misses stamp the version too, so a hopeless
+  /// track doesn't burn a full decode on every play.
+  static const _dspTempoV = 3;
 
   /// Cache-only musical lookup: embedded tags plus the disk cache,
   /// never network and never DSP. This is the automix planning path —
