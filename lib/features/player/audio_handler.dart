@@ -904,6 +904,25 @@ class ArchAudioHandler extends BaseAudioHandler {
         'player',
         'playing id=${song.id} in=${watch.elapsedMilliseconds}ms',
       );
+      // Backfill behind playback: the lane probe went cache-only
+      // (it raced ExoPlayer prepare), so plain taps must schedule
+      // their own analysis — delayed past prepare, dropped when
+      // the track moves on. Automix covers its own via _warmUpcoming.
+      final warmGen = gen;
+      final warmIdx = index;
+      unawaited(() async {
+        await Future<void>.delayed(const Duration(seconds: 5));
+        try {
+          if (warmGen != _playGen) return;
+          if (warmIdx < 0 || warmIdx >= _songs.length) return;
+          if (_songs[warmIdx].id != song.id) return;
+          await _meta?.musicalInfoFor(
+            title: song.title,
+            artist: song.artist,
+            path: song.path,
+          );
+        } catch (_) {}
+      }());
       // Art follows behind the tap (zero tap cost): re-set the item
       // with a file-backed cover once resolved. Triple-guarded so a
       // slow fetch can never paint stale art over a newer track.
