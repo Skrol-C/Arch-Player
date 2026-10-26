@@ -2158,6 +2158,14 @@ class MetadataService {
   /// synchronously. Call once before a playback path needs plans.
   Future<void> warmMusical() => _loadMusicalDisk();
 
+  /// DSP tempo algorithm version. Bump when the detector changes;
+  /// entries stamped older re-analyze once, lazily, on next play.
+  /// This is the backfill: coverage compounds as the library is heard.
+  /// v1 = pre-folding best-wins; v2 = octave folding + agreement-shaped
+  /// confidence. Misses stamp the version too, so a hopeless track
+  /// doesn't burn a full decode on every play.
+  static const _dspTempoV = 2;
+
   /// Cache-only musical lookup: embedded tags plus the disk cache,
   /// never network and never DSP. This is the automix planning path —
   /// it must answer in microseconds, so anything unresolved returns
@@ -2250,16 +2258,57 @@ class MetadataService {
         unawaited(_saveMusicalDisk());
       }
     }
+    // DSP tempo staleness: the cached verdict predates the current
+    // detector. Embedded tags and catalog (GetSongBPM) bpms outrank DSP
+    // and are never disturbed — only DSP-sourced (or absent) bpms refresh.
+    final cachedTempoV = (cached?['tempoV'] as num?)?.toInt() ?? 0;
+    final srcIsDspOnly =
+        netSrc == 'dsp' ||
+        (netSrc.contains('dsp') && !netSrc.contains('getsongbpm'));
+    final tempoStale =
+        cached != null &&
+        cachedTempoV < _dspTempoV &&
+        bpm == null &&
+        (netBpm == null || srcIsDspOnly);
+    // A verdict at the current version with no bpm is a recorded miss:
+    // don't burn a full decode retrying it every play.
+    final tempoSettled =
+        cached != null &&
+        cachedTempoV == _dspTempoV &&
+        bpm == null &&
+        netBpm == null;
+    if (tempoStale) {
+      // Drop the stale DSP verdict; embedded tags survive (null here by
+      // construction, kept general). Fresh analysis re-earns provenance.
+      // Read pre-reset: netBpm/netSrc still carry the cached verdict.
+      final hadDspVerdict = netBpm != null || netSrc.contains('dsp');
+      netBpm = bpm;
+      cachedPhase = null;
+      cachedFirstSound = null;
+      netSrc = netSrc
+          .split('+')
+          .where((s) => s != 'dsp' && s.isNotEmpty)
+          .join('+');
+      if (hadDspVerdict) {
+        ArchLog.i(
+          'meta',
+          'musical dsp tempo stale v$cachedTempoV: $artist - $title '
+          '(re-analyzing)',
+        );
+      }
+    }
     // On-device DSP (Mornye-ported beat grid, hand-rolled chroma key):
     // one full decode feeds a 3-window tempo sweep plus whole-track
-    // key, all in parallel isolates. Misses stay silent and uncached
-    // so a later retry can still land.
-    if ((netBpm == null || netKey.isEmpty) && path.isNotEmpty) {
+    // key, all in parallel isolates. Tempo misses stamp the version so
+    // they retry only when the detector revs; key misses still retry.
+    if (((netBpm == null && !tempoSettled) || netKey.isEmpty) &&
+        path.isNotEmpty) {
       try {
         final bytes = await decodeMono11k(path, full: true);
         if (bytes != null) {
           var grew = false;
-          if (netBpm == null) {
+          var tempoTried = false;
+          if (netBpm == null && !tempoSettled) {
             final won = await analyzeTempoWindows(bytes);
             final grid = won.grid;
             if (grid.confidence >= 0.55 && grid.bpm > 0) {
@@ -2277,6 +2326,9 @@ class MetadataService {
                 'win=${won.window + 1}/${won.of}',
               );
             } else {
+              // Recorded miss at this detector version: stamp it so the
+              // next play doesn't pay for another full decode.
+              tempoTried = true;
               ArchLog.i(
                 'meta',
                 'musical dsp tempo miss: $artist - $title '
@@ -2303,7 +2355,7 @@ class MetadataService {
               ArchLog.i('meta', 'musical dsp key miss: $artist - $title');
             }
           }
-          if (grew) {
+          if (grew || tempoTried) {
             // Dedupe provenance: an older write may already hold a
             // doubled 'dsp+dsp' — collapse, never accumulate.
             netSrc = netSrc.split('+').toSet().join('+');
@@ -2312,6 +2364,7 @@ class MetadataService {
               'key': netKey,
               'openKey': netOpen,
               'src': netSrc,
+              'tempoV': _dspTempoV,
               'phase': ?cachedPhase,
               'firstSound': ?cachedFirstSound,
             };
