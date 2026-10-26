@@ -14,6 +14,7 @@ import '../../core/art_scale.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../automix/automix_engine.dart';
+import '../automix/harmonic_order.dart' as ho;
 import '../automix/crossfade.dart';
 import '../library/data/art_previews.dart';
 import '../library/data/library_repository.dart';
@@ -121,6 +122,38 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// the user toggled off must not arm a zombie engine.
   int _mixGen = 0;
 
+  /// Harmonic ordering: batches of compatible next tracks, refilled
+  /// from the current position (batch of 5 with shuffle, single best
+  /// without). Cleared on any queue mutation, tap, or shuffle flip.
+  List<int> _harmonicBatch = [];
+  final List<int> _harmonicRecentIds = [];
+
+  /// Autoplay: when the queue runs out, the UI is asked for more music
+  /// instead of stopping. Keyed so one exhaustion notifies once.
+  bool _autoplayOn = false;
+  final StreamController<void> _needMoreController =
+      StreamController<void>.broadcast();
+  Stream<void> get needMoreMusic => _needMoreController.stream;
+  String _needMoreKey = '';
+
+  /// Cache-only musical info (no analysis, no I/O beyond the loaded
+  /// cache): the automix planning path and UI badges read here so a
+  /// list build can never kick off a decode storm. Null = unknown.
+  TrackMusicalInfo? musicalCached({
+    required String title,
+    required String artist,
+    String path = '',
+  }) => _meta?.musicalInfoCached(title: title, artist: artist, path: path);
+
+  /// Queue contents for autoplay fills (ids + tail), in play order.
+  List<int> get queueSongIds => [for (final s in _songs) s.id];
+  Song? get queueTail => _songs.isEmpty ? null : _songs.last;
+
+  Future<void> setAutoplayEnabled(bool on) async {
+    _autoplayOn = on;
+    ArchLog.i('player', 'autoplay=$on');
+  }
+
   /// Fires when the engine can't take over (load failure). The toggle
   /// provider listens and flips itself off, so the UI never claims
   /// automix is on while the playlist is actually driving.
@@ -170,7 +203,34 @@ class ArchAudioHandler extends BaseAudioHandler {
         }
       }
     });
+    // Autoplay without automix: the playlist player runs out of queue
+    // at the last track. Engine mode never reaches here (guarded) and
+    // previews never match (empty queue).
+    _player.processingStateStream.listen((state) {
+      if (state != ProcessingState.completed) return;
+      if (_engine != null || !_autoplayOn || _songs.isEmpty) return;
+      if (_player.loopMode != LoopMode.off) return;
+      final idx = _player.currentIndex;
+      if (idx == null || idx < _songs.length - 1) return;
+      _requestMoreMusic();
+    });
     unawaited(_configureSession());
+  }
+
+  /// Autoplay request, keyed so one queue exhaustion notifies once.
+  /// Re-arm happens naturally: new songs change the key.
+  void _requestMoreMusic() {
+    final n = _songs.length;
+    final key = '$n:$_mixIndex:${_player.currentIndex}';
+    if (key == _needMoreKey) return;
+    _needMoreKey = key;
+    ArchLog.i(
+      'automix',
+      'autoplay exhausted n=${_songs.length} — requesting more',
+    );
+    if (!_needMoreController.isClosed) {
+      _needMoreController.add(null);
+    }
   }
 
   /// Re-publish the current state (notification icon refresh). Reads
@@ -313,7 +373,69 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   void _emitQueue(List<MediaItem> items) {
     queue.value = items;
+    // Queue mutations invalidate harmonic positions (index-based).
+    // The next tick refills from the new truth; display follows.
+    _harmonicBatch.clear();
     _republishOrder();
+  }
+
+  /// Recompute the harmonic batch when it's missing or stale. Called
+  /// from tick-safe places (never inside a pure read); republish keeps
+  /// Up Next truthful without per-tick stream churn.
+  void _ensureHarmonicBatch() {
+    if (!_automixOn || _engine == null || _songs.length < 2) return;
+    if (_harmonicBatch.isNotEmpty) return;
+    final k = _player.shuffleModeEnabled ? 5 : 1;
+    final picked = ho.pickHarmonicBatch(
+      songs: _songs,
+      infoOf: (s) => _meta?.musicalInfoCached(
+        title: s.title,
+        artist: s.artist,
+        path: s.path,
+      ),
+      fromId: (_mixIndex >= 0 && _mixIndex < _songs.length)
+          ? _songs[_mixIndex].id
+          : -1,
+      recentIds: Set<int>.of(_harmonicRecentIds),
+      k: k,
+    );
+    _harmonicBatch = [
+      for (final id in picked)
+        _songs.indexWhere((s) => s.id == id),
+    ].where((i) => i >= 0).toList();
+    if (_harmonicBatch.isNotEmpty) {
+      final fromId = (_mixIndex >= 0 && _mixIndex < _songs.length)
+          ? _songs[_mixIndex].id
+          : -1;
+      ArchLog.i(
+        'automix',
+        'harmonic batch k=$k from=$fromId '
+        '-> ${_harmonicBatch.map((i) => _songs[i].id).join(',')}',
+      );
+      _republishOrder();
+    }
+  }
+
+  /// Next harmonic index without consuming. Null = nothing known
+  /// enough to order; the caller falls back to the old behavior.
+  int? _harmonicPeek() {
+    if (!_automixOn || _engine == null || _songs.length < 2) return null;
+    if (_harmonicBatch.isEmpty) return null;
+    final i = _harmonicBatch.first;
+    if (i < 0 || i >= _songs.length) return null;
+    return i;
+  }
+
+  void _harmonicConsume(int index) {
+    if (_harmonicBatch.isNotEmpty && _harmonicBatch.first == index) {
+      _harmonicBatch.removeAt(0);
+    }
+    if (index >= 0 && index < _songs.length) {
+      _harmonicRecentIds.add(_songs[index].id);
+      while (_harmonicRecentIds.length > 12) {
+        _harmonicRecentIds.removeAt(0);
+      }
+    }
   }
 
   /// Up Next order: the engine's shuffle permutation when shuffling,
@@ -330,8 +452,37 @@ class ArchAudioHandler extends BaseAudioHandler {
     return _orderController!.stream;
   }
 
+  /// Up Next display order in automix mode: the current track, the
+  /// harmonic batch, then everything else in queue order. Unknowns
+  /// and unpicked tracks stay visible — ordering never hides music.
+  List<int> _harmonicDisplayOrder() {
+    final order = <int>[];
+    if (_automixOn &&
+        _engine != null &&
+        _mixIndex >= 0 &&
+        _mixIndex < _songs.length) {
+      order.add(_mixIndex);
+    }
+    for (final i in _harmonicBatch) {
+      if (i >= 0 && i < _songs.length && !order.contains(i)) order.add(i);
+    }
+    for (var i = 0; i < _songs.length; i++) {
+      if (!order.contains(i)) order.add(i);
+    }
+    return order;
+  }
+
   List<MediaItem> _currentOrder() {
     final items = List<MediaItem>.of(queue.value);
+    if (items.isNotEmpty &&
+        _automixOn &&
+        _engine != null &&
+        items.length == _songs.length) {
+      final order = _harmonicDisplayOrder();
+      if (order.length == items.length) {
+        return [for (final i in order) items[i]];
+      }
+    }
     final idx = _player.shuffleIndices;
     if (_player.shuffleModeEnabled &&
         items.isNotEmpty &&
@@ -347,10 +498,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     }
   }
 
-  /// Display position (Up Next) to engine source position. Identity
-  /// unless shuffling with a matching permutation — guards the
-  /// transient where sources rebuilt but indices haven't re-rolled.
+  /// Display position (Up Next) to engine source position. Harmonic
+  /// order first when the engine owns transport, then the legacy
+  /// shuffle mapping, then identity.
   int _toSource(int display) {
+    if (_automixOn && _engine != null) {
+      final order = _harmonicDisplayOrder();
+      if (display >= 0 && display < order.length) return order[display];
+      return display;
+    }
     final idx = _player.shuffleIndices;
     if (_player.shuffleModeEnabled &&
         idx.length == _songs.length &&
@@ -731,6 +887,15 @@ class ArchAudioHandler extends BaseAudioHandler {
     final engine = AutomixEngine();
     _engine = engine;
     _mixIndex = index;
+    // New transport anchor: drop the old batch, remember the track
+    // (anti-repeat), refill + prefetch below.
+    _harmonicBatch.clear();
+    if (index >= 0 && index < _songs.length) {
+      _harmonicRecentIds.add(_songs[index].id);
+      while (_harmonicRecentIds.length > 12) {
+        _harmonicRecentIds.removeAt(0);
+      }
+    }
     _mixEvents = engine.events.listen((_) => _publishEngineState());
     // One explicit activation for the app: the engine players do not
     // request focus themselves. Without this they wait on a grant the
@@ -768,6 +933,9 @@ class ArchAudioHandler extends BaseAudioHandler {
     );
     _publishEngineState();
     ArchLog.i('automix', 'armed idx=$index at=${at.inSeconds}s');
+    // Fresh transport, fresh harmonic batch from the new position.
+    _harmonicBatch.clear();
+    _ensureHarmonicBatch();
     // Pre-analysis runs ahead of the needle from here: the next two
     // tracks resolve while this one plays.
     unawaited(_warmUpcoming());
@@ -825,8 +993,19 @@ class ArchAudioHandler extends BaseAudioHandler {
         ? known
         : (fallback > Duration.zero ? fallback : null);
     if (total == null) return _mixWhy('no duration');
+    // Harmonic batches refill here (once per exhaustion, not per tick:
+    // _ensureHarmonicBatch is a no-op while the batch holds).
+    _ensureHarmonicBatch();
     final next = _mixNeighborIndex(1);
-    if (next == null || next == _mixIndex) return _mixWhy('no next');
+    if (next == null || next == _mixIndex) {
+      // Queue ran dry mid-automix: with autoplay on, ask the UI for
+      // more instead of stopping. Without it, same as before.
+      if (_automixOn && _autoplayOn) {
+        _requestMoreMusic();
+        return _mixWhy('autoplay wait');
+      }
+      return _mixWhy('no next');
+    }
     final plan = _mixPlan(_mixIndex, next);
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
     _mixProbe(engine, total, remaining, next, plan);
@@ -846,8 +1025,10 @@ class ArchAudioHandler extends BaseAudioHandler {
       });
       if (ok) {
         _mixIndex = next;
+        _harmonicConsume(next);
         _setItem(song.toMediaItem());
         unawaited(_attachArtFile(song));
+        _republishOrder();
         ArchLog.i(
           'automix',
           'mixing id=${song.id} ${plan.seconds.toStringAsFixed(1)}s (${plan.reason})',
@@ -894,7 +1075,15 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Neighbour of the engine's current index in play order. Honours
   /// the engine's shuffle permutation and loop-all wrap; null at the
   /// end with loop off (the mix simply stops, like a playlist would).
-  int? _mixNeighborIndex(int delta) => _mixNeighborIndexAt(_mixIndex, delta);
+  /// Next/previous while the engine owns transport. Forward follows
+  /// the harmonic batch (refilled on demand); backward keeps the
+  /// legacy behavior — history has no harmonic walk to replay.
+  int? _mixNeighborIndex(int delta) {
+    if (_automixOn && _engine != null && delta > 0) {
+      return _harmonicPeek();
+    }
+    return _mixNeighborIndexAt(_mixIndex, delta);
+  }
 
   /// Neighbour of an arbitrary index in play order — the lookahead
   /// primitive. Same order rules as the engine cursor.
@@ -919,26 +1108,44 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   /// Queue-ahead pre-analysis: resolve musical info for the next two
   /// tracks while the current one plays, so every transition is fully
-  /// planned before it fires. Fire-and-forget and sequential — never
-  /// on the playback path, never parallel decodes. Superseded the
-  /// moment transport moves on (generation guard).
+  /// planned before it fires. Follows the harmonic horizon first
+  /// (what will actually play), queue order only past it.
+  /// Fire-and-forget and sequential — never on the playback path,
+  /// never parallel decodes. Superseded the moment transport moves
+  /// on (generation guard).
   Future<void> _warmUpcoming() async {
     try {
       final meta = _meta;
       if (meta == null || !_automixOn || _engine == null) return;
       final gen = _mixGen;
+      _ensureHarmonicBatch();
+      final targets = <int>[];
+      for (final i in _harmonicBatch) {
+        if (targets.length >= 2) break;
+        if (i >= 0 && i < _songs.length && i != _mixIndex) {
+          targets.add(i);
+        }
+      }
       var idx = _mixIndex;
-      for (var n = 0; n < 2; n++) {
+      final seen = <int>{idx};
+      while (targets.length < 2) {
         final next = _mixNeighborIndexAt(idx, 1);
-        if (next == null || next < 0 || next >= _songs.length) return;
-        final s = _songs[next];
+        if (next == null || next < 0 || next >= _songs.length) break;
+        // Seen or wrapped around: nothing new left to warm.
+        if (!seen.add(next)) break;
+        if (next != _mixIndex && !targets.contains(next)) {
+          targets.add(next);
+        }
+        idx = next;
+      }
+      for (final t in targets) {
+        final s = _songs[t];
         await meta.musicalInfoFor(
           title: s.title,
           artist: s.artist,
           path: s.path,
         );
         if (gen != _mixGen || !_automixOn) return;
-        idx = next;
       }
     } catch (_) {}
   }
@@ -1124,6 +1331,11 @@ class ArchAudioHandler extends BaseAudioHandler {
     if (_songs.isEmpty) return null;
     // Automix: the engine's cursor is the truth; the playlist player
     // is parked on the old index and would peek the wrong track.
+    // Forward peek follows the harmonic batch when automix owns it.
+    if (_automixOn && _engine != null && dir > 0) {
+      final n = _harmonicPeek();
+      if (n != null && n >= 0 && n < _songs.length) return _songs[n];
+    }
     final cur = _engine != null
         ? _mixIndex
         : _player.currentIndex;
@@ -1146,9 +1358,12 @@ class ArchAudioHandler extends BaseAudioHandler {
 
   /// Shuffle + repeat land here (providers own the state, prefs own the
   /// memory). Applied to the live player and logged like everything.
+  /// A shuffle flip changes the harmonic batch size (batches on, walk
+  /// off), so the batch rebuilds from here on out.
   Future<void> setShuffleEnabled(bool enabled) async {
     await _player.setShuffleModeEnabled(enabled);
     if (enabled) await _player.shuffle();
+    _harmonicBatch.clear();
     _republishOrder();
     ArchLog.i(
       'player',

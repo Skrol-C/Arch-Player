@@ -11,6 +11,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/art_tone.dart';
+import '../../core/badges.dart' show KeyBadge;
 import '../../core/glass.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
@@ -1477,6 +1478,7 @@ class _QueuePanel extends ConsumerWidget {
     final shuffle = ref.watch(shuffleProvider);
     final loop = ref.watch(loopProvider);
     final automix = ref.watch(autoMixProvider);
+    final autoplay = ref.watch(autoPlayProvider);
     return Column(
       children: [
         Padding(
@@ -1523,6 +1525,18 @@ class _QueuePanel extends ConsumerWidget {
                 tooltip: 'Shuffle',
                 active: shuffle,
                 onTap: () => ref.read(shuffleProvider.notifier).toggle(),
+              ),
+              const SizedBox(width: 4),
+              _PanelModeBtn(
+                icon: Icon(
+                  CupertinoIcons.arrow_2_circlepath,
+                  size: 20,
+                  color: autoplay ? archPink : inkDim,
+                ),
+                tooltip: 'Autoplay',
+                active: autoplay,
+                onTap: () =>
+                    ref.read(autoPlayProvider.notifier).toggle(),
               ),
             ],
           ),
@@ -1577,8 +1591,12 @@ class _QueuePanel extends ConsumerWidget {
                   itemBuilder: (context, i) {
                     final song = queue[i];
                     final current = song.id == currentId;
-                    return Dismissible(
-                      key: ValueKey('queue-${song.id}-$i'),
+                    return Column(
+                      key: ValueKey('queue-$i'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Dismissible(
+                          key: ValueKey('queue-${song.id}-$i'),
                       direction: DismissDirection.endToStart,
                       confirmDismiss: (_) async => !current,
                       background: Container(
@@ -1628,11 +1646,21 @@ class _QueuePanel extends ConsumerWidget {
                             color: current ? archPink : ink,
                           ),
                         ),
-                        subtitle: Text(
-                          song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: inkDim, fontSize: 13),
+                        subtitle: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: inkDim,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            if (automix) _QueueKeyBadge(song: song),
+                          ],
                         ),
                         trailing: ReorderableDragStartListener(
                           index: i,
@@ -1645,7 +1673,22 @@ class _QueuePanel extends ConsumerWidget {
                           ),
                         ),
                       ),
-                    );
+                    ),
+                    // Harmonic handoff arrow: shown between consecutive
+                    // rows while automix owns the order. The badge on
+                    // each row names this track's key; the arrow says
+                    // the next one blends in.
+                    if (automix && i < queue.length - 1)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 1),
+                        child: Icon(
+                          CupertinoIcons.chevron_down,
+                          size: 14,
+                          color: archPink,
+                        ),
+                      ),
+                  ],
+                );
                   },
                 ),
         ),
@@ -1653,6 +1696,35 @@ class _QueuePanel extends ConsumerWidget {
     );
   }
 
+}
+
+/// Camelot key badge per queue row (automix only): the harmonic
+/// credential of each upcoming blend. Reads the analysis cache only —
+/// it never triggers analysis itself, so unanalyzed tracks simply
+/// show no badge instead of kicking off decodes from a list build.
+/// Unknown key = no badge, never a guess.
+class _QueueKeyBadge extends ConsumerWidget {
+  final Song song;
+  const _QueueKeyBadge({required this.song});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final open =
+        ref
+            .read(audioHandlerProvider)
+            .musicalCached(
+              title: song.title,
+              artist: song.artist,
+              path: song.path,
+            )
+            ?.openKey ??
+        '';
+    if (open.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: KeyBadge(openKey: open),
+    );
+  }
 }
 
 class _PanelModeBtn extends StatelessWidget {

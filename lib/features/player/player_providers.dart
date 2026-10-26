@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,8 +11,10 @@ import '../../core/art_tone.dart';
 import '../../core/log.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
+import '../automix/harmonic_order.dart' show pickHarmonicBatch;
 import '../library/data/library_repository.dart';
 import '../library/library_providers.dart';
+import '../metadata/metadata_providers.dart' show metadataServiceProvider;
 import 'audio_handler.dart';
 
 final audioHandlerProvider = Provider<ArchAudioHandler>((ref) {
@@ -218,6 +222,96 @@ class AutoMixNotifier extends Notifier<bool> {
     try {
       await ref.read(audioHandlerProvider).setAutomixEnabled(v);
     } catch (_) {}
+  }
+}
+
+/// Autoplay: when the queue runs out, keep playing with harmonically
+/// compatible tracks from the library instead of stopping. Off by
+/// default (opt-in). The handler asks for more via [needMoreMusic];
+/// this fills from the library tail-first and remembers recent fills
+/// so repeats need a full library cycle first.
+final autoPlayProvider = NotifierProvider<AutoPlayNotifier, bool>(
+  AutoPlayNotifier.new,
+);
+
+class AutoPlayNotifier extends Notifier<bool> {
+  final List<int> _recentFillIds = [];
+
+  @override
+  bool build() {
+    _sync();
+    final sub = ref
+        .read(audioHandlerProvider)
+        .needMoreMusic
+        .listen((_) => unawaited(_fill()));
+    ref.onDispose(sub.cancel);
+    return false;
+  }
+
+  Future<void> _sync() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getBool('arch.autoplay') ?? false;
+    if (v) await ref.read(audioHandlerProvider).setAutoplayEnabled(true);
+    state = v;
+  }
+
+  Future<void> toggle() async {
+    final v = !state;
+    state = v;
+    await ref.read(audioHandlerProvider).setAutoplayEnabled(v);
+    (await SharedPreferences.getInstance()).setBool('arch.autoplay', v);
+    ArchLog.i('player', 'autoplay=$v');
+  }
+
+  /// Append the next harmonic batch from the library after the queue
+  /// tail. Shuffle on: shuffle the picks (variety over order).
+  /// Unknown tracks are never picked; an all-unknown library just
+  /// keeps stopping, same as before.
+  Future<void> _fill() async {
+    if (!ref.mounted || !state) return;
+    try {
+      final handler = ref.read(audioHandlerProvider);
+      final all = ref.read(songsProvider).value ?? const <Song>[];
+      if (all.isEmpty) return;
+      final tail = handler.queueTail;
+      if (tail == null) return;
+      final meta = ref.read(metadataServiceProvider);
+      TrackMusicalInfo? infoOf(Song s) => meta.musicalInfoCached(
+        title: s.title,
+        artist: s.artist,
+        path: s.path,
+      );
+      final queued = handler.queueSongIds.toSet();
+      final pool = [
+        tail,
+        for (final s in all)
+          if (s.id != tail.id &&
+              !queued.contains(s.id) &&
+              !_recentFillIds.contains(s.id))
+            s,
+      ];
+      final ids = pickHarmonicBatch(
+        songs: pool,
+        infoOf: infoOf,
+        fromId: tail.id,
+        recentIds: {...queued, ..._recentFillIds},
+        k: 5,
+      );
+      if (ids.isEmpty) return;
+      final picks = [for (final id in ids) pool.firstWhere((s) => s.id == id)];
+      if (ref.read(shuffleProvider)) picks.shuffle();
+      _recentFillIds.addAll([for (final p in picks) p.id]);
+      while (_recentFillIds.length > 60) {
+        _recentFillIds.removeAt(0);
+      }
+      ArchLog.i(
+        'automix',
+        'autoplay fill ${picks.length} after ${tail.id}',
+      );
+      await handler.insertNextAll(picks);
+    } catch (e) {
+      ArchLog.w('player', 'autoplay fill failed: $e');
+    }
   }
 }
 
