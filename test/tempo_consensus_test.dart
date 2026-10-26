@@ -54,4 +54,21 @@ void main() {
     expect(c.bpm, closeTo(120.0, 0.01));
     expect(c.confidence, closeTo(0.818, 0.005));
   });
+
+  test('agreement rescues starved absolute scores', () {
+    // Give Me Everything, on device: right answer, weak scores.
+    final c = consensusTempo([_g(130.8, 0.31), _g(128.0, 0.28), _g(98.5, 0.25)]);
+    expect(c.bpm, closeTo(130.8, 0.01));
+    expect(c.agreed, isTrue);
+    // DAD shape: 0.9 base docked by spread, not capped by the 0.31 max.
+    expect(c.confidence, greaterThan(0.55));
+    expect(c.confidence, closeTo(0.83, 0.02));
+  });
+
+  test('two agreeing slices earn less than three', () {
+    final c = consensusTempo([_g(0, 0), _g(120, 0.4), _g(120, 0.35)]);
+    expect(c.bpm, closeTo(120.0, 0.01));
+    expect(c.agreed, isTrue);
+    expect(c.confidence, closeTo(0.75, 0.01));
+  });
 }

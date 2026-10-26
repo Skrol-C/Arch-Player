@@ -213,10 +213,15 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   for (final i in valid) {
     maxConf = math.max(maxConf, grids[i].confidence);
   }
-  // Agreement-shaped confidence: full credit when windows coincide, up
-  // to 0.4 docked as they spread. The 0.55 publish gate downstream is
-  // untouched.
-  final confidence = (maxConf - math.min(0.4, std / 20.0)).clamp(0.0, 1.0);
+  // Agreement is evidence: independent slices landing on the same pulse
+  // means the beat is really there, even when dense masters saturate the
+  // onset envelope and starve the absolute scores. DAD's shape — start
+  // near 0.9, dock for spread — instead of letting the weakest absolute
+  // score veto a consensus. Two agreeing slices earn less than three.
+  final dock = math.min(0.4, std / 20.0);
+  final agreeBase = valid.length >= 3 ? 0.9 : 0.75;
+  final confidence =
+      math.max(maxConf - dock, agreeBase - dock).clamp(0.0, 1.0);
   // Winner supplies phase/first-sound: closest to consensus, then most
   // confident, then the middle window.
   var winner = valid.first;
