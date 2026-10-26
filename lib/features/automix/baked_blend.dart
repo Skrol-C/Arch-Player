@@ -116,9 +116,11 @@ double vocalTalkCut({
   return grooveEnd;
 }
 
-/// Best bridge for the pair: try the requested length first, then step
-/// [16, 8, 4] while vocal clash covers more than a quarter of the
-/// window. Unbridgeable at every length returns null (honest no-build).
+/// Best bridge for the pair: try the requested length first, then
+/// step [16, 8, 4] on geometry failures. Vocal overlap never
+/// refuses: ducking handles it in the mix, and listening tests
+/// beat the old clash threshold (rejected previews sound fine).
+/// Unplannable geometry at every length returns null.
 /// Gating applies only when both sides' vocals are known — unanalyzed
 /// tracks keep today's behavior instead of being punished for it.
 BlendPlan? buildBestBlend(BlendSpec base) {
@@ -144,20 +146,20 @@ BlendPlan? buildBestBlend(BlendSpec base) {
       ),
     );
     if (plan == null) continue;
-    // Clash fraction of the window under vocal ducking.
+    // Overlap fraction under vocal ducking: informational only.
     var clash = 0.0;
     for (final w in plan.ducks) {
       clash += w.$2 - w.$1;
     }
     clash = plan.seconds > 0 ? clash / plan.seconds : 0.0;
-    final known = base.vocalA != null && base.vocalB != null;
-    if (!known || clash <= 0.25) return plan;
-    ArchLog.w(
-      'automix',
-      'blend clash ${(clash * 100).toStringAsFixed(0)}% bars=$b — stepping down',
-    );
+    if (clash > 0.01) {
+      ArchLog.i(
+        'automix',
+        'blend ducks ${(clash * 100).toStringAsFixed(0)}% bars=$b',
+      );
+    }
+    return plan;
   }
-  ArchLog.w('automix', 'blend unplannable: vocal clash at every size');
   return null;
 }
 

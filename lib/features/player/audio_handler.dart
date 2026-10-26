@@ -1586,13 +1586,16 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         ),
         tag: 'live_${a.id}_${b.id}',
       );
-      // Transport moved on mid-render: the file is orphaned.
+      // Transport moved on mid-render: the file is orphaned. Loud,
+      // because renders take minutes and taps take seconds — every
+      // skip during a render restarts its clock.
       if (gen != _mixGen || !_automixOn || _engine == null) {
         if (rb != null) {
           try {
             File(rb.file).deleteSync();
           } catch (_) {}
         }
+        ArchLog.i('automix', 'bridge orphan $pair (transport moved on)');
         return;
       }
       if (rb == null) {
@@ -1607,6 +1610,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         try {
           File(rb.file).deleteSync();
         } catch (_) {}
+        ArchLog.i('automix', 'bridge orphan $pair (queue moved)');
         return;
       }
       if (_bridge != null && _bridgePair != pair) _dropBridgeFile();

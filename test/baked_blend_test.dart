@@ -338,10 +338,11 @@ void main() {
     );
   });
 
-  test('vocal clash steps long blends down', () {
-    // 32 requested but vocal clash covers most of the window:
+  test('vocal clash never refuses a bridge', () {
+    // 32 requested and vocal clash covers most of the window:
     // A sings track 140-170 (window starts at 136), B sings
-    // throughout. Falls back until the clash fits.
+    // throughout. Ducking handles it in the mix — the requested
+    // length stands, clash is only logged.
     const clashy = BlendSpec(
       aPath: '/a',
       bPath: '/b',
@@ -358,8 +359,9 @@ void main() {
     );
     final stepped = buildBestBlend(clashy);
     expect(stepped, isNotNull);
-    // 32 bars clash at 47%; 16 bars clash at 6%: steps to 16.
-    expect(stepped!.bars, 16);
+    // 32 bars clash at 47%: stands anyway, ducks in the filter.
+    expect(stepped!.bars, 32);
+    expect(planHasDuck(stepped), isTrue);
     // No vocal data anywhere: requested length stands.
     final plain = buildBestBlend(
       const BlendSpec(
