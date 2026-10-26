@@ -38,21 +38,25 @@ void main() {
   });
 
   test('tight pair outvotes a wild third', () {
-    // BLOODY STREAM on device: two windows agree ~131.3, third drifts.
-    final c = consensusTempo([_g(131.4, 0.4), _g(131.2, 0.35), _g(115.9, 0.3)]);
+    // BLOODY STREAM on device: 175.3 folds to 131.5, joins 131.2.
+    // Online consensus: 130-132. The rescue validates.
+    final c = consensusTempo([_g(175.3, 0.4), _g(131.2, 0.35), _g(115.9, 0.3)]);
     expect(c.agreed, isFalse);
     expect(c.pair, isTrue);
-    expect(c.bpm, closeTo(131.3, 0.05));
+    expect(c.bpm, closeTo(131.34, 0.05));
     expect(c.confidence, greaterThan(0.55));
   });
 
-  test('pair rescues near-octave splits', () {
-    // Sunlight on device: 116.4 folds to 87.3, 60.5 misses its band.
+  test('pair rejects manufactured agreement', () {
+    // Sunlight on device: truth is 117, window one found 116.4 — but
+    // the poisoned median folded it to 87.3, which then "confirmed" a
+    // wrong 89.8. Folded values inherit the median, so their agreement
+    // needs tighter tolerance. Right answer, honestly missed.
     final c = consensusTempo([_g(116.4, 0.38), _g(60.5, 0.3), _g(89.8, 0.32)]);
     expect(c.agreed, isFalse);
-    expect(c.pair, isTrue);
-    expect(c.bpm, closeTo(88.55, 0.05));
-    expect(c.confidence, greaterThan(0.55));
+    expect(c.pair, isFalse);
+    expect(c.bpm, closeTo(116.4, 0.01));
+    expect(c.confidence, lessThan(0.55));
   });
 
   test('pair trusts a doubled majority', () {

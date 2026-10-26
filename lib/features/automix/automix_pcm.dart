@@ -261,19 +261,27 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   ];
   if (std > 4.0) {
     // Pairwise fallback: two slices in tight agreement outvote a noisy
-    // third. Median + std lets one wild window veto two agreeing ones
-    // (BLOODY STREAM, Sunlight, STAKILLAZ, CIRCUS on device). Tolerance
-    // is the tighter of 2 BPM / 3% — scoreless drift still misses.
+    // third (BLOODY STREAM, STAKILLAZ, CIRCUS on device). Tolerance is
+    // the tighter of 2 BPM / 3% for two RAW readings — but a folded
+    // value already assumes the median, so its agreement double-counts
+    // it: pairs involving a manufactured value need max(1 BPM, 1.5%)
+    // (Sunlight: a correct 116.4 folded to 87.3, then "confirmed" by an
+    // 89.8 misread — published wrong at 0.60).
     double? pairBpm;
     var pairSpread = double.infinity;
-    final fl = [for (final i in valid) folded[i]!];
-    for (var a = 0; a < fl.length; a++) {
-      for (var b = a + 1; b < fl.length; b++) {
-        final spread = (fl[a] - fl[b]).abs();
-        final tol = math.max(2.0, (fl[a] + fl[b]) / 2 * 0.03);
+    for (var a = 0; a < valid.length; a++) {
+      for (var b = a + 1; b < valid.length; b++) {
+        final i = valid[a], j = valid[b];
+        final spread = (folded[i]! - folded[j]!).abs();
+        final meanAB = (folded[i]! + folded[j]!) / 2;
+        final manufactured =
+            folded[i] != grids[i].bpm || folded[j] != grids[j].bpm;
+        final tol = manufactured
+            ? math.max(1.0, meanAB * 0.015)
+            : math.max(2.0, meanAB * 0.03);
         if (spread <= tol && spread < pairSpread) {
           pairSpread = spread;
-          pairBpm = (fl[a] + fl[b]) / 2;
+          pairBpm = meanAB;
         }
       }
     }
