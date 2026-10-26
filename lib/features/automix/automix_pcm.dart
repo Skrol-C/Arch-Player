@@ -201,8 +201,10 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   // Let Me Hit It, Happy Dictator on device — no minority witness
   // anywhere). When mid-band quarters are strong while kicks sit out,
   // the track moves at double regardless of what the drums imply.
-  // Runs on agreed/pair verdicts only; contested readings stay out.
-  if (!up && (consensus.agreed || consensus.pair) && bpm < 100) {
+  // Runs on every sub-100 verdict — best-wins fallbacks can lock half
+  // just as hard (Sporty-O published 64.0 at 0.80 confidence).
+  // Contested readings that miss the gate stay out either way.
+  if (!up && bpm < 100) {
     final trackPhase = won.phase + offsetSec;
     final mid = midBandOnset(pcm);
     final midSlow = gridCoverage(mid, bpm, trackPhase);
