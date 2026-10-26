@@ -77,13 +77,18 @@ class Shell extends ConsumerWidget {
   }
 }
 
-/// Automix lane probe: resolve BPM/key for the new current song and
-/// log the verdict (embedded vs network vs unknown). Fire-and-forget;
-/// failures stay off the playback path by construction (provider).
+/// Automix lane probe: cache-only BPM/key verdict for the new
+/// current song. Never the full resolver: that runs network + a
+/// full-file DSP decode on the tapped file at the exact moment
+/// ExoPlayer prepares it, and a 9s first-play stall traced to
+/// that contention. Ahead-of-needle warming (automix) and the
+/// song page still use the full lane on their own paths.
 Future<void> _logMusical(WidgetRef ref, Song song) async {
   try {
-    final info = await ref.read(
-      musicalInfoProvider('${song.artist}\x00${song.title}\x00${song.path}').future,
+    final info = ref.read(metadataServiceProvider).musicalInfoCached(
+      title: song.title,
+      artist: song.artist,
+      path: song.path,
     );
     if (info == null || info.isEmpty) {
       ArchLog.i('musical', 'unknown ${song.artist} - ${song.title}');

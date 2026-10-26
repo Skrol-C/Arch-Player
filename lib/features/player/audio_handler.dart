@@ -819,7 +819,8 @@ class ArchAudioHandler extends BaseAudioHandler {
       // Late success beats the error: if the engine actually sounds
       // the requested index, a toast would be a lie. Log and swallow.
       if (_player.playing && _player.currentIndex == index) {
-        ArchLog.i('player', 'tap late success id=${song.id} after $e');
+        ArchLog.i('player', 'tap late success id=${song.id} '
+            'in=${watch.elapsedMilliseconds}ms after $e');
         unawaited(_attachArtFile(song));
         return;
       }
