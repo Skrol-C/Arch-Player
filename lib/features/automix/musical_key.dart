@@ -79,6 +79,17 @@ const _frameHop = 2048;
 const _midiLo = 36; // C2
 const _midiHi = 83; // B5
 
+/// Relative major/minor check: the minor tonic sits three semitones
+/// below its major (A major <-> F# minor). Same pitch classes, so no
+/// chroma detector can separate them — and the mixer treats them as
+/// compatible — which is why the gate waives the margin for them.
+bool isRelativePair(int tonicA, bool minorA, int tonicB, bool minorB) {
+  if (minorA == minorB) return false;
+  final major = minorA ? tonicB : tonicA;
+  final minor = minorA ? tonicA : tonicB;
+  return minor == (major + 9) % 12;
+}
+
 /// Verdict plus the evidence behind it, misses included: [bestR] is
 /// the top profile correlation, [margin] its gap to runner-up, [best]
 /// and [runner] their names. A miss with high bestR and a tiny margin
@@ -128,6 +139,8 @@ detectMusicalKey(Uint8List pcm) {
   final norm = math.sqrt(centered.fold(0.0, (a, b) => a + b * b));
   if (norm <= 0.0) return miss(-2.0, 0.0, '', '');
   var best = '', bestOpen = '', runner = '', bestR = -2.0, runnerR = -2.0;
+  var bestTonic = -1, bestMinor = false;
+  var runnerTonic = -1, runnerMinor = false;
   for (var tonic = 0; tonic < 12; tonic++) {
     for (var minor = 0; minor < 2; minor++) {
       final base = minor == 1 ? _ksMinor : _ksMajor;
@@ -145,18 +158,30 @@ detectMusicalKey(Uint8List pcm) {
       if (r > bestR) {
         runnerR = bestR;
         runner = best;
+        runnerTonic = bestTonic;
+        runnerMinor = bestMinor;
         bestR = r;
         best = name;
         bestOpen = open;
+        bestTonic = tonic;
+        bestMinor = minor == 1;
       } else if (r > runnerR) {
         runnerR = r;
         runner = name;
+        runnerTonic = tonic;
+        runnerMinor = minor == 1;
       }
     }
   }
   // Gate: needs a real consensus, not a coin flip. Synthetic triads
-  // score far above this; noise and silence never get here.
-  if (bestR < 0.6 || bestR - runnerR < 0.03) {
+  // score far above this; noise and silence never get here. One
+  // exception: a relative major/minor tie shares every pitch class —
+  // no chroma detector can separate them, and the mixer treats them
+  // as compatible — so publish the winner instead of abstaining on
+  // an undecidable coin flip.
+  if (bestR < 0.6) return miss(bestR, bestR - runnerR, best, runner);
+  if (bestR - runnerR < 0.03 &&
+      !isRelativePair(bestTonic, bestMinor, runnerTonic, runnerMinor)) {
     return miss(bestR, bestR - runnerR, best, runner);
   }
   return (

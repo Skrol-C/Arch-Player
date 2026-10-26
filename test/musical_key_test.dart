@@ -56,6 +56,15 @@ void main() {
     expect(verdict.best, isEmpty);
   });
 
+  test('relative pairs share every pitch class', () {
+    expect(isRelativePair(9, false, 6, true), isTrue); // A <-> F#m
+    expect(isRelativePair(5, false, 2, true), isTrue); // F <-> Dm
+    expect(isRelativePair(6, true, 9, false), isTrue); // order-free
+    expect(isRelativePair(2, true, 9, true), isFalse); // Dm vs Am
+    expect(isRelativePair(5, true, 5, false), isFalse); // Fm vs F
+    expect(isRelativePair(0, false, 7, false), isFalse); // C vs G
+  });
+
   test('normalizes key names', () {
     expect(normalizeKeyName('Am'), (name: 'Am', openKey: '8m'));
     expect(normalizeKeyName('A minor'), (name: 'Am', openKey: '8m'));

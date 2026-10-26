@@ -37,6 +37,39 @@ void main() {
     expect(c.bpm, closeTo(120.0, 0.01));
   });
 
+  test('tight pair outvotes a wild third', () {
+    // BLOODY STREAM on device: two windows agree ~131.3, third drifts.
+    final c = consensusTempo([_g(131.4, 0.4), _g(131.2, 0.35), _g(115.9, 0.3)]);
+    expect(c.agreed, isFalse);
+    expect(c.pair, isTrue);
+    expect(c.bpm, closeTo(131.3, 0.05));
+    expect(c.confidence, greaterThan(0.55));
+  });
+
+  test('pair rescues near-octave splits', () {
+    // Sunlight on device: 116.4 folds to 87.3, 60.5 misses its band.
+    final c = consensusTempo([_g(116.4, 0.38), _g(60.5, 0.3), _g(89.8, 0.32)]);
+    expect(c.agreed, isFalse);
+    expect(c.pair, isTrue);
+    expect(c.bpm, closeTo(88.55, 0.05));
+    expect(c.confidence, greaterThan(0.55));
+  });
+
+  test('pair trusts a doubled majority', () {
+    // STAKILLAZ on device: two windows agree ~174, third hears the fifth.
+    final c = consensusTempo([_g(115.7, 0.51), _g(173.6, 0.4), _g(174.3, 0.38)]);
+    expect(c.agreed, isFalse);
+    expect(c.pair, isTrue);
+    expect(c.bpm, closeTo(173.95, 0.05));
+  });
+
+  test('pair holds on scoreless drift', () {
+    // I'm Big on device: orchestral, no beat — no pair agrees.
+    final c = consensusTempo([_g(98.5, 0.3), _g(111.1, 0.35), _g(102.4, 0.3)]);
+    expect(c.agreed, isFalse);
+    expect(c.pair, isFalse);
+    expect(c.bpm, closeTo(111.1, 0.01));
+  });
   test('genuine disagreement falls back to best confidence', () {
     final c = consensusTempo([_g(120, 0.9), _g(100, 0.95), _g(140, 0.8)]);
     expect(c.bpm, closeTo(100.0, 0.01));

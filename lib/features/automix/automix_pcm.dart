@@ -114,14 +114,19 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     final trackPhase = won.phase + offsetSec;
     final covSlow = lowBandCoverage(pcm, consensus.bpm, trackPhase);
     final covFast = lowBandCoverage(pcm, consensus.bpm * 2.0, trackPhase);
-    if (preferDouble(covSlow, covFast)) {
+    final up = preferDouble(covSlow, covFast);
+    ArchLog.i(
+      'automix',
+      'tempo octave check base=${consensus.bpm.toStringAsFixed(2)} '
+      'slow=${covSlow.toStringAsFixed(2)} '
+      'fast=${covFast.toStringAsFixed(2)} ${up ? 'UP' : 'hold'}',
+    );
+    if (up) {
       bpm = consensus.bpm * 2.0;
       ArchLog.i(
         'automix',
         'tempo octave up ${consensus.bpm.toStringAsFixed(2)} -> '
-        '${bpm.toStringAsFixed(2)} '
-        'slow=${covSlow.toStringAsFixed(2)} '
-        'fast=${covFast.toStringAsFixed(2)}',
+        '${bpm.toStringAsFixed(2)}',
       );
     }
   }
@@ -132,7 +137,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     'tempo consensus raw=${grids.map((g) => g.bpm.toStringAsFixed(1)).join(',')} '
     'folded=${consensus.folded.map((b) => b.toStringAsFixed(1)).join(',')} '
     'bpm=${bpm.toStringAsFixed(2)} agree=${consensus.agreed} '
-    'win=${best + 1}/${slices.length}',
+    'pair=${consensus.pair} win=${best + 1}/${slices.length}',
   );
   return (
     grid: AutoMixBeatGrid(
@@ -163,10 +168,10 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
 /// winning window index (which supplies phase/first-sound), whether the
 /// windows agreed, the folded per-window readings (for logging), and the
 /// raw readings that were folded DOWN by half ([halved]) — the octave
-/// tie-break candidates. No agreement (std dev > 4 BPM across folded
-/// readings, or fewer than two valid windows) falls back to
-/// best-confidence-wins — the caller still applies the 0.55 publish
-/// gate either way.
+/// tie-break candidates. No three-way agreement (std dev > 4 BPM)
+/// tries the tightest agreeing pair before falling back to
+/// best-confidence-wins — one wild window must not veto two agreeing
+/// ones. The caller still applies the 0.55 publish gate either way.
 ({
   double bpm,
   double confidence,
@@ -174,6 +179,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   bool agreed,
   List<double> folded,
   List<double> halved,
+  bool pair,
 }) consensusTempo(
   List<AutoMixBeatGrid> grids,
 ) {
@@ -201,6 +207,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       agreed: false,
       folded: [for (final g in grids) g.bpm],
       halved: const <double>[],
+      pair: false,
     );
   }
   final bpms = [for (final i in valid) grids[i].bpm]..sort();
@@ -231,7 +238,57 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       values.map((v) => (v - mean) * (v - mean)).reduce((a, b) => a + b) /
           values.length;
   final std = math.sqrt(variance);
+  // Winner supplies phase/first-sound: closest to the target, then most
+  // confident, then the middle window.
+  int pickWinner(double target) {
+    var winner = valid.first;
+    for (final i in valid.skip(1)) {
+      final dNew = (folded[i]! - target).abs();
+      final dOld = (folded[winner]! - target).abs();
+      if (dNew < dOld - 1e-9 ||
+          ((dNew - dOld).abs() <= 1e-9 &&
+              (grids[i].confidence > grids[winner].confidence ||
+                  (grids[i].confidence == grids[winner].confidence &&
+                      i == 1)))) {
+        winner = i;
+      }
+    }
+    return winner;
+  }
+
+  final attemptFolded = [
+    for (var i = 0; i < grids.length; i++) folded[i] ?? grids[i].bpm,
+  ];
   if (std > 4.0) {
+    // Pairwise fallback: two slices in tight agreement outvote a noisy
+    // third. Median + std lets one wild window veto two agreeing ones
+    // (BLOODY STREAM, Sunlight, STAKILLAZ, CIRCUS on device). Tolerance
+    // is the tighter of 2 BPM / 3% — scoreless drift still misses.
+    double? pairBpm;
+    var pairSpread = double.infinity;
+    final fl = [for (final i in valid) folded[i]!];
+    for (var a = 0; a < fl.length; a++) {
+      for (var b = a + 1; b < fl.length; b++) {
+        final spread = (fl[a] - fl[b]).abs();
+        final tol = math.max(2.0, (fl[a] + fl[b]) / 2 * 0.03);
+        if (spread <= tol && spread < pairSpread) {
+          pairSpread = spread;
+          pairBpm = (fl[a] + fl[b]) / 2;
+        }
+      }
+    }
+    if (pairBpm != null) {
+      final w = pickWinner(pairBpm);
+      return (
+        bpm: pairBpm,
+        confidence: (0.7 - math.min(0.1, pairSpread / 25.0)).clamp(0.0, 1.0),
+        winner: w,
+        agreed: false,
+        folded: attemptFolded,
+        halved: const <double>[],
+        pair: true,
+      );
+    }
     final w = bestWins();
     return (
       bpm: grids[w].bpm,
@@ -240,8 +297,9 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       agreed: false,
       // Log what folding attempted, not the raw readings — otherwise
       // the verdict line reads as if no folding ran at all.
-      folded: [for (var i = 0; i < grids.length; i++) folded[i] ?? grids[i].bpm],
+      folded: attemptFolded,
       halved: const <double>[],
+      pair: false,
     );
   }
   final ordered = [...values]..sort();
@@ -264,18 +322,7 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       math.max(maxConf - dock, agreeBase - dock).clamp(0.0, 1.0);
   // Winner supplies phase/first-sound: closest to consensus, then most
   // confident, then the middle window.
-  var winner = valid.first;
-  for (final i in valid.skip(1)) {
-    final dNew = (folded[i]! - bpm).abs();
-    final dOld = (folded[winner]! - bpm).abs();
-    if (dNew < dOld - 1e-9 ||
-        ((dNew - dOld).abs() <= 1e-9 &&
-            (grids[i].confidence > grids[winner].confidence ||
-                (grids[i].confidence == grids[winner].confidence &&
-                    i == 1)))) {
-      winner = i;
-    }
-  }
+  final winner = pickWinner(bpm);
   return (
     bpm: bpm,
     confidence: confidence,
@@ -283,5 +330,6 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     agreed: true,
     folded: [for (final i in valid) folded[i]!],
     halved: halved,
+    pair: false,
   );
 }
