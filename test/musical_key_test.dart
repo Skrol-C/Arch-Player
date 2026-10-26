@@ -36,7 +36,8 @@ void main() {
       ([116.54, 146.83, 174.61, 233.08], 'A#', '6d'), // Bb major
     ];
     for (final (freqs, name, open) in cases) {
-      final key = detectMusicalKey(_chord(freqs));
+      final verdict = detectMusicalKey(_chord(freqs));
+      final key = verdict.key;
       expect(key, isNotNull, reason: 'no key for $name');
       expect(key!.name, name);
       expect(key.openKey, open);
@@ -44,8 +45,15 @@ void main() {
   });
 
   test('silence is unknown', () {
-    expect(detectMusicalKey(Uint8List(11025 * 8 * 2)), isNull);
-    expect(detectMusicalKey(Uint8List(100)), isNull);
+    expect(detectMusicalKey(Uint8List(11025 * 8 * 2)).key, isNull);
+    expect(detectMusicalKey(Uint8List(100)).key, isNull);
+  });
+
+  test('misses carry their evidence', () {
+    final verdict = detectMusicalKey(Uint8List(11025 * 8 * 2));
+    expect(verdict.key, isNull);
+    expect(verdict.bestR, lessThan(0.6));
+    expect(verdict.best, isEmpty);
   });
 
   test('normalizes key names', () {

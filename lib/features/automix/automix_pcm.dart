@@ -58,11 +58,19 @@ Future<AutoMixBeatGrid> analyzeGrid(Uint8List bytes) =>
 
 AutoMixBeatGrid _analyzeGrid(Uint8List bytes) => analyzeAutomixPcm(bytes);
 
-/// Musical key in an isolate. Null = unknown (silence, no consensus).
-Future<DetectedKey?> analyzeKey(Uint8List bytes) =>
-    compute(_analyzeKey, bytes);
+/// Musical key in an isolate. Verdict plus miss evidence — silence
+/// returns null key with zeroed stats.
+Future<({DetectedKey? key, double bestR, double margin, String best, String runner})>
+analyzeKey(Uint8List bytes) => compute(_analyzeKey, bytes);
 
-DetectedKey? _analyzeKey(Uint8List bytes) => detectMusicalKey(bytes);
+({
+  DetectedKey? key,
+  double bestR,
+  double margin,
+  String best,
+  String runner,
+})
+_analyzeKey(Uint8List bytes) => detectMusicalKey(bytes);
 
 /// Multi-window tempo: three 25s slices (start / 40% / 70%) analyzed
 /// in parallel isolates, octave-folded onto the median with consensus

@@ -9,7 +9,7 @@ import 'dart:typed_data';
 
 /// Detected key: canonical sharp name, Traktor open key, and the
 /// evidence behind it ([strength] = winning Pearson r, [margin] =
-/// gap to the runner-up). Null = unknown (silence or no consensus).
+/// gap to the runner-up).
 class DetectedKey {
   final String name;
   final String openKey;
@@ -79,8 +79,17 @@ const _frameHop = 2048;
 const _midiLo = 36; // C2
 const _midiHi = 83; // B5
 
-DetectedKey? detectMusicalKey(Uint8List pcm) {
-  if (pcm.length < 2 * _frameSize) return null;
+/// Verdict plus the evidence behind it, misses included: [bestR] is
+/// the top profile correlation, [margin] its gap to runner-up, [best]
+/// and [runner] their names. A miss with high bestR and a tiny margin
+/// is an ambiguous track (often a relative major/minor tie), not a
+/// deaf detector — the log line tells them apart.
+({DetectedKey? key, double bestR, double margin, String best, String runner})
+detectMusicalKey(Uint8List pcm) {
+  ({DetectedKey? key, double bestR, double margin, String best, String runner})
+  miss(double r, double m, String b, String rn) =>
+      (key: null, bestR: r, margin: m, best: b, runner: rn);
+  if (pcm.length < 2 * _frameSize) return miss(-2.0, 0.0, '', '');
   final n = pcm.length ~/ 2;
   final data = ByteData.view(pcm.buffer, pcm.offsetInBytes, pcm.lengthInBytes);
   // Goertzel coefficients for every pitch, computed once.
@@ -108,17 +117,17 @@ DetectedKey? detectMusicalKey(Uint8List pcm) {
       chroma[midis[k] % 12] += mag;
     }
   }
-  if (frames == 0) return null;
+  if (frames == 0) return miss(-2.0, 0.0, '', '');
   for (var i = 0; i < 12; i++) {
     chroma[i] /= frames;
   }
-  if (chroma.every((v) => v <= 0.0)) return null;
+  if (chroma.every((v) => v <= 0.0)) return miss(-2.0, 0.0, '', '');
   // Mean-center, then Pearson against every rotated profile.
   final mean = chroma.reduce((a, b) => a + b) / 12.0;
   final centered = [for (final v in chroma) v - mean];
   final norm = math.sqrt(centered.fold(0.0, (a, b) => a + b * b));
-  if (norm <= 0.0) return null;
-  var best = '', bestOpen = '', bestR = -2.0, runnerR = -2.0;
+  if (norm <= 0.0) return miss(-2.0, 0.0, '', '');
+  var best = '', bestOpen = '', runner = '', bestR = -2.0, runnerR = -2.0;
   for (var tonic = 0; tonic < 12; tonic++) {
     for (var minor = 0; minor < 2; minor++) {
       final base = minor == 1 ? _ksMinor : _ksMajor;
@@ -135,22 +144,32 @@ DetectedKey? detectMusicalKey(Uint8List pcm) {
       final open = '$num${minor == 1 ? 'm' : 'd'}';
       if (r > bestR) {
         runnerR = bestR;
+        runner = best;
         bestR = r;
         best = name;
         bestOpen = open;
       } else if (r > runnerR) {
         runnerR = r;
+        runner = name;
       }
     }
   }
   // Gate: needs a real consensus, not a coin flip. Synthetic triads
   // score far above this; noise and silence never get here.
-  if (bestR < 0.6 || bestR - runnerR < 0.03) return null;
-  return DetectedKey(
-    name: best,
-    openKey: bestOpen,
-    strength: bestR,
+  if (bestR < 0.6 || bestR - runnerR < 0.03) {
+    return miss(bestR, bestR - runnerR, best, runner);
+  }
+  return (
+    key: DetectedKey(
+      name: best,
+      openKey: bestOpen,
+      strength: bestR,
+      margin: bestR - runnerR,
+    ),
+    bestR: bestR,
     margin: bestR - runnerR,
+    best: best,
+    runner: runner,
   );
 }
 

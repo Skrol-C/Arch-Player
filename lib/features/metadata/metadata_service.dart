@@ -2338,9 +2338,9 @@ class MetadataService {
           }
           if (netKey.isEmpty) {
             final detected = await analyzeKey(bytes);
-            if (detected != null) {
-              netKey = detected.name;
-              netOpen = detected.openKey;
+            if (detected.key != null) {
+              netKey = detected.key!.name;
+              netOpen = detected.key!.openKey;
               if (!netSrc.contains('dsp')) {
                 netSrc = netSrc.isEmpty ? 'dsp' : '$netSrc+dsp';
               }
@@ -2348,11 +2348,16 @@ class MetadataService {
               ArchLog.i(
                 'meta',
                 'musical dsp key: $artist - $title '
-                'key=${detected.name} open=${detected.openKey} '
-                'strength=${detected.strength.toStringAsFixed(2)}',
+                'key=${detected.key!.name} open=${detected.key!.openKey} '
+                'strength=${detected.bestR.toStringAsFixed(2)}',
               );
             } else {
-              ArchLog.i('meta', 'musical dsp key miss: $artist - $title');
+              ArchLog.i(
+                'meta',
+                'musical dsp key miss: $artist - $title '
+                'best=${detected.best} r=${detected.bestR.toStringAsFixed(2)} '
+                'margin=${detected.margin.toStringAsFixed(3)} runner=${detected.runner}',
+              );
             }
           }
           if (grew || tempoTried) {
