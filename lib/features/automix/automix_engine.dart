@@ -37,6 +37,17 @@ class AutomixEngine {
   bool _disposed = false;
   bool _crossfading = false;
 
+  /// Baked-bridge phase: the active side plays a rendered bridge
+  /// file (A-outro + B-intro already mixed) instead of a live ramp.
+  /// The clock stays B-mapped throughout, so the scrubber and the
+  /// notification glide into B with no jump at either join.
+  bool _bridging = false;
+  double _bridgeStartB = 0;
+  double _bridgeEntryDelay = 0;
+  double _bridgeRatio = 1;
+  double _bridgeResumeB = 0;
+  Duration? _bridgeDurB;
+
   void _cancelRamp() {
     _tick?.cancel();
     _tick = null;
@@ -66,11 +77,23 @@ class AutomixEngine {
   AudioPlayer get _idle => _aActive ? _b : _a;
 
   bool get isCrossfading => _crossfading;
+  bool get bridging => _bridging;
   bool get playing => _active.playing;
   bool get completed =>
       _active.processingState == ProcessingState.completed;
-  Duration get position => _active.position;
-  Duration? get duration => _active.duration;
+  /// B track time during a bridge: the bridge file holds B
+  /// tempo-corrected, so file time past the entry delay maps back
+  /// through the stretch ratio. Clamped to the track.
+  Duration get position {
+    if (!_bridging) return _active.position;
+    final bp = _active.position.inMilliseconds / 1000.0;
+    final bt =
+        _bridgeStartB + (bp - _bridgeEntryDelay) * _bridgeRatio;
+    final dur = _bridgeDurB?.inMilliseconds ?? 0;
+    final ms = (bt * 1000).round().clamp(0, dur > 0 ? dur : 1 << 62);
+    return Duration(milliseconds: ms);
+  }
+  Duration? get duration => _bridging ? _bridgeDurB : _active.duration;
 
   /// Processing state and buffered position of the audible side, for
   /// the handler's single-source publish tick.
@@ -182,10 +205,124 @@ class AutomixEngine {
     }
   }
 
+  /// Baked-bridge handoff: play a rendered A+B bridge on the idle
+  /// side, then hand the active chair to it. The bridge opens as
+  /// pure A, so pausing A at the window and starting the file is a
+  /// same-waveform join — no ramp, no gap. Geometry maps the clock
+  /// onto B for the whole phase; [finishBridge] lands B itself.
+  /// Failure cuts straight to B: a hard cut beats silence.
+  Future<bool> bridgeTo({
+    required Uri bridgeUri,
+    required Uri nextUri,
+    required double startB,
+    required double entryDelay,
+    required double tempoRatio,
+    required double resumeB,
+    required Duration durB,
+  }) async {
+    if (_disposed || _crossfading || _bridging) return false;
+    _bridging = true;
+    try {
+      final incoming = _idle;
+      await incoming
+          .setAudioSource(AudioSource.uri(bridgeUri))
+          .timeout(const Duration(seconds: 12));
+      if (_disposed) {
+        _bridging = false;
+        return false;
+      }
+      await incoming.setVolume(1.0);
+      if (!await _startPlaying(incoming)) {
+        _bridging = false;
+        await _cutTo(nextUri);
+        return false;
+      }
+      try {
+        await _active.pause().timeout(const Duration(seconds: 4));
+        await _active.setVolume(1.0);
+      } catch (_) {}
+      _bridgeStartB = startB;
+      _bridgeEntryDelay = entryDelay;
+      _bridgeRatio = tempoRatio;
+      _bridgeResumeB = resumeB;
+      _bridgeDurB = durB;
+      _aActive = !_aActive;
+      ArchLog.i(
+        'automix',
+        'bridge on resumeB=${resumeB.toStringAsFixed(1)}s',
+      );
+      return true;
+    } catch (e) {
+      ArchLog.w('automix', 'bridge failed, cutting to B: $e');
+      _bridging = false;
+      await _cutTo(nextUri);
+      return false;
+    }
+  }
+
+  /// Land B after its bridge: load B at [resumeB] on the far side,
+  /// start it, take the chair. Same-waveform join at the tail —
+  /// the bridge ends as pure B. Failure cuts to B from here.
+  Future<bool> finishBridge(Uri nextUri) async {
+    if (!_bridging || _disposed) return false;
+    try {
+      final landing = _idle;
+      await landing
+          .setAudioSource(AudioSource.uri(nextUri))
+          .timeout(const Duration(seconds: 12));
+      if (_disposed) return false;
+      if (_bridgeResumeB > 0.05) {
+        try {
+          await landing
+              .seek(Duration(milliseconds: (_bridgeResumeB * 1000).round()))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
+      await landing.setVolume(1.0);
+      if (!await _startPlaying(landing)) {
+        await _cutTo(nextUri);
+        return false;
+      }
+      try {
+        await _active.pause().timeout(const Duration(seconds: 4));
+        await _active.setVolume(1.0);
+      } catch (_) {}
+      _aActive = !_aActive;
+      _bridging = false;
+      ArchLog.i(
+        'automix',
+        'bridge landed resumeB=${_bridgeResumeB.toStringAsFixed(1)}s',
+      );
+      return true;
+    } catch (e) {
+      ArchLog.w('automix', 'bridge landing failed, cutting: $e');
+      await _cutTo(nextUri);
+      _bridging = false;
+      return false;
+    }
+  }
+
+  /// Drop a bridge without landing: interrupts (skip, tap, toggle)
+  /// stop the file and clear the phase; the caller starts whatever
+  /// transport comes next.
+  Future<void> dropBridge() async {
+    if (!_bridging) return;
+    _bridging = false;
+    try {
+      await _active.stop().timeout(const Duration(seconds: 4));
+      await _active.setVolume(1.0);
+    } catch (_) {}
+    _aActive = true;
+  }
+
   /// Emergency handoff: promote the incoming side at full volume and
   /// park the outgoing one. Used when a load or ramp stalls — a hard
   /// cut is always better than silence.
   Future<void> _cutTo(Uri next) async {
+    // A fallback cut ends any bridge phase first: the mapped clock
+    // must never outlive the file it describes.
+    _bridging = false;
+    _bridgeDurB = null;
     final incoming = _idle;
     try {
       if (incoming.processingState == ProcessingState.idle) {
@@ -277,6 +414,8 @@ class AutomixEngine {
   /// both sides, resets gains so a later start is clean.
   Future<void> stop() async {
     _cancelRamp();
+    _bridging = false;
+    _bridgeDurB = null;
     for (final p in [_a, _b]) {
       try {
         await p.stop();
