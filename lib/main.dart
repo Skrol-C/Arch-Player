@@ -1,5 +1,6 @@
-import 'package:audio_service/audio_service.dart';
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:audio_service/audio_service.dart';import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
@@ -39,6 +40,11 @@ Future<void> main() async {
   // cached BPM/key for crossfade planning, and the UI providers must
   // read the same cache (no duplicated disk state, no double writes).
   final meta = MetadataService();
+  // Warm the musical disk cache before the first cache-only read:
+  // cold reads otherwise report unknown until an unrelated
+  // full-lane call loads it (an evening of analyses once looked
+  // lost to exactly this).
+  unawaited(meta.warmMusical());
   final handler = await AudioService.init(
     builder: () => ArchAudioHandler(metadata: meta),
       config: const AudioServiceConfig(

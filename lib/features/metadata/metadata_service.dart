@@ -2216,6 +2216,7 @@ class MetadataService {
     String path = '',
   }) {
     if (title.trim().isEmpty || artist.trim().isEmpty) return null;
+    if (!_musicalDiskLoaded) unawaited(_loadMusicalDisk());
     double? bpm;
     var key = '';
     if (path.isNotEmpty) {
@@ -2552,16 +2553,34 @@ class MetadataService {
           _musicalDisk[k as String] = Map<String, dynamic>.from(v);
         }
       });
-    } catch (_) {}
+    } catch (e) {
+      ArchLog.w('meta', 'musical load failed: $e');
+    }
+  }
+
+  /// JSON has no NaN/Infinity: one poisoned double from a detector
+  /// (phase, firstSound, a vocal edge) throws the whole-map encode
+  /// and bricks every later save. Sanitize first; failures log
+  /// loudly — a silent catch here once cost an evening of analyses.
+  dynamic _jsonSafe(dynamic v) {
+    if (v is double) return v.isFinite ? v : null;
+    if (v is num) return v;
+    if (v is List) return [for (final e in v) _jsonSafe(e)];
+    if (v is Map<String, dynamic>) {
+      return {for (final e in v.entries) e.key: _jsonSafe(e.value)};
+    }
+    return v;
   }
 
   Future<void> _saveMusicalDisk() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final tmp = File('${dir.path}/musical.json.tmp');
-      await tmp.writeAsString(jsonEncode(_musicalDisk));
+      await tmp.writeAsString(jsonEncode(_jsonSafe(_musicalDisk)));
       await tmp.rename('${dir.path}/musical.json');
-    } catch (_) {}
+    } catch (e) {
+      ArchLog.w('meta', 'musical save failed: $e');
+    }
   }
 
   /// self-titled record lands on the right one. Track search carries
