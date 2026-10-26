@@ -111,6 +111,9 @@ class _BridgeJob {
   final double resumeB;
   final double seconds;
   final Duration durB;
+  // A track time to fire at: the file starts here, not at
+  // (end - length). Firing late replays the tail.
+  final double windowStartA;
   const _BridgeJob({
     required this.from,
     required this.next,
@@ -121,6 +124,7 @@ class _BridgeJob {
     required this.resumeB,
     required this.seconds,
     required this.durB,
+    required this.windowStartA,
   });
 }
 
@@ -1364,9 +1368,19 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     final window = job != null
         ? Duration(milliseconds: (job.seconds * 1000).round())
         : plan.duration;
+    // Bridges fire at their file start: the mix-out point can
+    // sit well before EOF, and firing at (end - length) replays
+    // the tail.
+    final fireAt = job != null
+        ? Duration(milliseconds: (job.windowStartA * 1000).round())
+        : null;
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
-    _mixProbe(engine, total, remaining, next, plan, window);
-    if (remaining > window) return;
+    _mixProbe(engine, total, remaining, next, plan, window, fireAt);
+    if (job != null) {
+      if (!finished && engine.position < fireAt!) return;
+    } else if (remaining > window) {
+      return;
+    }
     _mixFiring = true;
     try {
       final song = _songs[next];
@@ -1456,15 +1470,17 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     int next,
     CrossfadePlan plan,
     Duration window,
+    Duration? fireAt,
   ) {
     final now = DateTime.now();
     if (now.difference(_mixProbeAt).inSeconds < 5) return;
     _mixProbeAt = now;
+    final fireTag = fireAt == null ? '' : 'fireAt=${fireAt.inSeconds}s ';
     ArchLog.i(
       'automix',
       'probe total=${total.inSeconds}s pos=${engine.position.inSeconds}s '
       'left=${remaining.inSeconds}s plan=${plan.seconds.toStringAsFixed(1)}s '
-      'win=${window.inSeconds}s next=$next',
+      'win=${window.inSeconds}s ${fireTag}next=$next',
     );
   }
 
@@ -1625,6 +1641,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         resumeB: rb.resumeB,
         seconds: rb.plan.seconds,
         durB: b.duration,
+        windowStartA: rb.windowStartA,
       );
       _bridgePair = pair;
       ArchLog.i(

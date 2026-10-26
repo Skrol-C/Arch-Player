@@ -320,10 +320,15 @@ class RenderedBridge {
   final BlendPlan plan;
   /// B track time where the bridge ends: B resumes here.
   final double resumeB;
+  /// A track time where the bridge starts: the engine fires here,
+  /// not at (end - length). Firing late jumps A backward and
+  /// replays the tail — the most audible bug a bridge can have.
+  final double windowStartA;
   const RenderedBridge({
     required this.file,
     required this.plan,
     required this.resumeB,
+    required this.windowStartA,
   });
 }
 
@@ -467,7 +472,12 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
     // the rest maps back through the stretch.
     final resumeB =
         plan.startB + (plan.seconds - plan.entryDelay) * plan.tempoRatio;
-    return RenderedBridge(file: out, plan: plan, resumeB: resumeB);
+    return RenderedBridge(
+      file: out,
+      plan: plan,
+      resumeB: resumeB,
+      windowStartA: endA - plan.seconds,
+    );
   } catch (e) {
     ArchLog.w('automix', 'blend render error: $e');
     return null;

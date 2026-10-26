@@ -290,20 +290,16 @@ class AutomixEngine {
               .timeout(const Duration(seconds: 4));
         } catch (_) {}
       }
-      // Prime only: prepared and paused. Playing now would silently
-      // consume B under the bridge tail and land mid-song.
+      // Prime only: prepared, paused, silent. Starting now would
+      // silently consume B under the tail and land mid-song; the
+      // prepared player starts in milliseconds at the join.
       await landing.setVolume(0.0);
-      // Wait until ~250ms before file end, then join: anticipation
-      // absorbs completion-detection latency, and the primed B
-      // starts in milliseconds. Aborted by any interrupt.
+      // Join on completion (50ms poll): waveforms match at the
+      // cut, so a hard swap is seamless. Aborted by any interrupt.
       final deadline = DateTime.now().add(
         Duration(seconds: _bridgeSeconds.round() + 30),
       );
-      const lead = Duration(milliseconds: 250);
       while (!_disposed && _bridging) {
-        final d = _active.duration;
-        final p = _active.position;
-        if (d != null && d > Duration.zero && d - p <= lead) break;
         if (_active.processingState == ProcessingState.completed) break;
         if (DateTime.now().isAfter(deadline)) break;
         await Future<void>.delayed(const Duration(milliseconds: 50));
