@@ -1096,11 +1096,18 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     await _teardownEngine(resume: false);
     // Teardown bumped the generation; this start owns the next one.
     final gen = ++_mixGen;
-    // The playlist player must fully release the output before the
-    // engine speaks. pause() keeps its decoder and session alive,
-    // which is what made the engine's play() wait forever.
+    // Pause-park keeps the prepared source warm so the next tap\u2019s
+    // seek+play resumes instead of re-preparing: stop-park stalled
+    // play() for 10s after every automix teardown (log-proven).
+    // The old pause-park engine hang predates the explicit session
+    // activation below; engine start stays bounded with a playlist
+    // fallback, so a regression surfaces instead of wedging.
     try {
-      await _player.stop().timeout(const Duration(seconds: 5));
+      try {
+        await _player.pause().timeout(const Duration(seconds: 5));
+      } catch (_) {
+        await _player.stop().timeout(const Duration(seconds: 5));
+      }
       await _setVolume(1.0);
       ArchLog.i(
         'automix',
