@@ -200,15 +200,26 @@ BlendPlan? buildBlend(BlendSpec s) {
   final ratio = s.bpmA / s.bpmB;
   // atempo lane: gentle correction only. Anything bigger is a
   // different track, not a blend.
-  if (ratio < 0.94 || ratio > 1.06) return null;
-  final periodA = 60.0 / s.bpmA;
+  if (ratio < 0.94 || ratio > 1.06) {
+    ArchLog.w(
+      'automix',
+      'blend gate ratio ${ratio.toStringAsFixed(3)} bars=${s.bars}',
+    );
+    return null;
+  }  final periodA = 60.0 / s.bpmA;
   final periodB = 60.0 / s.bpmB;
   final overlap = s.bars * 4 * periodA;
   // A window ends at the mix-out point (or file end): the bridge
   // covers [aEnd - overlap, aEnd] so the exit lands on groove.
   final aEnd = s.endA ?? s.durA;
   if (aEnd <= 0 || aEnd > s.durA) return null;
-  if (aEnd < overlap + 1.0) return null;
+  if (aEnd < overlap + 1.0) {
+    ArchLog.w(
+      'automix',
+      'blend gate window endA=${aEnd.toStringAsFixed(1)} overlap=${overlap.toStringAsFixed(1)} bars=${s.bars}',
+    );
+    return null;
+  }
 
   // B enters on its first grid beat at/after first sound. Unknown
   // geometry starts at zero — degraded, never invented. Callers pass
@@ -228,7 +239,13 @@ BlendPlan? buildBlend(BlendSpec s) {
   // B must cover the file from its entry to the end, in input time
   // (atempo R speeds B up: input duration = output * R).
   final needInputB = (overlap - entryDelay) * ratio;
-  if (startB + needInputB > s.durB - 0.5) return null;
+  if (startB + needInputB > s.durB - 0.5) {
+    ArchLog.w(
+      'automix',
+      'blend gate B-short need=${(startB + needInputB).toStringAsFixed(1)} durB=${s.durB.toStringAsFixed(1)} bars=${s.bars}',
+    );
+    return null;
+  }
 
   // Vocal ducking: where BOTH tracks sing, A dips 6dB under B's vocal
   // (0.5s cosine-ish ramps). Unknown A counts as vocal — protect the

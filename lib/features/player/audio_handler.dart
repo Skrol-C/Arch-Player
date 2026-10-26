@@ -230,6 +230,12 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Pair key that already logged its skip reason: the kick runs
   /// every tick, but the log names each gap once, not 150 times.
   String _renderSkipPair = '';
+  /// Pair key that failed post-decode (geometry/ratio) or crashed:
+  /// never re-render the same pair — ticks would burn a full
+  /// decode + scan set every 400ms. Cleared on transport change.
+  /// Pre-decode skips (no tempo, no path) keep retrying: analysis
+  /// warming in the background can heal them mid-track.
+  String _bridgeDeadPair = '';
 
   void _renderSkip(String pair, String reason) {
     if (pair == _renderSkipPair) return;
@@ -1258,6 +1264,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     // Abandon the pipeline with the phase: the render guard and
     // the landing wait both bail on the generation/flag.
     _dropBridgeFile();
+    _bridgeDeadPair = '';
     _landing = false;
     _mixTick?.cancel();
     _mixTick = null;
@@ -1498,6 +1505,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     final b = _songs[bIdx];
     final pair = '${a.id}>${b.id}';
     if (pair == _bridgePair && _bridge != null) return;
+    if (pair == _bridgeDeadPair) return;
     if (meta == null || !_automixOn || _engine == null) {
       _renderSkip(pair, 'not ready');
       return;
@@ -1527,11 +1535,12 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         _renderSkip(pair, 'no tempo');
         return;
       }
-      // Renderer gates 0.94-1.06; loose pre-check skips hopeless
-      // pairs before paying for decodes.
+      // Same band as the renderer: hopeless pairs die here, before
+      // paying for decodes — and stay dead (see _bridgeDeadPair).
       final ratio = ia!.bpm! / ib!.bpm!;
-      if (ratio < 0.90 || ratio > 1.10) {
+      if (ratio < 0.94 || ratio > 1.06) {
         _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
+        _bridgeDeadPair = pair;
         return;
       }
       final rb = await renderBridge(
@@ -1566,7 +1575,10 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         }
         return;
       }
-      if (rb == null) return;
+      if (rb == null) {
+        _bridgeDeadPair = pair;
+        return;
+      }
       // Queue moved under the render: same orphan rule.
       if (aIdx >= _songs.length ||
           bIdx >= _songs.length ||
@@ -1597,6 +1609,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       );
     } catch (e) {
       ArchLog.w('automix', 'bridge render failed: $e');
+      _bridgeDeadPair = pair;
     } finally {
       _rendering = false;
     }
