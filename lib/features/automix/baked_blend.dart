@@ -96,6 +96,66 @@ List<(double, double)> vocalDuckWindows({
   return out;
 }
 
+/// Vocal talk trim: if lead vocals start in the last stretch AND run
+/// past the last groove beat (talking over dead air or a faded bed),
+/// end the bridge where the talking starts instead of fading under it.
+/// Mid-song vocals don't qualify — only outros that outlive the drums.
+/// Returns the (possibly unchanged) groove end.
+double vocalTalkCut({
+  required double grooveEnd,
+  required double durA,
+  required List<(double, double)>? vocalA,
+  required double minEnd,
+}) {
+  if (vocalA == null || vocalA.isEmpty) return grooveEnd;
+  for (final v in vocalA) {
+    if (v.$1 > grooveEnd - 30.0 && v.$2 > grooveEnd + 0.5 && v.$1 >= minEnd) {
+      return v.$1;
+    }
+  }
+  return grooveEnd;
+}
+
+/// Best bridge for the pair: try the requested length first, then step
+/// [16, 8, 4] while vocal clash covers more than a quarter of the
+/// window. Unbridgeable at every length returns null (honest no-build).
+/// Gating applies only when both sides' vocals are known — unanalyzed
+/// tracks keep today's behavior instead of being punished for it.
+BlendPlan? buildBestBlend(BlendSpec base) {
+  final tried = <int>[];
+  for (final b in [base.bars, 16, 8, 4]) {
+    if (tried.contains(b)) continue;
+    tried.add(b);
+    final plan = buildBlend(
+      BlendSpec(
+        aPath: base.aPath,
+        bPath: base.bPath,
+        durA: base.durA,
+        durB: base.durB,
+        bpmA: base.bpmA,
+        bpmB: base.bpmB,
+        phaseA: base.phaseA,
+        phaseB: base.phaseB,
+        firstSoundB: base.firstSoundB,
+        vocalA: base.vocalA,
+        vocalB: base.vocalB,
+        endA: base.endA,
+        bars: b,
+      ),
+    );
+    if (plan == null) continue;
+    // Clash fraction of the window under vocal ducking.
+    var clash = 0.0;
+    for (final w in plan.ducks) {
+      clash += w.$2 - w.$1;
+    }
+    clash = plan.seconds > 0 ? clash / plan.seconds : 0.0;
+    final known = base.vocalA != null && base.vocalB != null;
+    if (!known || clash <= 0.25) return plan;
+  }
+  return null;
+}
+
 /// One rendered bridge: the filter graph plus the geometry that built
 /// it, so logs and tests can verify alignment without rendering.
 class BlendPlan {
@@ -117,6 +177,9 @@ class BlendPlan {
   /// Vocal-duck windows applied (file-time [start, end]).
   final List<(double, double)> ducks;
 
+  /// Bar count that survived vocal gating (<= requested).
+  final int bars;
+
   const BlendPlan({
     required this.filter,
     required this.seconds,
@@ -124,6 +187,7 @@ class BlendPlan {
     required this.startB,
     required this.tempoRatio,
     this.ducks = const [],
+    this.bars = 8,
   });
 }
 
@@ -216,6 +280,7 @@ BlendPlan? buildBlend(BlendSpec s) {
     startB: startB,
     tempoRatio: ratio,
     ducks: ducks,
+    bars: s.bars,
   );
 }
 
@@ -226,7 +291,9 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
   try {
     // Mix-in scan: start B where the drums do, not where the file
     // makes its first sound. A 25s head is plenty — intros longer
-    // than that are arrangements, not pickups.
+    // than that are arrangements, not pickups. Then one bar deeper:
+    // the first groove bar is often pickup, the blend wants the
+    // settled groove.
     var firstB = spec.firstSoundB ?? 0.0;
     try {
       final head = await decodeMono11k(spec.bPath);
@@ -238,19 +305,21 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
           firstB,
         );
         if (groove > firstB) {
-          ArchLog.i(
-            'automix',
-            'blend mixin first=${firstB.toStringAsFixed(2)} '
-            'groove=${groove.toStringAsFixed(2)}',
-          );
           firstB = groove;
         }
+        firstB += 4 * 60.0 / spec.bpmB;
+        ArchLog.i(
+          'automix',
+          'blend mixin groove=${groove.toStringAsFixed(2)} '
+          'start=${firstB.toStringAsFixed(2)}',
+        );
       }
     } catch (_) {}
     // Mix-out scan: end A where the drums do, not at dead air.
     // Falls back to the tail when the groove runs too close to the
     // start to fit the window — an early groove plus a long tail
-    // still beats a dropout.
+    // still beats a dropout. Then the vocal trim: outro talk that
+    // outlives the groove gets cut instead of fading under B.
     var endA = spec.durA;
     try {
       final full = await decodeMono11k(spec.aPath, full: true);
@@ -263,16 +332,31 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
         );
         final earliest = spec.bars * 4 * 60.0 / spec.bpmA + 1.0;
         if (out < spec.durA - 0.5 && out >= earliest) {
+          endA = out;
+        }
+        final talkCut = vocalTalkCut(
+          grooveEnd: endA,
+          durA: spec.durA,
+          vocalA: spec.vocalA,
+          minEnd: earliest,
+        );
+        if (talkCut < endA) {
+          ArchLog.i(
+            'automix',
+            'blend mixout groove=${endA.toStringAsFixed(1)} '
+            'talk=${talkCut.toStringAsFixed(1)}',
+          );
+          endA = talkCut;
+        } else if (endA < spec.durA - 0.5) {
           ArchLog.i(
             'automix',
             'blend mixout tail=${spec.durA.toStringAsFixed(1)} '
-            'groove=${out.toStringAsFixed(1)}',
+            'groove=${endA.toStringAsFixed(1)}',
           );
-          endA = out;
         }
       }
     } catch (_) {}
-    final plan = buildBlend(
+    final plan = buildBestBlend(
       BlendSpec(
         aPath: spec.aPath,
         bPath: spec.bPath,
@@ -327,7 +411,7 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
     ArchLog.i(
       'automix',
       'blend rendered ${plan.seconds.toStringAsFixed(1)}s '
-      'entry=${plan.entryDelay.toStringAsFixed(3)}s '
+      '(${plan.bars} bars) entry=${plan.entryDelay.toStringAsFixed(3)}s '
       'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
       'ducks=${plan.ducks.length} -> $out',
     );

@@ -293,6 +293,106 @@ void main() {
     expect(planHasDuck(ducked!), isTrue);
     expect(ducked.ducks, hasLength(1));
   });
+
+  test('vocal talk trim cuts outro rambling', () {
+    // Groove runs to 240, but talking starts at 232 and runs past
+    // the groove: the bridge ends where the talking starts.
+    expect(
+      vocalTalkCut(
+        grooveEnd: 240.0,
+        durA: 260.0,
+        vocalA: const [(232.0, 250.0)],
+        minEnd: 20.0,
+      ),
+      closeTo(232.0, 0.001),
+    );
+    // Talking that ends with the groove is no reason to cut.
+    expect(
+      vocalTalkCut(
+        grooveEnd: 240.0,
+        durA: 260.0,
+        vocalA: const [(200.0, 239.0)],
+        minEnd: 20.0,
+      ),
+      closeTo(240.0, 0.001),
+    );
+    // Unknown vocals: no information, no cut.
+    expect(
+      vocalTalkCut(
+        grooveEnd: 240.0,
+        durA: 260.0,
+        vocalA: null,
+        minEnd: 20.0,
+      ),
+      closeTo(240.0, 0.001),
+    );
+    // Mid-song vocals far from the outro: not outro talk.
+    expect(
+      vocalTalkCut(
+        grooveEnd: 240.0,
+        durA: 260.0,
+        vocalA: const [(100.0, 120.0)],
+        minEnd: 20.0,
+      ),
+      closeTo(240.0, 0.001),
+    );
+  });
+
+  test('vocal clash steps long blends down', () {
+    // 32 requested but vocal clash covers most of the window:
+    // A sings track 140-170 (window starts at 136), B sings
+    // throughout. Falls back until the clash fits.
+    const clashy = BlendSpec(
+      aPath: '/a',
+      bPath: '/b',
+      durA: 200.0,
+      durB: 200.0,
+      bpmA: 120.0,
+      bpmB: 120.0,
+      phaseA: 0.0,
+      phaseB: 0.0,
+      firstSoundB: 0.0,
+      vocalA: [(140.0, 170.0)],
+      vocalB: [(0.0, 40.0)],
+      bars: 32,
+    );
+    final stepped = buildBestBlend(clashy);
+    expect(stepped, isNotNull);
+    // 32 bars clash at 47%; 16 bars clash at 6%: steps to 16.
+    expect(stepped!.bars, 16);
+    // No vocal data anywhere: requested length stands.
+    final plain = buildBestBlend(
+      const BlendSpec(
+        aPath: '/a',
+        bPath: '/b',
+        durA: 200.0,
+        durB: 200.0,
+        bpmA: 120.0,
+        bpmB: 120.0,
+        phaseA: 0.0,
+        phaseB: 0.0,
+        firstSoundB: 0.0,
+        bars: 32,
+      ),
+    );
+    expect(plain, isNotNull);
+    expect(plain!.bars, 32);
+    // Unbridgeable at every length stays null, honestly.
+    expect(
+      buildBestBlend(
+        const BlendSpec(
+          aPath: '/a',
+          bPath: '/b',
+          durA: 1.0,
+          durB: 200.0,
+          bpmA: 120.0,
+          bpmB: 120.0,
+          bars: 32,
+        ),
+      ),
+      isNull,
+    );
+  });
 }
 
 /// The dip marker distinguishes a ducked A exit from plain equal-power.
