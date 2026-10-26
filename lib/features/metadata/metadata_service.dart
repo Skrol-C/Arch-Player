@@ -2280,7 +2280,7 @@ class MetadataService {
               ArchLog.i(
                 'meta',
                 'musical dsp tempo miss: $artist - $title '
-                'conf=${grid.confidence.toStringAsFixed(2)} win=${won.window + 1}/${won.of}',
+                'bpm=${grid.bpm.toStringAsFixed(2)} conf=${grid.confidence.toStringAsFixed(2)} win=${won.window + 1}/${won.of}',
               );
             }
           }

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'beat_grid.dart';
 import 'musical_key.dart';
+import '../../core/log.dart';
 
 /// Decode to mono 16-bit 11,025 Hz PCM. Clipped mode caps at 25s
 /// (the beat grid's native window); full mode decodes up to 10
@@ -92,6 +93,15 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   final grids = await Future.wait(slices.map(analyzeGrid));
   final consensus = consensusTempo(grids);
   final best = consensus.winner;
+  // One line per analysis: proves the folding code is live on-device
+  // and shows exactly what it did (raw -> folded -> verdict).
+  ArchLog.i(
+    'automix',
+    'tempo consensus raw=${grids.map((g) => g.bpm.toStringAsFixed(1)).join(',')} '
+    'folded=${consensus.folded.map((b) => b.toStringAsFixed(1)).join(',')} '
+    'bpm=${consensus.bpm.toStringAsFixed(2)} agree=${consensus.agreed} '
+    'win=${best + 1}/${slices.length}',
+  );
   final offsetSec = starts[best] / (11025 * 2);
   final won = grids[best];
   return (
@@ -119,12 +129,19 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
 /// - 0.65–0.85 → 4/3 read, scale by 3/4.
 /// - 1.20–1.45 → 3/4 read, scale by 4/3.
 ///
-/// Returns the consensus bpm, an agreement-shaped confidence, and the
-/// winning window index (which supplies phase/first-sound). No agreement
-/// (std dev > 4 BPM across folded readings, or fewer than two valid
-/// windows) falls back to best-confidence-wins — the caller still applies
-/// the 0.55 publish gate either way.
-({double bpm, double confidence, int winner}) consensusTempo(
+/// Returns the consensus bpm, an agreement-shaped confidence, the
+/// winning window index (which supplies phase/first-sound), whether the
+/// windows agreed, and the folded per-window readings (for logging).
+/// No agreement (std dev > 4 BPM across folded readings, or fewer than
+/// two valid windows) falls back to best-confidence-wins — the caller
+/// still applies the 0.55 publish gate either way.
+({
+  double bpm,
+  double confidence,
+  int winner,
+  bool agreed,
+  List<double> folded,
+}) consensusTempo(
   List<AutoMixBeatGrid> grids,
 ) {
   int bestWins() {
@@ -144,7 +161,13 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   ];
   if (valid.length < 2) {
     final w = bestWins();
-    return (bpm: grids[w].bpm, confidence: grids[w].confidence, winner: w);
+    return (
+      bpm: grids[w].bpm,
+      confidence: grids[w].confidence,
+      winner: w,
+      agreed: false,
+      folded: [for (final g in grids) g.bpm],
+    );
   }
   final bpms = [for (final i in valid) grids[i].bpm]..sort();
   final median = bpms.length.isOdd
@@ -173,7 +196,13 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
   final std = math.sqrt(variance);
   if (std > 4.0) {
     final w = bestWins();
-    return (bpm: grids[w].bpm, confidence: grids[w].confidence, winner: w);
+    return (
+      bpm: grids[w].bpm,
+      confidence: grids[w].confidence,
+      winner: w,
+      agreed: false,
+      folded: [for (final g in grids) g.bpm],
+    );
   }
   final ordered = [...values]..sort();
   final bpm = ordered.length.isOdd
@@ -202,5 +231,11 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       winner = i;
     }
   }
-  return (bpm: bpm, confidence: confidence, winner: winner);
+  return (
+    bpm: bpm,
+    confidence: confidence,
+    winner: winner,
+    agreed: true,
+    folded: [for (final i in valid) folded[i]!],
+  );
 }

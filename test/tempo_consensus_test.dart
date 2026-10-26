@@ -12,6 +12,7 @@ void main() {
     expect(c.bpm, closeTo(120.0, 0.01));
     expect(c.confidence, closeTo(0.9, 0.01));
     expect(c.winner, 0);
+    expect(c.agreed, isTrue);
   });
 
   test('double-time window folds down to the consensus', () {
@@ -38,6 +39,7 @@ void main() {
     expect(c.bpm, closeTo(100.0, 0.01));
     expect(c.confidence, closeTo(0.95, 0.01));
     expect(c.winner, 1);
+    expect(c.agreed, isFalse);
   });
 
   test('single valid window keeps best-wins', () {
