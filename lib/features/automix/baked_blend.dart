@@ -152,7 +152,12 @@ BlendPlan? buildBestBlend(BlendSpec base) {
     clash = plan.seconds > 0 ? clash / plan.seconds : 0.0;
     final known = base.vocalA != null && base.vocalB != null;
     if (!known || clash <= 0.25) return plan;
+    ArchLog.w(
+      'automix',
+      'blend clash ${(clash * 100).toStringAsFixed(0)}% bars=$b — stepping down',
+    );
   }
+  ArchLog.w('automix', 'blend unplannable: vocal clash at every size');
   return null;
 }
 
