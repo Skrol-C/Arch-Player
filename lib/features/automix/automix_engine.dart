@@ -46,6 +46,7 @@ class AutomixEngine {
   double _bridgeEntryDelay = 0;
   double _bridgeRatio = 1;
   double _bridgeResumeB = 0;
+  double _bridgeSeconds = 0;
   Duration? _bridgeDurB;
 
   void _cancelRamp() {
@@ -219,6 +220,7 @@ class AutomixEngine {
     required double tempoRatio,
     required double resumeB,
     required Duration durB,
+    required double bridgeSeconds,
   }) async {
     if (_disposed || _crossfading || _bridging) return false;
     _bridging = true;
@@ -245,6 +247,7 @@ class AutomixEngine {
       _bridgeEntryDelay = entryDelay;
       _bridgeRatio = tempoRatio;
       _bridgeResumeB = resumeB;
+      _bridgeSeconds = bridgeSeconds;
       _bridgeDurB = durB;
       _aActive = !_aActive;
       ArchLog.i(
@@ -278,15 +281,29 @@ class AutomixEngine {
               .timeout(const Duration(seconds: 4));
         } catch (_) {}
       }
-      await landing.setVolume(1.0);
+      await landing.setVolume(0.0);
+      // Start muted under the bridge tail; the flip lands on
+      // completion, so the join is exact instead of early.
       if (!await _startPlaying(landing)) {
         await _cutTo(nextUri);
         return false;
       }
+      // Wait out the file: bounded by its own length, aborted by
+      // any interrupt. Skips and toggles clear _bridging via stop.
+      final deadline = DateTime.now().add(
+        Duration(seconds: _bridgeSeconds.round() + 30),
+      );
+      while (!_disposed && _bridging) {
+        if (_active.processingState == ProcessingState.completed) break;
+        if (DateTime.now().isAfter(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!_bridging || _disposed) return false;
       try {
         await _active.pause().timeout(const Duration(seconds: 4));
         await _active.setVolume(1.0);
       } catch (_) {}
+      await landing.setVolume(1.0);
       _aActive = !_aActive;
       _bridging = false;
       ArchLog.i(

@@ -284,10 +284,32 @@ BlendPlan? buildBlend(BlendSpec s) {
   );
 }
 
+/// A rendered bridge plus the plan that built it: the live pipeline
+/// needs the geometry (B entry, stretch, resume offset) to place
+/// the file and map the clock across both joins.
+class RenderedBridge {
+  /// Bridge audio file (.m4a).
+  final String file;
+  /// Alignment that built it (entry delay, B start, stretch).
+  final BlendPlan plan;
+  /// B track time where the bridge ends: B resumes here.
+  final double resumeB;
+  const RenderedBridge({
+    required this.file,
+    required this.plan,
+    required this.resumeB,
+  });
+}
+
 /// Render the bridge to an AAC file. Returns the path, or null when
 /// the pair can't be bridged or the render fails — never throws, so
 /// the lab trigger can stay fire-and-forget.
-Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
+Future<String?> renderBlend(BlendSpec spec, {String? tag}) async =>
+    (await renderBridge(spec, tag: tag))?.file;
+
+/// Full render with geometry for the live pipeline. Same recipe,
+/// same fallbacks — never throws.
+Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
   try {
     // Mix-in scan: start B where the drums do, not where the file
     // makes its first sound. A 25s head is plenty — intros longer
@@ -415,7 +437,11 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async {
       'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
       'ducks=${plan.ducks.length} -> $out',
     );
-    return out;
+    // B input time covered by the file: entry runs on A time,
+    // the rest maps back through the stretch.
+    final resumeB =
+        plan.startB + (plan.seconds - plan.entryDelay) * plan.tempoRatio;
+    return RenderedBridge(file: out, plan: plan, resumeB: resumeB);
   } catch (e) {
     ArchLog.w('automix', 'blend render error: $e');
     return null;
