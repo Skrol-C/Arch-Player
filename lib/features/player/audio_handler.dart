@@ -768,6 +768,9 @@ class ArchAudioHandler extends BaseAudioHandler {
     );
     _publishEngineState();
     ArchLog.i('automix', 'armed idx=$index at=${at.inSeconds}s');
+    // Pre-analysis runs ahead of the needle from here: the next two
+    // tracks resolve while this one plays.
+    unawaited(_warmUpcoming());
   }
 
   /// Park or end the engine. [resume] hands transport back to the
@@ -849,6 +852,8 @@ class ArchAudioHandler extends BaseAudioHandler {
           'automix',
           'mixing id=${song.id} ${plan.seconds.toStringAsFixed(1)}s (${plan.reason})',
         );
+        // The horizon moved: warm the next pair before its window.
+        unawaited(_warmUpcoming());
       }
     } catch (e) {
       ArchLog.w('automix', 'mix failed: $e');
@@ -889,7 +894,11 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Neighbour of the engine's current index in play order. Honours
   /// the engine's shuffle permutation and loop-all wrap; null at the
   /// end with loop off (the mix simply stops, like a playlist would).
-  int? _mixNeighborIndex(int delta) {
+  int? _mixNeighborIndex(int delta) => _mixNeighborIndexAt(_mixIndex, delta);
+
+  /// Neighbour of an arbitrary index in play order — the lookahead
+  /// primitive. Same order rules as the engine cursor.
+  int? _mixNeighborIndexAt(int index, int delta) {
     if (_songs.length < 2) return null;
     final List<int> order;
     if (_player.shuffleModeEnabled &&
@@ -898,7 +907,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     } else {
       order = List<int>.generate(_songs.length, (i) => i);
     }
-    final pos = order.indexOf(_mixIndex);
+    final pos = order.indexOf(index);
     if (pos < 0) return null;
     final p = pos + delta;
     if (p < 0 || p >= order.length) {
@@ -906,6 +915,32 @@ class ArchAudioHandler extends BaseAudioHandler {
       return order[(p + order.length) % order.length];
     }
     return order[p];
+  }
+
+  /// Queue-ahead pre-analysis: resolve musical info for the next two
+  /// tracks while the current one plays, so every transition is fully
+  /// planned before it fires. Fire-and-forget and sequential — never
+  /// on the playback path, never parallel decodes. Superseded the
+  /// moment transport moves on (generation guard).
+  Future<void> _warmUpcoming() async {
+    try {
+      final meta = _meta;
+      if (meta == null || !_automixOn || _engine == null) return;
+      final gen = _mixGen;
+      var idx = _mixIndex;
+      for (var n = 0; n < 2; n++) {
+        final next = _mixNeighborIndexAt(idx, 1);
+        if (next == null || next < 0 || next >= _songs.length) return;
+        final s = _songs[next];
+        await meta.musicalInfoFor(
+          title: s.title,
+          artist: s.artist,
+          path: s.path,
+        );
+        if (gen != _mixGen || !_automixOn) return;
+        idx = next;
+      }
+    } catch (_) {}
   }
 
   /// Where the incoming track should begin. Its first audible sound,
