@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../../core/app_prefs.dart';
 import '../../../core/log.dart';
 import '../../../core/theme.dart';
+import '../../player/player_providers.dart';
 import '../widgets/setting_bits.dart';
 
 /// Appearance: theme choice with a live preview card. The preview
@@ -16,6 +18,7 @@ class AppearancePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ArchLog.i('nav', 'appearance open');
     final mode = ref.watch(appThemeModeProvider);
+    final goo = ref.watch(pillGooProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Appearance')),
       body: ListView(
@@ -57,6 +60,30 @@ class AppearancePage extends ConsumerWidget {
                 height: 1.5,
               ),
             ),
+          ),
+          SettingGroup(
+            title: 'Motion',
+            children: [
+              SettingRow(
+                icon: Icons.water_drop_rounded,
+                title: 'Melted pill',
+                subtitle: goo
+                    ? 'On - mini melts into the pill'
+                    : 'Off - classic fall, lighter on GPU',
+                trailing: LiquidGlassSwitch(
+                  // House switch: clear glass thumb, pink track when on.
+                  // The swell paints outside the footprint, and the page
+                  // list clips - hence the reserved room.
+                  value: goo,
+                  activeColor: archPink,
+                  reserveSwellRoom: true,
+                  onChanged: (v) {
+                    ref.read(pillGooProvider.notifier).set(v);
+                    ArchLog.i('settings', 'pill goo -> $v');
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),

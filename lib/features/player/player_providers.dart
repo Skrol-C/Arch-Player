@@ -68,6 +68,38 @@ final miniVisibleProvider = Provider<bool>((ref) {
   return !open && song != null;
 });
 
+/// Melted dock: the full mini goo-merges into the pill through a shared
+/// blender instead of falling past it. One extra backdrop pass while the
+/// dock is up - the Appearance kill switch for weak GPUs. Persisted like
+/// the theme choice: self-syncing notifier, no boot override needed.
+final pillGooProvider = NotifierProvider<PillGooNotifier, bool>(
+  PillGooNotifier.new,
+);
+
+class PillGooNotifier extends Notifier<bool> {
+  static const _key = 'arch.pillGoo';
+
+  @override
+  bool build() {
+    _sync();
+    return true;
+  }
+
+  Future<void> _sync() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_key) ?? true;
+    } catch (_) {}
+  }
+
+  Future<void> set(bool v) async {
+    state = v;
+    try {
+      await (await SharedPreferences.getInstance()).setBool(_key, v);
+    } catch (_) {}
+  }
+}
+
 /// One resolution rule for media items: library match by songId, else
 /// render from the item itself (streaming previews) so no surface ever
 /// shows "nothing playing" while audio flows.

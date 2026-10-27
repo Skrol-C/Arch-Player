@@ -57,6 +57,43 @@ abstract final class ArchGlass {
     adaptivity: adaptive,
   );
 
+  /// View-menu trigger (artists `...`): a 44 px button that must read
+  /// as GLASS against the flat paper page, so the morph has something
+  /// visible to melt out of. Refractive, not lite: Snell bend + radial
+  /// specular + saturated rim pushed hard at small-surface scale —
+  /// wide bevel band, bright tint, deep blur, solid-leaning rim — so
+  /// the lens edge separates from paper even with nothing behind it
+  /// to bend. Fixed light, like the menu: no sampling flip.
+  ///
+  /// Rigid by design: no flex touch. The flex driver listens on a raw
+  /// Listener that never joins the gesture arena, so inside a
+  /// scrollable it deforms through scroll drags and fights the
+  /// scroll. The tap lives on the outer GestureDetector instead.
+  static LiquidGlassStyle trigger({double radius = 22}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 2.2,
+      lightMode: LiquidGlassLightMode.radial,
+      borderType: const OpticalBorder(
+        borderSaturation: 2.6,
+        ambientIntensity: 1.6,
+        borderSolidity: 0.5,
+        lightSpread: 1.0,
+      ),
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0xA6FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 18, sigmaY: 18),
+    ),
+    refraction: const LiquidGlassRefraction(
+      refractionType: OpticalRefraction(
+        refraction: 1.5,
+        refractionWidth: 20,
+        depth: 0.5,
+      ),
+    ),
+  );
+
   /// Menus: glassier than the shared capsule - stronger rim bend,
   /// deeper frost, brighter tint. The menu shell never moves (static
   /// region, resolves once), so it can afford the heavier look.
@@ -163,4 +200,37 @@ abstract final class ArchGlass {
       refraction: LiquidGlassRefraction(distortion: 0.13, distortionWidth: 14),
     );
   }
+
+  /// Morph entrance: the destination recipe for native
+  /// LiquidGlassMorph (features/shell/morph_menu.dart). Same optical
+  /// family as menuV2 - Snell bend, radial specular sweep, saturated
+  /// rim - but owned by the live entrance, not the parked experiment.
+  /// The morph thickens blur/refraction itself while the glass grows,
+  /// so this authors the rested state only.
+  static LiquidGlassStyle menuMorph({double radius = 28}) => LiquidGlassStyle(
+    shape: LiquidGlassShape.continuousRoundedRectangle(
+      cornerRadius: radius,
+      borderWidth: 1.2,
+      lightMode: LiquidGlassLightMode.radial,
+      borderType: const OpticalBorder(borderSaturation: 1.6, lightSpread: 0.7),
+    ),
+    appearance: const LiquidGlassAppearance(
+      color: Color(0x66FFFFFF),
+      blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+    ),
+    refraction: const LiquidGlassRefraction(
+      refractionType: OpticalRefraction(
+        refraction: 1.5,
+        refractionWidth: 28,
+        depth: 0.24,
+      ),
+    ),
+  );
+
+  /// House touch: every tappable lens answers the finger the same way.
+  /// Subtle by house rule (premium = restraint) - press compresses,
+  /// release wobbles back. Rigid everywhere else: null means no
+  /// gesture listener, no ticker, nothing added to the tree.
+  static LiquidGlassTouch lensTouch() =>
+      const LiquidGlassTouch.flexing(LiquidGlassFlex.subtle());
 }
