@@ -1890,7 +1890,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         'automix',
         'bridge ready ${a.id}>${b.id} '
             '${rb.plan.seconds.toStringAsFixed(1)}s '
-            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''}${echoOut ? ', echo' : ''})',
+            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''}${echoOut ? ', echo send=${echoSendSecs.toStringAsFixed(1)}s taps=$echoTapDecays tail=${echoTailSecs.toStringAsFixed(1)}s' : ''})',
       );
     } catch (e) {
       ArchLog.w('automix', 'bridge render failed: $e');

@@ -309,6 +309,16 @@ BlendPlan? buildBlend(BlendSpec s) {
   );
 }
 
+/// Echo-out envelope: the send fades in over [echoSendSecs] so the
+/// first repeats sit under the mix (never above it); taps at
+/// [echoTapDecays] stay below the dry; the tail feathers out over
+/// [echoTailSecs] instead of cutting dead at resumeB (B is near-full
+/// there and masks the decay). Logged on the bridge-ready line.
+/// Short bridges (4 bars, fast tempo) still fit: send + tail < 2s.
+const echoSendSecs = 0.5;
+const echoTailSecs = 1.0;
+const echoTapDecays = '0.18|0.12';
+
 /// Echo-out fallback for pairs the tempo gate rejects: NO stretch
 /// (ratio forced 1.0, B enters clean on its groove), A tails off
 /// under a 2s multi-tap echo while B rises across the bridge. Same
@@ -379,13 +389,25 @@ BlendPlan? buildEchoBlend(BlendSpec s) {
   final tb = startB.toStringAsFixed(3);
   final tbDur = needInputB.toStringAsFixed(3);
   final delayMs = (entryDelay * 1000).round();
-  // A exits under a 2s multi-tap echo (echo AFTER the fade so the
-  // tail rings out past the exit); B enters clean, no atempo.
+  // A exits split dry/wet: the dry keeps the legacy aecho dry
+  // throughput (in 0.8 x out 0.7 = 0.56) so its level is unchanged,
+  // while the echo SEND fades in over 0.5s (first repeats sit under
+  // the mix, never above it) and the lowered taps (0.18|0.12) keep
+  // every repeat below the dry. The tail feathers out over the last
+  // 1s (cosine to zero at the cut) instead of truncating up to 2s
+  // of ringing dead at resumeB; B is near-full there and masks it.
+  final sendVol = '($aVol)*min(t/${echoSendSecs.toStringAsFixed(3)}\\,1)';
+  final tailVol =
+      'cos(PI/2*(1-min(max(($d-t)/${echoTailSecs.toStringAsFixed(3)}\\,0)\\,1)))';
   final filter = '[0:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$ta:duration=$d,asetpts=PTS-STARTPTS,'
       'highpass=f=160:poles=2,'
-      "volume='$aVol':eval=frame,"
-      'aecho=0.8:0.7:1000|2000:0.3|0.25[a];'
+      "volume='$aVol':eval=frame,asplit[adry][awet];"
+      "[awet]volume='$sendVol':eval=frame,"
+      'aecho=1.0:0.7:1000|2000:$echoTapDecays,'
+      "volume='$tailVol':eval=frame[awetout];"
+      "[adry]volume='0.56':eval=frame[adry2];"
+      '[adry2][awetout]amix=inputs=2:duration=first:normalize=0[a];'
       '[1:a]aresample=44100,aformat=channel_layouts=stereo,'
       'atrim=start=$tb:duration=$tbDur,asetpts=PTS-STARTPTS,'
       'adelay=$delayMs|$delayMs,'
@@ -657,7 +679,8 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec,
       '${echoOut ? 'echo ' : ''}blend rendered ${plan.seconds.toStringAsFixed(1)}s '
       '(${plan.bars} bars) entry=${plan.entryDelay.toStringAsFixed(3)}s '
       'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
-      'ducks=${plan.ducks.length} -> $out',
+      'ducks=${plan.ducks.length} '
+      '${echoOut ? 'echoSend=${echoSendSecs.toStringAsFixed(1)}s taps=$echoTapDecays tail=${echoTailSecs.toStringAsFixed(1)}s ' : ''}-> $out',
     );
     // B input time covered by the file: entry runs on A time,
     // the rest maps back through the stretch.

@@ -338,6 +338,42 @@ void main() {
     );
   });
 
+  test('echo-out envelope tames repeats and feathers the tail', () {
+    // Out-of-gate pair (100 vs 150 BPM): tempo blend refuses, echo
+    // plans. Ratio stays 1.0 — no stretch on the fallback.
+    const spec = BlendSpec(
+      aPath: '/a',
+      bPath: '/b',
+      durA: 260.0,
+      durB: 251.0,
+      bpmA: 100.0,
+      bpmB: 150.0,
+      phaseA: 0.1,
+      phaseB: 0.05,
+      firstSoundB: 0.3,
+      bars: 8,
+    );
+    expect(buildBlend(spec), isNull);
+    final plan = buildEchoBlend(spec);
+    expect(plan, isNotNull);
+    final f = plan!.filter;
+    expect(plan.tempoRatio, closeTo(1.0, 0.000001));
+    expect(f.contains('atempo='), isFalse);
+    // Send fades in over 0.5s so first repeats sit under the mix.
+    expect(f, contains('asplit[adry][awet]'));
+    expect(f, contains('min(t/0.500'));
+    // Lowered taps: repeats never above the dry. Old recipe gone.
+    expect(f, contains('aecho=1.0:0.7:1000|2000:0.18|0.12'));
+    expect(f.contains('0.3|0.25'), isFalse);
+    // Dry keeps the legacy aecho dry throughput (0.8 x 0.7).
+    expect(f, contains("[adry]volume='0.56'"));
+    // Tail feathers over the last 1s instead of cutting dead.
+    expect(f, contains('cos(PI/2*(1-min(max(('));
+    // B still enters clean with the equal-power rise.
+    expect(f, contains('adelay='));
+    expect(f, contains('sin(PI/2*t/'));
+  });
+
   test('vocal clash never refuses a bridge', () {
     // 32 requested and vocal clash covers most of the window:
     // A sings track 140-170 (window starts at 136), B sings
