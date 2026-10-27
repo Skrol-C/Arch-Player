@@ -53,8 +53,12 @@ void openPlayer(WidgetRef ref, BuildContext context) {
         )
         .then((_) {
       _playerRouteOpen = false;
-      ref.read(playerRouteOpenProvider.notifier).state = false;
-      ref.read(playerOpenProvider.notifier).state = false;
+      // The route may outlive the widget that opened it (dispose
+      // during playback): ref reads then throw. Guard, don't crash.
+      try {
+        ref.read(playerRouteOpenProvider.notifier).state = false;
+        ref.read(playerOpenProvider.notifier).state = false;
+      } catch (_) {}
     }),
   );
 }

@@ -273,7 +273,12 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
       bpm: bpm,
       phase: won.phase + offsetSec,
       confidence: consensus.confidence,
-      firstSound: won.firstSound + offsetSec,
+      // First sound is a head property, not a winner property: the
+      // tempo vote may come from slice 2/3 (offset 80-160s deep),
+      // which mapped firstSound mid-track and made bridges enter B
+      // minutes in (resumeB=128.9s for a 42s bridge). Slice 0 sits
+      // at offset zero, so its first sound is the track's.
+      firstSound: grids[0].firstSound,
     ),
     window: best,
     of: slices.length,

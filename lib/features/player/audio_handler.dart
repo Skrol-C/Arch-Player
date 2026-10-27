@@ -229,6 +229,10 @@ class ArchAudioHandler extends BaseAudioHandler {
   _BridgeJob? _bridge;
   /// Pair key the waiting job was rendered for (aId>bId).
   String _bridgePair = '';
+  /// Pair key already pre-buffered on the engine's idle side.
+  /// Cleared with the job; the engine invalidates its own copy on
+  /// any transport change.
+  String _primePair = '';
   /// One render at a time: ticks retry while this is set.
   bool _rendering = false;
   /// Pair key that already logged its skip reason: the kick runs
@@ -271,6 +275,7 @@ class ArchAudioHandler extends BaseAudioHandler {
     final f = _bridge?.file;
     _bridge = null;
     _bridgePair = '';
+    _primePair = '';
     if (f != null && f.isNotEmpty) {
       try {
         File(f).deleteSync();
@@ -1466,6 +1471,14 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
     _mixProbe(engine, total, remaining, next, plan, window, fireAt);
     if (job != null) {
+      // Pre-buffer the bridge on the idle side while it approaches:
+      // the fire then costs a seek+play, not a load. Once per pair.
+      if (!finished &&
+          remaining <= window + const Duration(seconds: 8) &&
+          _primePair != pair) {
+        _primePair = pair;
+        unawaited(engine.primeBridge(Uri.file(job.file)));
+      }
       if (!finished && engine.position < fireAt!) return;
     } else if (remaining > window) {
       return;
@@ -1492,6 +1505,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
               resumeB: job.resumeB,
               durB: song.duration,
               bridgeSeconds: job.seconds,
+              windowStartA: job.windowStartA,
             )
             .timeout(Duration(seconds: job.seconds.round() + 30))
             .catchError((Object e) {

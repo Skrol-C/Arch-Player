@@ -347,7 +347,14 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
     // than that are arrangements, not pickups. Then one bar deeper:
     // the first groove bar is often pickup, the blend wants the
     // settled groove.
+    //
+    // The scan only verifies the decoded head (~25s). A base deeper
+    // than that (stale cache, window-mapped first sound) would
+    // fast-forward past B's head unseen — bridge enters minutes in
+    // and resumeB lands mid-song. Discard it and scan from the head.
+    const headVerifySecs = 25.0;
     var firstB = spec.firstSoundB ?? 0.0;
+    if (firstB > headVerifySecs) firstB = 0.0;
     try {
       final head = await decodeMono11k(spec.bPath);
       if (head != null) {

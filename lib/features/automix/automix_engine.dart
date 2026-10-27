@@ -48,6 +48,10 @@ class AutomixEngine {
   double _bridgeResumeB = 0;
   double _bridgeSeconds = 0;
   Duration? _bridgeDurB;
+  /// Bridge file pre-buffered on the idle side (path): set by
+  /// [primeBridge], consumed by [bridgeTo]. Any transport change to
+  /// the idle side invalidates it.
+  String _primedBridgePath = '';
 
   void _cancelRamp() {
     _tick?.cancel();
@@ -113,16 +117,47 @@ class AutomixEngine {
   /// audio starts. Poll the real state instead — bounded, honest.
   Future<bool> _startPlaying(AudioPlayer p) async {
     unawaited(p.play().catchError((Object _) {}));
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 80; i++) {
       if (p.playing) return true;
       if (p.processingState == ProcessingState.completed) return false;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     return p.playing;
   }
 
+  /// Pre-buffer the bridge file on the idle side ahead of the fire:
+  /// the join then costs a seek+play, not a load. Paused and silent
+  /// until [bridgeTo] takes it. Safe to call every tick; the same
+  /// path is a no-op. Returns false when there is nothing to prime.
+  Future<bool> primeBridge(Uri bridgeUri) async {
+    if (_disposed || _bridging || _crossfading) return false;
+    try {
+      final path = bridgeUri.toFilePath();
+      if (path == _primedBridgePath &&
+          _idle.processingState != ProcessingState.idle) {
+        return true;
+      }
+      final incoming = _idle;
+      await incoming
+          .setAudioSource(AudioSource.uri(bridgeUri))
+          .timeout(const Duration(seconds: 12));
+      if (_disposed || _bridging) {
+        _primedBridgePath = '';
+        return false;
+      }
+      await incoming.seek(Duration.zero);
+      await incoming.setVolume(1.0);
+      _primedBridgePath = path;
+      return true;
+    } catch (_) {
+      _primedBridgePath = '';
+      return false;
+    }
+  }
+
   Future<bool> start(Uri uri, {Duration at = Duration.zero}) async {
     if (_disposed) return false;
+    _primedBridgePath = '';
     try {
       // Preload inside setAudioSource so the 15s bound covers the
       // actual decode/load.
@@ -161,6 +196,7 @@ class AutomixEngine {
   }) async {
     if (_disposed || _crossfading) return false;
     _crossfading = true;
+    _primedBridgePath = '';
     try {
       final incoming = _idle;
       await incoming
@@ -207,11 +243,13 @@ class AutomixEngine {
   }
 
   /// Baked-bridge handoff: play a rendered A+B bridge on the idle
-  /// side, then hand the active chair to it. The bridge opens as
-  /// pure A, so pausing A at the window and starting the file is a
-  /// same-waveform join — no ramp, no gap. Geometry maps the clock
-  /// onto B for the whole phase; [finishBridge] lands B itself.
-  /// Failure cuts straight to B: a hard cut beats silence.
+  /// side, then hand the active chair to it. The file is pre-buffered
+  /// by [primeBridge]; firing then costs a seek+play, not a load.
+  /// A always overshoots the window (400ms tick + load), so the file
+  /// seeks forward by that overshoot before playing: file t maps to
+  /// A@(windowStartA + t), an exact same-waveform join, no replay.
+  /// Geometry maps the clock onto B for the whole phase; [finishBridge]
+  /// lands B itself. Failure cuts straight to B: a hard cut beats silence.
   Future<bool> bridgeTo({
     required Uri bridgeUri,
     required Uri nextUri,
@@ -221,17 +259,38 @@ class AutomixEngine {
     required double resumeB,
     required Duration durB,
     required double bridgeSeconds,
+    required double windowStartA,
   }) async {
     if (_disposed || _crossfading || _bridging) return false;
     _bridging = true;
     try {
       final incoming = _idle;
-      await incoming
-          .setAudioSource(AudioSource.uri(bridgeUri))
-          .timeout(const Duration(seconds: 12));
-      if (_disposed) {
-        _bridging = false;
-        return false;
+      final path = bridgeUri.toFilePath();
+      if (_primedBridgePath != path ||
+          incoming.processingState == ProcessingState.idle) {
+        await incoming
+            .setAudioSource(AudioSource.uri(bridgeUri))
+            .timeout(const Duration(seconds: 12));
+        if (_disposed) {
+          _bridging = false;
+          return false;
+        }
+        _primedBridgePath = path;
+      }
+      // Overshoot compensation: A kept playing past the window while
+      // the tick/load ran. Start the file where A is, not where the
+      // window was — the join is same-waveform either way, exact here.
+      var delta = 0.0;
+      try {
+        delta = _active.position.inMilliseconds / 1000.0 - windowStartA;
+      } catch (_) {}
+      delta = delta.clamp(0.0, math.max(0.0, bridgeSeconds - 0.25));
+      if (delta > 0.005) {
+        try {
+          await incoming
+              .seek(Duration(milliseconds: (delta * 1000).round()))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {}
       }
       await incoming.setVolume(1.0);
       if (!await _startPlaying(incoming)) {
@@ -259,9 +318,11 @@ class AutomixEngine {
       _bridgeSeconds = bridgeSeconds;
       _bridgeDurB = durB;
       _aActive = !_aActive;
+      _primedBridgePath = '';
       ArchLog.i(
         'automix',
-        'bridge on resumeB=${resumeB.toStringAsFixed(1)}s',
+        'bridge on resumeB=${resumeB.toStringAsFixed(1)}s '
+            'd=${delta.toStringAsFixed(2)}s',
       );
       return true;
     } catch (e) {
@@ -294,15 +355,25 @@ class AutomixEngine {
       // silently consume B under the tail and land mid-song; the
       // prepared player starts in milliseconds at the join.
       await landing.setVolume(0.0);
-      // Join on completion (50ms poll): waveforms match at the
+      // Join on completion (20ms poll): waveforms match at the
       // cut, so a hard swap is seamless. Aborted by any interrupt.
+      // Pre-roll the last 150ms: starting the landing while the
+      // tail still plays overlaps identical waveforms (inaudible)
+      // instead of leaving load+start silence after completion.
+      const preRollSecs = 0.15;
       final deadline = DateTime.now().add(
         Duration(seconds: _bridgeSeconds.round() + 30),
       );
       while (!_disposed && _bridging) {
         if (_active.processingState == ProcessingState.completed) break;
+        try {
+          final bp = _active.position.inMilliseconds / 1000.0;
+          if (_bridgeSeconds > 0 && _bridgeSeconds - bp <= preRollSecs) {
+            break;
+          }
+        } catch (_) {}
         if (DateTime.now().isAfter(deadline)) break;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       if (!_bridging || _disposed) return false;
       if (!await _startPlaying(landing)) {
@@ -315,6 +386,7 @@ class AutomixEngine {
         await _active.setVolume(1.0);
       } catch (_) {}
       _aActive = !_aActive;
+      _primedBridgePath = '';
       _bridging = false;
       ArchLog.i(
         'automix',
@@ -335,6 +407,7 @@ class AutomixEngine {
   Future<void> dropBridge() async {
     if (!_bridging) return;
     _bridging = false;
+    _primedBridgePath = '';
     try {
       await _active.stop().timeout(const Duration(seconds: 4));
       await _active.setVolume(1.0);
@@ -350,6 +423,7 @@ class AutomixEngine {
     // must never outlive the file it describes.
     _bridging = false;
     _bridgeDurB = null;
+    _primedBridgePath = '';
     final incoming = _idle;
     try {
       if (incoming.processingState == ProcessingState.idle) {
@@ -443,6 +517,7 @@ class AutomixEngine {
     _cancelRamp();
     _bridging = false;
     _bridgeDurB = null;
+    _primedBridgePath = '';
     for (final p in [_a, _b]) {
       try {
         await p.stop();
