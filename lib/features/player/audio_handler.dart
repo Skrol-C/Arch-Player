@@ -763,7 +763,14 @@ class ArchAudioHandler extends BaseAudioHandler {
     if (wasEngine) {
       // Manual crossfade out of the engine: fade before the hard
       // teardown so a tap bends out of the mix instead of cutting it.
-      await _rampTo(0.0, _tapFadeOut);
+      // Bounded: a stuck gain write must never wedge the tap —
+      // teardown stops the engine anyway, so an unfinished fade
+      // degrades to a cut.
+      try {
+        await _rampTo(0.0, _tapFadeOut).timeout(const Duration(seconds: 2));
+      } catch (e) {
+        ArchLog.w('player', 'tap fade-out slow: $e');
+      }
       await _teardownEngine(resume: false);
     }
     try {
@@ -854,9 +861,13 @@ class ArchAudioHandler extends BaseAudioHandler {
           'queue rebuilt id=${song.id} n=${context.length} in=${watch.elapsedMilliseconds}ms',
         );
       } else {
-        await _player
-            .seek(Duration.zero, index: index)
-            .timeout(const Duration(seconds: 10));
+        // Fire-and-poll: the seek response occasionally never
+        // completes on-device even though the transport obeyed (the
+        // engine polls play() for the same reason). Same 10s bound
+        // and TimeoutException the direct await had — the tap guards
+        // (late-success check, rollback, rethrow) don't move, only
+        // the hang does.
+        await _seekReady(index);
         if (gen != _playGen) return;
         ArchLog.i(
           'player',
@@ -879,7 +890,11 @@ class ArchAudioHandler extends BaseAudioHandler {
       // (whatever survived of the fade-out is irrelevant now) and
       // rises into the mix.
       await _setVolume(0.0);
-      await _player.play().timeout(const Duration(seconds: 10));
+      // Fire-and-poll, same as the seek above: the platform often
+      // starts audio without ever completing the play response, and
+      // with automix juggling three players that wedge ate every tap
+      // (10s stall, then 'late success'). Bounded at the old 10s.
+      await _playReady();
       if (gen != _playGen) return;
       await _fadeIn(_tapFadeIn);
       if (gen != _playGen) return;
@@ -946,6 +961,37 @@ class ArchAudioHandler extends BaseAudioHandler {
     } finally {
       if (gen == _playGen) _busy = false;
     }
+  }
+
+  /// Fire-and-poll seek: the seek response occasionally never
+  /// completes on-device even though the transport obeyed (the engine
+  /// polls `play()` for the same reason — see AutomixEngine). Same
+  /// 10s bound and TimeoutException the direct await had, so the tap
+  /// guards (late-success check, rollback, rethrow) don't move.
+  Future<void> _seekReady(int index) async {
+    try {
+      unawaited(_player.seek(Duration.zero, index: index).catchError((_) {}));
+    } catch (_) {}
+    for (var i = 0; i < 100; i++) {
+      if (_player.currentIndex == index) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    throw TimeoutException('seek index $index unconfirmed');
+  }
+
+  /// Fire-and-poll play: same disease, same cure. The platform often
+  /// starts audio without ever completing the play response — with
+  /// automix juggling three players that wedge ate every tap (10s
+  /// stall, then 'late success'). Bounded at the old 10s.
+  Future<void> _playReady() async {
+    try {
+      unawaited(_player.play().catchError((_) {}));
+    } catch (_) {}
+    for (var i = 0; i < 100; i++) {
+      if (_player.playing) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    throw TimeoutException('play unconfirmed');
   }
 
   /// True once the engine audibly holds [index]. Fails fast the
@@ -1221,10 +1267,23 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     // activation below; engine start stays bounded with a playlist
     // fallback, so a regression surfaces instead of wedging.
     try {
-      try {
-        await _player.pause().timeout(const Duration(seconds: 5));
-      } catch (_) {
-        await _player.stop().timeout(const Duration(seconds: 5));
+      // Fire-and-poll: pause/stop responses go uncompleted on the same
+      // devices that eat play() futures (the 'engine start failed:
+      // TimeoutException 0:00:05' in the log). Poll the state instead —
+      // same 5s bounds, stop fallback preserved.
+      unawaited(_player.pause().catchError((_) {}));
+      var waited = 0;
+      while (_player.playing && waited < 50) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        waited++;
+      }
+      if (_player.playing) {
+        unawaited(_player.stop().catchError((_) {}));
+        waited = 0;
+        while (_player.playing && waited < 50) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          waited++;
+        }
       }
       await _setVolume(1.0);
       ArchLog.i(
@@ -1312,8 +1371,19 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     await _mixEvents?.cancel();
     _mixEvents = null;
     _engine = null;
-    await engine.stop();
-    await engine.dispose();
+    // Bounded: a stuck platform stop/dispose used to wedge every tap
+    // and skip with automix on. Log and move on — the players are
+    // dropped either way and the playlist transport is independent.
+    try {
+      await engine.stop().timeout(const Duration(seconds: 4));
+    } catch (e) {
+      ArchLog.w('automix', 'teardown stop slow: $e');
+    }
+    try {
+      await engine.dispose().timeout(const Duration(seconds: 4));
+    } catch (e) {
+      ArchLog.w('automix', 'teardown dispose slow: $e');
+    }
     if (!resume) return;
     if (idx < 0 || idx >= _songs.length) return;
     try {
@@ -1923,7 +1993,13 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       final target = _mixNeighborIndex(dir > 0 ? 1 : -1);
       if (target == null) return;
       ArchLog.i('automix', 'skip fade-out, then jump');
-      await _rampTo(0.0, _tapFadeOut);
+      // Bounded like the tap path: a stuck gain write degrades to a
+      // cut instead of wedging the skip.
+      try {
+        await _rampTo(0.0, _tapFadeOut).timeout(const Duration(seconds: 2));
+      } catch (e) {
+        ArchLog.w('automix', 'skip fade-out slow: $e');
+      }
       ArchLog.i('automix', 'skip ${dir > 0 ? 'next' : 'prev'} -> $target');
       await _enterEngineAt(target);
       return;
