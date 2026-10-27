@@ -1438,8 +1438,12 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     _publishEngineState();
     ArchLog.i('automix', 'armed idx=$index at=${at.inSeconds}s');
     // Fresh transport, fresh harmonic batch from the new position.
+    // Always republish: a tap can land on an unanalyzed track whose
+    // batch refills empty, and without this the Up Next list keeps
+    // showing the pre-tap order while the new song plays.
     _harmonicBatch.clear();
     _ensureHarmonicBatch();
+    _republishOrder();
     // Pre-analysis runs ahead of the needle from here: the next two
     // tracks resolve while this one plays.
     unawaited(_warmUpcoming());

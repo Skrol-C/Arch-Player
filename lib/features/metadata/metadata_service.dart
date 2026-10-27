@@ -2373,10 +2373,23 @@ class MetadataService {
     // parallel isolates. Every lane stamps its detector version on
     // verdict — hit or miss — so a settled track never pays for
     // another full decode until a lane revs.
-    if (((netBpm == null && !tempoSettled) ||
-            (needKey && !keySettled) ||
-            (netBpm != null && !vocalSettled)) &&
-        path.isNotEmpty) {
+    //
+    // Single-flight: at most one full-track pass runs at a time. A
+    // caller that arrives mid-pass takes the cached verdict and queues
+    // its track behind playback — queue rebuilds and harmonic picks
+    // never stack parallel decodes and never wait on analysis.
+    final needsDsp =
+        (netBpm == null && !tempoSettled) ||
+        (needKey && !keySettled) ||
+        (netBpm != null && !vocalSettled);
+    if (needsDsp && path.isNotEmpty && _dspBusy && !_dspClaim) {
+      _enqueueDsp(title, artist, path);
+    } else if (needsDsp && path.isNotEmpty) {
+      // Consume a pump claim (already false for ordinary callers) so
+      // concurrent arrivals shed correctly for the rest of this pass.
+      _dspClaim = false;
+      _dspBusy = true;
+      _dspActiveKey = cacheKey;
       try {
         final bytes = await decodeMono11k(path, full: true);
         if (bytes != null) {
@@ -2482,7 +2495,11 @@ class MetadataService {
             unawaited(_saveMusicalDisk());
           }
         }
-      } catch (_) {}
+      } catch (_) {} finally {
+        _dspBusy = false;
+        _dspActiveKey = '';
+        _drainDspQueue();
+      }
     }
     if (netBpm == null && netKey.isEmpty && netOpen.isEmpty) return null;
     return TrackMusicalInfo(
@@ -2556,6 +2573,97 @@ class MetadataService {
 
   final Map<String, Map<String, dynamic>> _musicalDisk = {};
   bool _musicalDiskLoaded = false;
+
+  /// DSP single-flight state (freeze fix).
+  ///
+  /// Plain-words blocking chain, from the log: a tap rebuilds the
+  /// queue (same 25 songs in 86ms), then stale-tempo re-analysis kicks
+  /// in — full-track decodes plus a ~20s vocal pass — and the next
+  /// tap's rebuild takes 3064ms. Nothing on the rebuild path awaits
+  /// analysis directly; the pile-up of parallel full-track decodes
+  /// (queue-ahead warm, tap backfill, song-page badge) saturates
+  /// CPU/IO and starves the tap's own async work, so the previous tap
+  /// holds the transport busy-flag for seconds and the new tap spins
+  /// waiting for it.
+  ///
+  /// Fix: at most one DSP pass runs at a time. A caller arriving
+  /// mid-pass sheds — it returns the cached verdict immediately and
+  /// its track joins a small background queue that drains one at a
+  /// time behind playback. Harmonic picks and bridge renders already
+  /// read the cache only, so shedding never mis-orders the music.
+  bool _dspBusy = false;
+
+  /// Set while the background pump runs its claimed pass: the shed
+  /// check lets this one call through instead of re-queueing it.
+  bool _dspClaim = false;
+
+  /// True while the drain loop owns the queue. Inline passes call
+  /// [_drainDspQueue] on their way out; the guard keeps that from
+  /// starting a second loop beside the running one.
+  bool _dspDraining = false;
+
+  /// Cache key of the track under analysis (or empty). A shed for the
+  /// same track is dropped — the running pass already covers it.
+  String _dspActiveKey = '';
+
+  /// Background queue, oldest first, capped so a long stale library
+  /// can't grow it without bound. Entries are deduped by cache key.
+  final List<({String title, String artist, String path})> _dspPending = [];
+  final Set<String> _dspPendingKeys = {};
+
+  static String _dspCacheKey(String artist, String title) =>
+      '${artist.toLowerCase()}\u0000${title.toLowerCase()}';
+
+  /// Shed a track to the background queue. Starts the drain when it
+  /// isn't already running; the drain is a no-op while an inline
+  /// pass holds the slot (that pass re-kicks it on its way out).
+  void _enqueueDsp(String title, String artist, String path) {
+    if (path.isEmpty) return;
+    final key = _dspCacheKey(artist, title);
+    if (key == _dspActiveKey) return;
+    if (!_dspPendingKeys.add(key)) return;
+    while (_dspPending.length >= 32) {
+      final dropped = _dspPending.removeAt(0);
+      _dspPendingKeys.remove(_dspCacheKey(dropped.artist, dropped.title));
+    }
+    _dspPending.add((title: title, artist: artist, path: path));
+    ArchLog.i('meta', 'musical dsp queued (single-flight): $artist - $title');
+    _drainDspQueue();
+  }
+
+  /// Drive the background queue one pass at a time. Fire-and-forget:
+  /// callers never await the drain, so analysis can never wedge a
+  /// tap, a skip, or a queue rebuild.
+  void _drainDspQueue() {
+    if (_dspDraining || _dspBusy || _dspPending.isEmpty) return;
+    _dspDraining = true;
+    unawaited(_dspDrainLoop());
+  }
+
+  Future<void> _dspDrainLoop() async {
+    try {
+      while (_dspPending.isEmpty == false) {
+        if (_dspBusy) return;
+        final job = _dspPending.removeAt(0);
+        _dspPendingKeys.remove(_dspCacheKey(job.artist, job.title));
+        _dspClaim = true;
+        _dspBusy = true;
+        try {
+          await musicalInfoFor(
+            title: job.title,
+            artist: job.artist,
+            path: job.path,
+          );
+        } catch (_) {} finally {
+          _dspClaim = false;
+          _dspBusy = false;
+        }
+      }
+    } finally {
+      _dspDraining = false;
+      if (_dspPending.isNotEmpty && !_dspBusy) _drainDspQueue();
+    }
+  }
 
   Future<void> _loadMusicalDisk() async {
     if (_musicalDiskLoaded) return;
