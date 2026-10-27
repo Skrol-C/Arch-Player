@@ -2171,6 +2171,17 @@ class MetadataService {
   /// full decode on every play.
   static const _dspTempoV = 7;
 
+  /// Phase heal: rows stamped before phase folding carry window-mapped
+  /// track time (e.g. phase ~= 142s from a slice 80-160s deep). The
+  /// grid repeats every beat period, so fold into [0, period) on read —
+  /// old rows heal without a full rescan (no tempoV bump needed).
+  static double? _foldPhase(double? phase, double? bpm) {
+    if (phase == null || bpm == null || bpm <= 0) return phase;
+    final period = 60.0 / bpm;
+    if (period <= 0 || phase < period) return phase;
+    return phase % period;
+  }
+
   /// DSP key algorithm version. Same backfill contract as tempo:
   /// v1 = relative-tie waiver. Key misses stamp it so they retry once
   /// per key-algorithm rev instead of decoding on every play.
@@ -2239,7 +2250,10 @@ class MetadataService {
         keyOf: key,
         openKey: open,
         source: '${cached['src'] ?? 'cache'}',
-        phase: (cached['phase'] as num?)?.toDouble(),
+        phase: _foldPhase(
+          (cached['phase'] as num?)?.toDouble(),
+          bpm,
+        ),
         firstSound: (cached['firstSound'] as num?)?.toDouble(),
       );
     }
@@ -2278,7 +2292,10 @@ class MetadataService {
       if (netKey.isEmpty) netKey = '${cached['key'] ?? ''}';
       netOpen = '${cached['openKey'] ?? ''}';
       netSrc = '${cached['src'] ?? 'getsongbpm'}';
-      cachedPhase = (cached['phase'] as num?)?.toDouble();
+      cachedPhase = _foldPhase(
+        (cached['phase'] as num?)?.toDouble(),
+        netBpm,
+      );
       cachedFirstSound = (cached['firstSound'] as num?)?.toDouble();
       // Collapse legacy doubled tags ('dsp+dsp') on read; the next
       // write persists the clean form.

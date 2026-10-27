@@ -340,9 +340,16 @@ class AutomixEngine {
     if (!_bridging || _disposed) return false;
     try {
       final landing = _idle;
+      final loadWatch = Stopwatch()..start();
       await landing
           .setAudioSource(AudioSource.uri(nextUri))
           .timeout(const Duration(seconds: 12));
+      loadWatch.stop();
+      ArchLog.i(
+        'automix',
+        'bridge B loaded in=${loadWatch.elapsedMilliseconds}ms '
+        'resumeB=${_bridgeResumeB.toStringAsFixed(1)}s',
+      );
       if (_disposed) return false;
       if (_bridgeResumeB > 0.05) {
         try {

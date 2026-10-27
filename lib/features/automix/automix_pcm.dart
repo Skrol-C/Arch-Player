@@ -268,10 +268,25 @@ Future<({AutoMixBeatGrid grid, int window, int of})> analyzeTempoWindows(
     'bpm=${bpm.toStringAsFixed(2)} agree=${consensus.agreed} '
     'pair=${consensus.pair} win=${best + 1}/${slices.length}',
   );
+  // Phase normalization: the grid repeats every beat period, so fold
+  // the published phase into [0, period). Window-mapped track time
+  // (e.g. phase ~= 142s from a slice 80-160s deep) otherwise drives
+  // deep B entries: startB = phaseB + j*period lands minutes in even
+  // with a fresh in-head first sound.
+  final rawPhase = won.phase + offsetSec;
+  final period = bpm > 0 ? 60.0 / bpm : 0.0;
+  final normPhase = period > 0 ? rawPhase % period : rawPhase;
+  if ((rawPhase - normPhase).abs() > 0.001) {
+    ArchLog.i(
+      'automix',
+      'tempo phase fold ${rawPhase.toStringAsFixed(2)} -> '
+      '${normPhase.toStringAsFixed(3)} (period=${period.toStringAsFixed(3)})',
+    );
+  }
   return (
     grid: AutoMixBeatGrid(
       bpm: bpm,
-      phase: won.phase + offsetSec,
+      phase: normPhase,
       confidence: consensus.confidence,
       // First sound is a head property, not a winner property: the
       // tempo vote may come from slice 2/3 (offset 80-160s deep),

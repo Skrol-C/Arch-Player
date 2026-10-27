@@ -355,6 +355,7 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
     const headVerifySecs = 25.0;
     var firstB = spec.firstSoundB ?? 0.0;
     if (firstB > headVerifySecs) firstB = 0.0;
+    var grooveInHead = false;
     try {
       final head = await decodeMono11k(spec.bPath);
       if (head != null) {
@@ -366,11 +367,13 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
         );
         if (groove > firstB) {
           firstB = groove;
+          grooveInHead = true;
         }
         firstB += 4 * 60.0 / spec.bpmB;
         ArchLog.i(
           'automix',
           'blend mixin groove=${groove.toStringAsFixed(2)} '
+          'phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(3)} '
           'start=${firstB.toStringAsFixed(2)}',
         );
       }
@@ -416,7 +419,7 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
         }
       }
     } catch (_) {}
-    final plan = buildBestBlend(
+    var plan = buildBestBlend(
       BlendSpec(
         aPath: spec.aPath,
         bPath: spec.bPath,
@@ -436,6 +439,50 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
     if (plan == null) {
       ArchLog.w('automix', 'blend unplannable (tempo/geometry/duration)');
       return null;
+    }
+    // Stale-phase defense: the head scan verified the first ~25s and
+    // found the groove in-head, yet the plan enters B deeper than the
+    // verified head. That means phaseB predates phase folding (stale
+    // cache row, e.g. phase ~= 142): startB = phaseB + j*period lands
+    // minutes in. Rebuild with phaseB folded into [0, periodB); when
+    // still deep, reject to the live fade instead of shipping a
+    // mid-song B entry.
+    if (grooveInHead && plan.startB > headVerifySecs && spec.bpmB > 0) {
+      final periodB = 60.0 / spec.bpmB;
+      final normB = (spec.phaseB ?? 0.0) % periodB;
+      ArchLog.w(
+        'automix',
+        'blend stale phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(2)} '
+        'startB=${plan.startB.toStringAsFixed(1)} '
+        'rebuilding norm=${normB.toStringAsFixed(3)}',
+      );
+      final retry = buildBestBlend(
+        BlendSpec(
+          aPath: spec.aPath,
+          bPath: spec.bPath,
+          durA: spec.durA,
+          durB: spec.durB,
+          bpmA: spec.bpmA,
+          bpmB: spec.bpmB,
+          phaseA: spec.phaseA,
+          phaseB: normB,
+          firstSoundB: firstB,
+          vocalA: spec.vocalA,
+          vocalB: spec.vocalB,
+          endA: endA,
+          bars: spec.bars,
+        ),
+      );
+      if (retry == null || retry.startB > headVerifySecs) {
+        ArchLog.w(
+          'automix',
+          'blend stale phase unrecoverable '
+          'startB=${retry?.startB.toStringAsFixed(1) ?? 'null'} '
+          '(live fade)',
+        );
+        return null;
+      }
+      plan = retry;
     }
     final dir = await getTemporaryDirectory();
     final out =
