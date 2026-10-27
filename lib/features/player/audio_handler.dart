@@ -1419,9 +1419,18 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       return;
     }
     if (!ok) {
-      ArchLog.w('automix', 'engine start failed - staying on playlist');
+      ArchLog.w(
+        'automix',
+        'engine start failed idx=$index - falling back to playlist',
+      );
       _automixOn = false;
       await _teardownEngine(resume: true);
+      // Re-anchor: the failed start's cursor dies with the engine —
+      // the playlist index is the truth from here. A stale _mixIndex
+      // would poison the next engine entry's neighbor computation.
+      _mixIndex = (_player.currentIndex ?? index).clamp(0, _songs.length - 1);
+      ArchLog.i('automix', 'engine fallback anchored idx=$_mixIndex');
+      _republishOrder();
       if (!_automixFailures.isClosed) _automixFailures.add(null);
       return;
     }
@@ -2158,6 +2167,11 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         t = (t + n) % n;
       } else {
         t = t.clamp(0, n - 1);
+        // Loop-off rail: clamping a next on the last slot yields
+        // expect=from and seekToNext() no-ops there (log-proven 0ms
+        // landing on the same song). A manual next always advances —
+        // wrap to the head instead of standing still.
+        if (dir > 0 && t == from && n > 1) t = (from + 1) % n;
       }
       expect = t;
       if (t >= 0 && t < queue.value.length) _setItem(queue.value[t]);
@@ -2171,6 +2185,18 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       await _player.seekToNext();
     } else {
       await _player.seekToPrevious();
+    }
+    // Rail fallback: the transport above no-ops at the loop-off end
+    // of the queue, so land the optimistic target explicitly and
+    // keep every skip a real move.
+    if (gen == _skipGen &&
+        expect != null &&
+        expect != from &&
+        _player.currentIndex == from &&
+        expect >= 0 &&
+        expect < _songs.length) {
+      ArchLog.i('player', 'skip rail fallback seek=$expect');
+      await _player.seek(null, index: expect);
     }
     if (gen != _skipGen) {
       ArchLog.i('player', 'skip superseded');
