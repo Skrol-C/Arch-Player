@@ -9,9 +9,9 @@ import 'dart:math' as math;
 import 'baked_blend.dart' show BlendPlan;
 
 /// Live ceiling: baked sums then clamps peaks at 0.95; live clamps at
-/// 1.15 — the Android mixer tolerates mild overs without the hard
+/// 1.25 — the Android mixer tolerates mild overs without the hard
 /// clip that printed static on the spike.
-const liveSumCeiling = 1.15;
+const liveSumCeiling = 1.25;
 
 /// Recipe volumes at bridge time [t] (seconds). Pure, deterministic.
 ({double a, double b}) liveGains(BlendPlan plan, double t) {
@@ -41,8 +41,31 @@ const liveSumCeiling = 1.15;
   ({double a, double b}) g, [
   double ceiling = liveSumCeiling,
 ]) {
+  return applyKnee(g, limitTarget(g, ceiling));
+}
+
+/// Gain-reduction factor for a lane pair: 1.0 below the ceiling,
+/// ceiling/sum above it.
+double limitTarget(
+  ({double a, double b}) g, [
+  double ceiling = liveSumCeiling,
+]) {
   final s = g.a + g.b;
-  if (s <= ceiling) return g;
-  final k = ceiling / s;
-  return (a: g.a * k, b: g.b * k);
+  if (s <= ceiling) return 1.0;
+  return ceiling / s;
+}
+
+/// Apply a reduction factor to both lanes.
+({double a, double b}) applyKnee(
+  ({double a, double b}) g,
+  double k,
+) =>
+    (a: g.a * k, b: g.b * k);
+
+/// Smooth the reduction like a real limiter: instant attack (clamp
+/// bites immediately, no clip gets through), slow release (the cut
+/// lets go gradually instead of pumping the lane level audibly).
+double smoothKnee(double prev, double target) {
+  if (target < prev) return target;
+  return prev + (target - prev) * 0.15;
 }

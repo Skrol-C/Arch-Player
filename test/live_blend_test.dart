@@ -42,6 +42,18 @@ void main() {
     expect(cut.a, closeTo(cut.b, 0.000001));
   });
 
+  test('knee attacks instantly, releases slowly', () {
+    // Overload bites on the same tick: no clip gets through.
+    expect(smoothKnee(1.0, 0.7), 0.7);
+    // Recovery creeps: no audible pump when the peak passes.
+    final r1 = smoothKnee(0.7, 1.0);
+    expect(r1, greaterThan(0.7));
+    expect(r1, lessThan(0.8));
+    final r2 = smoothKnee(r1, 1.0);
+    expect(r2, greaterThan(r1));
+    expect(r2, lessThan(1.0));
+  });
+
   test('duck zones dip A under B vocals', () {
     final plan = buildBlend(_proto())!;
     if (plan.ducks.isEmpty) return; // pair-dependent, informational only

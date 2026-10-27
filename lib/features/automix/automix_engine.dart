@@ -304,12 +304,17 @@ class AutomixEngine {
       }
       // Overlapped recipe: 25ms ticks, both writes batched (sequential
       // platform round-trips zipper on raspy vocals — spike-proven).
+      // Reduction rides a smoothed knee (instant attack, slow
+      // release) so the limiter glues peaks without pumping A down.
       final t0 = DateTime.now();
+      var knee = 1.0;
       while (live()) {
         final t =
             DateTime.now().difference(t0).inMilliseconds / 1000.0;
         if (t >= plan.seconds) break;
-        final g = limitedGains(liveGains(plan, t));
+        final raw = liveGains(plan, t);
+        knee = smoothKnee(knee, limitTarget(raw));
+        final g = applyKnee(raw, knee);
         _lastLiveB = g.b;
         await Future.wait([
           outgoing.setVolume(g.a),
