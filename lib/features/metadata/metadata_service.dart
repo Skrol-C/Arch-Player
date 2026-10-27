@@ -2494,10 +2494,12 @@ class MetadataService {
             };
             unawaited(_saveMusicalDisk());
             // A shed caller already resolved with the pre-pass verdict
-            // and an open song page rendered it: wake the matching
-            // family key so both redraw with what this pass found.
+            // and an open song page rendered it: wake every watched
+            // family-key variant for this track (song page, queue —
+            // spellings and paths differ per entry point) so all redraw
+            // with what this pass found.
             if (!_dspDone.isClosed) {
-              _dspDone.add('$artist\x00$title\x00$path');
+              _dspDone.add(_dspCacheKey(artist, title));
             }
           }
         }
@@ -2617,12 +2619,46 @@ class MetadataService {
   final List<({String title, String artist, String path})> _dspPending = [];
   final Set<String> _dspPendingKeys = {};
 
-  /// DSP pass completions as musicalInfoProvider-style keys
-  /// ('artist\x00title\x00path', raw spellings as passed in). Emitted
-  /// whenever a pass writes fresh verdicts to the disk cache — the
+  /// Raw musicalInfoProvider keys seen per normalized track bucket.
+  /// One track reaches the service under several spellings/paths (song
+  /// page watches `artist/title/path-or-empty`, the DSP
+  /// pass that completes ran under whoever queued first), so a single
+  /// exact-key invalidate routinely targets a key nobody watches.
+  /// The bucket fans one completion out to every watched variant.
+  /// Bounded by distinct tracks resolved — same scale as the retained
+  /// family elements themselves.
+  final Map<String, Set<String>> _musicalKeyIndex = {};
+
+  /// Remember a raw provider key under its track bucket. Called from
+  /// the provider body before the fetch, so a pass completing
+  /// mid-flight still finds this key at invalidate time.
+  void noteMusicalKey(String rawKey) {
+    final parts = rawKey.split('\x00');
+    final artist = parts.isNotEmpty ? parts.first : '';
+    final title = parts.length > 1 ? parts[1] : '';
+    if (artist.isEmpty || title.isEmpty) return;
+    _musicalKeyIndex
+        .putIfAbsent(_dspCacheKey(artist, title), () => <String>{})
+        .add(rawKey);
+  }
+
+  /// Every raw provider key seen for this track (any case, any path).
+  Set<String> musicalKeysFor({
+    required String artist,
+    required String title,
+  }) =>
+      _musicalKeyIndex[_dspCacheKey(artist, title)] ?? const {};
+
+  /// DSP pass completions as normalized track buckets
+  /// ('artist\x00title', lowercased — the same normalization as the
+  /// disk cache key). The provider layer fans each bucket out to every
+  /// raw family key seen for the track (see [noteMusicalKey]), so an
+  /// open song page redraws whatever spelling/path variant it watches.
+  /// Emitted whenever a pass writes fresh verdicts to the disk cache — the
   /// provider layer invalidates the matching family key so an open
   /// song page redraws with real data instead of its shed-time
-  /// verdict. Broadcast with no buffer: the provider subscribes at
+  /// verdict. Every watched key variant for the track is invalidated.
+  /// Broadcast with no buffer: the provider subscribes at
   /// creation, before any pass can complete.
   final StreamController<String> _dspDone =
       StreamController<String>.broadcast();

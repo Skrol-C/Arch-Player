@@ -13,15 +13,23 @@ import '../needle/sandbox.dart' show NeedleException;
 import 'metadata_service.dart';
 
 /// Single owner of the metadata service: DSP passes complete behind
-/// playback (single-flight queue), so each completion invalidates the
-/// matching [musicalInfoProvider] family key — an open song page
-/// redraws with real tempo/key/vocals instead of its shed-time
-/// verdict. Key shape unchanged.
+/// playback (single-flight queue), so each completion invalidates every
+/// watched [musicalInfoProvider] family key for the track — an open song
+/// page redraws with real tempo/key/vocals instead of its shed-time
+/// verdict. Buckets are artist+title, lowercased: the completing pass
+/// runs under whoever queued first, whose raw spelling/path rarely
+/// equals the open page's key, so exact-key invalidation missed live.
 final Provider<MetadataService> metadataServiceProvider =
     Provider<MetadataService>((ref) {
   final svc = MetadataService();
-  final sub = svc.dspDone.listen((key) {
-    ref.invalidate(musicalInfoProvider(key));
+  final sub = svc.dspDone.listen((bucket) {
+    final parts = bucket.split('\x00');
+    for (final k in svc.musicalKeysFor(
+      artist: parts.isNotEmpty ? parts.first : '',
+      title: parts.length > 1 ? parts[1] : '',
+    )) {
+      ref.invalidate(musicalInfoProvider(k));
+    }
   });
   ref.onDispose(() {
     sub.cancel();
@@ -296,13 +304,15 @@ class ShowMusicalNotifier extends Notifier<bool> {
 /// path empty means network-only. Null = neither lane knew the track.
 final musicalInfoProvider =
     FutureProvider.family<TrackMusicalInfo?, String>((ref, key) async {
+  final svc = ref.watch(metadataServiceProvider);
+  // Register before the fetch: a pass completing mid-flight must find
+  // this raw key (case/path variant) when its bucket invalidates.
+  svc.noteMusicalKey(key);
   final parts = key.split('\x00');
   final artist = parts.isNotEmpty ? parts.first : '';
   final title = parts.length > 1 ? parts[1] : '';
   final path = parts.length > 2 ? parts[2] : '';
-  return ref
-      .watch(metadataServiceProvider)
-      .musicalInfoFor(title: title, artist: artist, path: path);
+  return svc.musicalInfoFor(title: title, artist: artist, path: path);
 });
 
 /// Full album tracklist (Deezer, else MusicBrainz), keyed
