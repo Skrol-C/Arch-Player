@@ -1703,14 +1703,19 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
             return;
         }
       }
-      // Same band as the renderer (reciprocal-symmetric 0.80–1.25):
-      // hopeless pairs die here, before paying for decodes — and
-      // stay dead (see _deadPairs).
+      // Same band as the renderer (tight ±8%: 0.92–1.08). In-gate
+      // pairs tempo-blend; tempo-known but out-of-gate pairs fall
+      // to the echo-out bridge (no stretch) instead of dying here.
+      // Key-blend pins ratio=1.0 so it never trips this. Unplannable
+      // geometry still dies in the renderer and stays dead.
       final ratio = bpmA / bpmB;
-      if (ratio < 0.80 || ratio > 1.25) {
-        _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
-        _deadPairs.add(pair);
-        return;
+      var echoOut = false;
+      if (ratio < 0.92 || ratio > 1.08) {
+        echoOut = true;
+        ArchLog.i(
+          'automix',
+          'bridge echo-out $pair (ratio ${ratio.toStringAsFixed(2)})',
+        );
       }
       final rb = await renderBridge(
         BlendSpec(
@@ -1731,9 +1736,10 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
             title: b.title,
             artist: b.artist,
           ),
-          bars: bars,
+          bars: echoOut ? 8 : bars,
         ),
         tag: 'live_${a.id}_${b.id}',
+        echoOut: echoOut,
       );
       // Transport moved on mid-render: the file is orphaned. Loud,
       // because renders take minutes and taps take seconds — every
@@ -1780,7 +1786,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         'automix',
         'bridge ready ${a.id}>${b.id} '
             '${rb.plan.seconds.toStringAsFixed(1)}s '
-            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''})',
+            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''}${echoOut ? ', echo' : ''})',
       );
     } catch (e) {
       ArchLog.w('automix', 'bridge render failed: $e');

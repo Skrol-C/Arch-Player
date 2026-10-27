@@ -205,11 +205,10 @@ BlendPlan? buildBlend(BlendSpec s) {
   if (s.bpmA <= 0 || s.bpmB <= 0) return null;
   if (s.durA <= 0 || s.durB <= 0) return null;
   final ratio = s.bpmA / s.bpmB;
-  // atempo lane: reciprocal-symmetric 0.80–1.25. atempo preserves
-  // pitch, so the edges read as slight smear, not chipmunks — and
-  // stretching is exactly what the lane is for. Anything bigger is
-  // a different track, not a blend.
-  if (ratio < 0.80 || ratio > 1.25) {
+  // Tight ±8% gate (0.92–1.08): the pre-widening values that kept
+  // stretched-out pairs honest. Anything bigger rides the echo-out
+  // fallback (no stretch) instead of a drunk atempo smear.
+  if (ratio < 0.92 || ratio > 1.08) {
     ArchLog.w(
       'automix',
       'blend gate ratio ${ratio.toStringAsFixed(3)} bars=${s.bars}',
@@ -310,6 +309,141 @@ BlendPlan? buildBlend(BlendSpec s) {
   );
 }
 
+/// Echo-out fallback for pairs the tempo gate rejects: NO stretch
+/// (ratio forced 1.0, B enters clean on its groove), A tails off
+/// under a 2s multi-tap echo while B rises across the bridge. Same
+/// geometry rules as [buildBlend] — window, groove entry, B-length —
+/// minus the tempo gate; the gate is why this recipe exists.
+/// Unplannable geometry returns null and the caller falls through
+/// to the live crossfade.
+BlendPlan? buildEchoBlend(BlendSpec s) {
+  if (s.bpmA <= 0 || s.bpmB <= 0) return null;
+  if (s.durA <= 0 || s.durB <= 0) return null;
+  const ratio = 1.0;
+  final periodA = 60.0 / s.bpmA;
+  final periodB = 60.0 / s.bpmB;
+  final overlap = s.bars * 4 * periodA;
+  // Same window rule as the tempo blend: the bridge covers
+  // [aEnd - overlap, aEnd] so the exit lands on groove.
+  final aEnd = s.endA ?? s.durA;
+  if (aEnd <= 0 || aEnd > s.durA) return null;
+  if (aEnd < overlap + 1.0) {
+    ArchLog.w(
+      'automix',
+      'echo gate window endA=${aEnd.toStringAsFixed(1)} overlap=${overlap.toStringAsFixed(1)} bars=${s.bars}',
+    );
+    return null;
+  }
+
+  // Same groove entry as the tempo blend: first grid beat at/after
+  // first sound, landing on the first A beat (< one period delay).
+  final phaseB = s.phaseB ?? 0.0;
+  final firstB = s.firstSoundB ?? 0.0;
+  final j0 = math.max(0, ((firstB - phaseB) / periodB).ceil());
+  final startB = phaseB + j0 * periodB;
+  final phaseA = s.phaseA ?? 0.0;
+  final aOffset = aEnd - overlap;
+  final entryDelay = ((phaseA - aOffset) % periodA + periodA) % periodA;
+
+  // No stretch: B input duration maps 1:1 through the bridge.
+  final needInputB = overlap - entryDelay;
+  if (startB + needInputB > s.durB - 0.5) {
+    ArchLog.w(
+      'automix',
+      'echo gate B-short need=${(startB + needInputB).toStringAsFixed(1)} durB=${s.durB.toStringAsFixed(1)} bars=${s.bars}',
+    );
+    return null;
+  }
+
+  final ducks = vocalDuckWindows(
+    vocalA: s.vocalA,
+    vocalB: s.vocalB,
+    aStart: aOffset,
+    bStart: startB,
+    delay: entryDelay,
+    rate: ratio,
+    length: overlap,
+  );
+  final d = overlap.toStringAsFixed(3);
+  final fadeA = (overlap * 0.85).toStringAsFixed(3);
+  var aVol = 'cos(PI/2*min(t/$fadeA\\,1))';
+  if (ducks.isNotEmpty) {
+    final terms = ducks.map((w) {
+      final rs = (w.$1 - 0.5).toStringAsFixed(3);
+      final re = (w.$2 + 0.5).toStringAsFixed(3);
+      return 'min(max((t-$rs)/0.5\\,0)\\,1)*min(max(($re-t)/0.5\\,0)\\,1)';
+    }).join('+');
+    aVol = '($aVol)*(1-0.5*($terms))';
+  }
+  final ta = aOffset.toStringAsFixed(3);
+  final tb = startB.toStringAsFixed(3);
+  final tbDur = needInputB.toStringAsFixed(3);
+  final delayMs = (entryDelay * 1000).round();
+  // A exits under a 2s multi-tap echo (echo AFTER the fade so the
+  // tail rings out past the exit); B enters clean, no atempo.
+  final filter = '[0:a]aresample=44100,aformat=channel_layouts=stereo,'
+      'atrim=start=$ta:duration=$d,asetpts=PTS-STARTPTS,'
+      'highpass=f=160:poles=2,'
+      "volume='$aVol':eval=frame,"
+      'aecho=0.8:0.7:1000|2000:0.3|0.25[a];'
+      '[1:a]aresample=44100,aformat=channel_layouts=stereo,'
+      'atrim=start=$tb:duration=$tbDur,asetpts=PTS-STARTPTS,'
+      'adelay=$delayMs|$delayMs,'
+      "volume='sin(PI/2*t/$d)':eval=frame[b];"
+      '[a][b]amix=inputs=2:duration=first:normalize=0[mix];'
+      '[mix]alimiter=limit=0.95[out]';
+  return BlendPlan(
+    filter: filter,
+    seconds: overlap,
+    entryDelay: entryDelay,
+    startB: startB,
+    tempoRatio: ratio,
+    ducks: ducks,
+    bars: s.bars,
+  );
+}
+
+/// Best echo-out bridge: same step-down as [buildBestBlend] over
+/// shorter windows (echo tails want a phrase, not a movement).
+BlendPlan? buildBestEcho(BlendSpec base) {
+  final tried = <int>[];
+  for (final b in [base.bars, 8, 4]) {
+    if (tried.contains(b)) continue;
+    tried.add(b);
+    final plan = buildEchoBlend(
+      BlendSpec(
+        aPath: base.aPath,
+        bPath: base.bPath,
+        durA: base.durA,
+        durB: base.durB,
+        bpmA: base.bpmA,
+        bpmB: base.bpmB,
+        phaseA: base.phaseA,
+        phaseB: base.phaseB,
+        firstSoundB: base.firstSoundB,
+        vocalA: base.vocalA,
+        vocalB: base.vocalB,
+        endA: base.endA,
+        bars: b,
+      ),
+    );
+    if (plan == null) continue;
+    var clash = 0.0;
+    for (final w in plan.ducks) {
+      clash += w.$2 - w.$1;
+    }
+    clash = plan.seconds > 0 ? clash / plan.seconds : 0.0;
+    if (clash > 0.01) {
+      ArchLog.i(
+        'automix',
+        'echo ducks ${(clash * 100).toStringAsFixed(0)}% bars=$b',
+      );
+    }
+    return plan;
+  }
+  return null;
+}
+
 /// A rendered bridge plus the plan that built it: the live pipeline
 /// needs the geometry (B entry, stretch, resume offset) to place
 /// the file and map the clock across both joins.
@@ -339,8 +473,11 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async =>
     (await renderBridge(spec, tag: tag))?.file;
 
 /// Full render with geometry for the live pipeline. Same recipe,
-/// same fallbacks — never throws.
-Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
+/// same fallbacks — never throws. [echoOut] selects the echo-out
+/// recipe (no stretch) for pairs the tempo gate rejected; geometry
+/// scans, phase defense, and resume math are shared.
+Future<RenderedBridge?> renderBridge(BlendSpec spec,
+    {String? tag, bool echoOut = false}) async {
   try {
     // Mix-in scan: start B where the drums do, not where the file
     // makes its first sound. A 25s head is plenty — intros longer
@@ -419,7 +556,7 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
         }
       }
     } catch (_) {}
-    var plan = buildBestBlend(
+    var plan = (echoOut ? buildBestEcho : buildBestBlend)(
       BlendSpec(
         aPath: spec.aPath,
         bPath: spec.bPath,
@@ -456,7 +593,7 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
         'startB=${plan.startB.toStringAsFixed(1)} '
         'rebuilding norm=${normB.toStringAsFixed(3)}',
       );
-      final retry = buildBestBlend(
+      final retry = (echoOut ? buildBestEcho : buildBestBlend)(
         BlendSpec(
           aPath: spec.aPath,
           bPath: spec.bPath,
@@ -517,7 +654,7 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec, {String? tag}) async {
     }
     ArchLog.i(
       'automix',
-      'blend rendered ${plan.seconds.toStringAsFixed(1)}s '
+      '${echoOut ? 'echo ' : ''}blend rendered ${plan.seconds.toStringAsFixed(1)}s '
       '(${plan.bars} bars) entry=${plan.entryDelay.toStringAsFixed(3)}s '
       'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
       'ducks=${plan.ducks.length} -> $out',

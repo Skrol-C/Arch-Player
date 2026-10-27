@@ -364,10 +364,12 @@ class AutomixEngine {
       await landing.setVolume(0.0);
       // Join on completion (20ms poll): waveforms match at the
       // cut, so a hard swap is seamless. Aborted by any interrupt.
-      // Pre-roll the last 150ms: starting the landing while the
-      // tail still plays overlaps identical waveforms (inaudible)
-      // instead of leaving load+start silence after completion.
-      const preRollSecs = 0.15;
+      // Pre-roll the last 600ms: B-load measured 349ms on device
+      // ('bridge B loaded in=349ms'), plus start latency — starting
+      // the landing while the tail still plays overlaps identical
+      // waveforms (inaudible) instead of leaving load+start silence
+      // after completion.
+      const preRollSecs = 0.6;
       final deadline = DateTime.now().add(
         Duration(seconds: _bridgeSeconds.round() + 30),
       );
