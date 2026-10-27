@@ -90,7 +90,7 @@ void main() {
     expect(got, isNot(contains(4)));
   });
 
-  test('recent tracks are avoided until the pool runs dry', () {
+  test('recent tracks are excluded, dry pool stops', () {
     final songs = [_song(1), _song(2), _song(3)];
     final infos = {
       1: _info(bpm: 120.0, open: '5m'),
@@ -108,7 +108,9 @@ void main() {
       ),
       [3],
     );
-    // Everything banned or self: relax rather than stop.
+    // Everything else banned or self: empty, never a repeat. The
+    // caller reads this as "no harmonic opinion" and falls back to
+    // queue order (handler) or random (autoplay fill).
     expect(
       pickHarmonicBatch(
         songs: songs,
@@ -117,8 +119,38 @@ void main() {
         recentIds: {2, 3},
         k: 2,
       ),
-      isNotEmpty,
+      isEmpty,
     );
+  });
+
+  test('mutual nearest neighbors cannot ping-pong', () {
+    // 1 <-> 2 are each other's best match; 3 is farther from both.
+    final songs = [_song(1), _song(2), _song(3)];
+    final infos = {
+      1: _info(bpm: 120.0, open: '5m'),
+      2: _info(bpm: 120.0, open: '5m'),
+      3: _info(bpm: 90.0, open: '9m'),
+    };
+    // Walk like the handler does: every pick joins the recent set.
+    final recent = <int>{};
+    var cur = 1;
+    final walk = <int>[cur];
+    for (var i = 0; i < 4; i++) {
+      final got = pickHarmonicBatch(
+        songs: songs,
+        infoOf: (s) => infos[s.id],
+        fromId: cur,
+        recentIds: recent,
+        k: 1,
+      );
+      if (got.isEmpty) break;
+      recent.add(cur);
+      cur = got.first;
+      walk.add(cur);
+    }
+    // 1 -> 2 -> 3 -> stop: 1 is excluded by the time 3 runs dry, so
+    // the walk ends instead of looping 3 -> 1 -> 2 -> ...
+    expect(walk, [1, 2, 3]);
   });
 
   test('empty library and unknown from-id stay silent', () {

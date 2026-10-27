@@ -222,7 +222,24 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// from the current position (batch of 5 with shuffle, single best
   /// without). Cleared on any queue mutation, tap, or shuffle flip.
   List<int> _harmonicBatch = [];
+  /// Recent-play exclusion window for the harmonic pick: songs heard
+  /// in the last [_recentWindow] tracks can never be re-picked (hard
+  /// exclusion at pick time — two mutual nearest neighbors can't
+  /// ping-pong). When the analyzed pool runs dry the batch comes back
+  /// short/empty and the neighbor falls back to queue order.
+  static const int _recentWindow = 10;
   final List<int> _harmonicRecentIds = [];
+
+  /// Play history for prev/next semantics: song ids in the order they
+  /// became audible. Skip-next (and harmonic auto-advance) pushes the
+  /// outgoing id and clears the redo stack; prev pops history and
+  /// parks the outgoing id on the redo stack; next-after-prev re-pops
+  /// redo. Ids resolve against the live queue — a miss (queue rebuilt
+  /// under us) falls through to the legacy queue-slot neighbor — and
+  /// the stacks are capped so a day-long session can't grow them.
+  final List<int> _playHistory = [];
+  final List<int> _playFuture = [];
+  static const int _historyCap = 200;
 
   /// Rendered bridge waiting for its window (null = run it live).
   /// Dropped on any invalidation: queue surgery, teardown, supersede.
@@ -645,10 +662,65 @@ class ArchAudioHandler extends BaseAudioHandler {
     }
     if (index >= 0 && index < _songs.length) {
       _harmonicRecentIds.add(_songs[index].id);
-      while (_harmonicRecentIds.length > 12) {
+      while (_harmonicRecentIds.length > _recentWindow) {
         _harmonicRecentIds.removeAt(0);
       }
     }
+  }
+
+  int? _queueIndexOfId(int id) {
+    final i = _songs.indexWhere((s) => s.id == id);
+    return i < 0 ? null : i;
+  }
+
+  void _historyPushBounded(List<int> stack, int id) {
+    stack.add(id);
+    while (stack.length > _historyCap) {
+      stack.removeAt(0);
+    }
+  }
+
+  /// Forward move to a new track: the outgoing id becomes history and
+  /// any redo branch dies (a new branch starts here). Same-id moves
+  /// (loop-one, re-tap) record nothing.
+  void _historyAdvance(int oldId, int newId) {
+    if (oldId == newId) return;
+    if (_playHistory.isEmpty || _playHistory.last != oldId) {
+      _historyPushBounded(_playHistory, oldId);
+    }
+    _playFuture.clear();
+  }
+
+  /// Backward move: pop history for the target, park the outgoing id
+  /// on the redo stack. Null = no usable history: the caller keeps the
+  /// legacy queue-slot neighbor.
+  int? _historyStepBack(int currentId) {
+    while (_playHistory.isNotEmpty) {
+      final id = _playHistory.removeLast();
+      if (id == currentId) continue;
+      final idx = _queueIndexOfId(id);
+      if (idx == null) continue; // queue rebuilt: keep popping
+      _historyPushBounded(_playFuture, currentId);
+      return idx;
+    }
+    return null;
+  }
+
+  /// Next after a prev: re-pop the redo stack, re-push the outgoing
+  /// id onto history. Null = no redo branch: the caller picks the
+  /// fresh harmonic/queue neighbor.
+  int? _historyStepForward(int currentId) {
+    while (_playFuture.isNotEmpty) {
+      final id = _playFuture.removeLast();
+      if (id == currentId) continue;
+      final idx = _queueIndexOfId(id);
+      if (idx == null) continue; // queue rebuilt: keep popping
+      if (_playHistory.isEmpty || _playHistory.last != currentId) {
+        _historyPushBounded(_playHistory, currentId);
+      }
+      return idx;
+    }
+    return null;
   }
 
   /// Up Next order: the engine's shuffle permutation when shuffling,
@@ -828,6 +900,19 @@ class ArchAudioHandler extends BaseAudioHandler {
     // Rollback target: the UI commits optimistically below; on failure
     // it goes back to this instead of stranding on a silent song.
     final prevItem = mediaItem.value;
+    // Outgoing audible id for the play history: the engine cursor when
+    // automix owns transport, the playlist index otherwise. A tap
+    // starts a new branch — recorded on success below.
+    final int? prevAudibleId = _engine != null
+        ? ((_mixIndex >= 0 && _mixIndex < _songs.length)
+              ? _songs[_mixIndex].id
+              : null)
+        : () {
+            final cur = _player.currentIndex;
+            return (cur != null && cur >= 0 && cur < _songs.length)
+                ? _songs[cur].id
+                : null;
+          }();
     // Manual crossfade: fade the outgoing track out *while* the new
     // queue loads, so a tap bends into the next track instead of
     // cutting mid-word. Fire-and-forget: the fade-in below re-owns
@@ -924,6 +1009,9 @@ class ArchAudioHandler extends BaseAudioHandler {
         'player',
         'playing id=${song.id} in=${watch.elapsedMilliseconds}ms',
       );
+      // A tap starts a new branch: the outgoing track becomes history,
+      // any prev-redo dies here.
+      if (prevAudibleId != null) _historyAdvance(prevAudibleId, song.id);
       // Backfill behind playback: the lane probe went cache-only
       // (it raced ExoPlayer prepare), so plain taps must schedule
       // their own analysis — delayed past prepare, dropped when
@@ -959,6 +1047,7 @@ class ArchAudioHandler extends BaseAudioHandler {
       if (_player.playing && _player.currentIndex == index) {
         ArchLog.i('player', 'tap late success id=${song.id} '
             'in=${watch.elapsedMilliseconds}ms after $e');
+        if (prevAudibleId != null) _historyAdvance(prevAudibleId, song.id);
         unawaited(_attachArtFile(song));
         return;
       }
@@ -1307,7 +1396,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     _harmonicBatch.clear();
     if (index >= 0 && index < _songs.length) {
       _harmonicRecentIds.add(_songs[index].id);
-      while (_harmonicRecentIds.length > 12) {
+      while (_harmonicRecentIds.length > _recentWindow) {
         _harmonicRecentIds.removeAt(0);
       }
     }
@@ -1513,6 +1602,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
           return false;
         });
         if (bridged) {
+          _historyAdvance(_songs[_mixIndex].id, song.id);
           _mixIndex = next;
           _harmonicConsume(next);
           _setItem(song.toMediaItem());
@@ -1536,6 +1626,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         return false;
       });
       if (ok) {
+        _historyAdvance(_songs[_mixIndex].id, song.id);
         _mixIndex = next;
         _harmonicConsume(next);
         _setItem(song.toMediaItem());
@@ -2010,8 +2101,28 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       // Refill first: a tap right after another tap can land while
       // the batch is still cleared, and a silent no-op reads broken.
       _ensureHarmonicBatch();
-      final target = _mixNeighborIndex(dir > 0 ? 1 : -1);
+      // History first, queue slots second: prev returns what was just
+      // heard (not the queue slot behind the harmonic jump), and next
+      // after a prev restores the redo branch instead of re-picking.
+      final curId = (_mixIndex >= 0 && _mixIndex < _songs.length)
+          ? _songs[_mixIndex].id
+          : null;
+      int? target;
+      var viaHistory = false;
+      if (curId != null) {
+        target = dir < 0
+            ? _historyStepBack(curId)
+            : _historyStepForward(curId);
+        viaHistory = target != null;
+      }
+      target ??= _mixNeighborIndex(dir > 0 ? 1 : -1);
       if (target == null) return;
+      if (!viaHistory && curId != null) {
+        final tid = (target >= 0 && target < _songs.length)
+            ? _songs[target].id
+            : null;
+        if (tid != null) _historyAdvance(curId, tid);
+      }
       ArchLog.i('automix', 'skip fade-out, then jump');
       // Bounded like the tap path: a stuck gain write degrades to a
       // cut instead of wedging the skip.
@@ -2020,7 +2131,11 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       } catch (e) {
         ArchLog.w('automix', 'skip fade-out slow: $e');
       }
-      ArchLog.i('automix', 'skip ${dir > 0 ? 'next' : 'prev'} -> $target');
+      ArchLog.i(
+        'automix',
+        'skip ${dir > 0 ? 'next' : 'prev'} -> $target'
+        '${viaHistory ? ' (history)' : ''}',
+      );
       await _enterEngineAt(target);
       return;
     }
@@ -2061,6 +2176,15 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       'player',
       'skip landed index=${_player.currentIndex} in=${watch.elapsedMilliseconds}ms',
     );
+    // Forward moves join the play history (prev pops it); a delegated
+    // prev records nothing — history pops happen in the engine branch
+    // above, and a queue-slot prev must never overwrite the redo.
+    if (dir > 0 && from != null && from >= 0 && from < n) {
+      final landed = _player.currentIndex;
+      if (landed != null && landed >= 0 && landed < n) {
+        _historyAdvance(_songs[from].id, _songs[landed].id);
+      }
+    }
   }
 
   @override

@@ -9,6 +9,7 @@
 
 import 'dart:math' as math;
 
+import '../../core/log.dart';
 import '../../core/models.dart';
 
 /// Camelot relation between two Traktor open keys ('5m', '8d').
@@ -77,9 +78,12 @@ double harmonicScore({
 
 /// Greedy harmonic walk: from [fromId], repeatedly take the best-
 /// compatible unplayed track, [k] deep. Unknown tracks (no BPM and no
-/// key) are never picked; recently played ids are avoided until the
-/// pool runs dry, then anything goes rather than stopping the music.
-/// Deterministic: ties break by lower id.
+/// key) are never picked. Recent ids are a HARD exclusion — songs
+/// heard in the last N tracks can never be re-picked, so two mutual
+/// nearest neighbors can't ping-pong forever. When the pool runs dry
+/// (everything known is recent) the batch comes back short or empty
+/// and the caller falls back to queue order / random — the music keeps
+/// moving without repeating. Deterministic: ties break by lower id.
 List<int> pickHarmonicBatch({
   required List<Song> songs,
   required TrackMusicalInfo? Function(Song song) infoOf,
@@ -119,35 +123,29 @@ List<int> pickHarmonicBatch({
         best = s;
       }
     }
-    // Pool exhausted (everything recent or unknown): relax the ban,
-    // keep the music moving. Unknowns still never qualify.
-    best ??= _bestIgnoringBan(songs, byId, cur, picked, scoreOf);
+    // Pool exhausted (everything known is recent or unknown): stop
+    // short rather than re-picking a recent track. The caller reads a
+    // short/empty batch as "no harmonic opinion" and falls back to
+    // queue order (handler) or random (autoplay fill).
     if (best == null) break;
     picked.add(best.id);
     cur = best.id;
   }
-  return picked;
-}
-
-/// Best-compatible track ignoring the recent-ban (unknowns still out).
-Song? _bestIgnoringBan(
-  List<Song> songs,
-  Map<int, Song> byId,
-  int cur,
-  List<int> picked,
-  double Function(Song a, Song b) scoreOf,
-) {
-  Song? best;
-  var bestScore = double.negativeInfinity;
+  // Exclusion audit: known tracks refused purely for recency. Logged
+  // once per refill (callers only refill on exhaustion), not per tick.
+  var excluded = 0;
+  final fromSong = byId[fromId]!;
   for (final s in songs) {
-    if (s.id == cur || picked.contains(s.id)) continue;
-    final sc = scoreOf(byId[cur]!, s);
-    if (sc < 0) continue;
-    if (sc > bestScore ||
-        (sc == bestScore && best != null && s.id < best.id)) {
-      bestScore = sc;
-      best = s;
-    }
+    if (s.id == fromId || picked.contains(s.id)) continue;
+    if (!banned.contains(s.id)) continue;
+    if (scoreOf(fromSong, s) >= 0) excluded++;
   }
-  return best;
+  if (excluded > 0) {
+    ArchLog.i(
+      'automix',
+      'harmonic exclusions from=$fromId excluded=$excluded '
+      'picked=${picked.length}',
+    );
+  }
+  return picked;
 }
