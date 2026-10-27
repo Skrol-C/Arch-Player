@@ -242,14 +242,20 @@ class AutomixEngine {
     }
   }
 
-  /// Baked-bridge handoff: play a rendered A+B bridge on the idle
-  /// side, then hand the active chair to it. The file is pre-buffered
-  /// by [primeBridge]; firing then costs a seek+play, not a load.
+  /// Baked-bridge handoff, gapless at the start: the file is
+  /// pre-buffered by [primeBridge], then pre-rolled SILENTLY under A
+  /// (A never stops, so no silence is possible), re-aligned to A
+  /// while still silent, and crossfaded in with an equal-power ramp.
   /// A always overshoots the window (400ms tick + load), so the file
-  /// seeks forward by that overshoot before playing: file t maps to
+  /// seeks forward by that overshoot before rolling: file t maps to
   /// A@(windowStartA + t), an exact same-waveform join, no replay.
-  /// Geometry maps the clock onto B for the whole phase; [finishBridge]
-  /// lands B itself. Failure cuts straight to B: a hard cut beats silence.
+  /// Startup latency then drifts the join (A advances while the fresh
+  /// source spins up), so after warm-up the residual is measured and
+  /// corrected with a silent forward seek before the ramp — the
+  /// overlap carries identical waveforms, so the correction is
+  /// inaudible. Geometry maps the clock onto B for the whole phase;
+  /// [finishBridge] lands B itself. Failure cuts straight to B: a
+  /// hard cut beats silence.
   Future<bool> bridgeTo({
     required Uri bridgeUri,
     required Uri nextUri,
@@ -292,20 +298,55 @@ class AutomixEngine {
               .timeout(const Duration(seconds: 4));
         } catch (_) {}
       }
-      await incoming.setVolume(1.0);
+      await incoming.setVolume(0.0);
+      // Pre-roll UNDER A: the bridge starts silently while A stays
+      // at full gain, so there is no silence window at all — the old
+      // punch-in-loud-then-fade-A read as a dropout plus a
+      // volume-up tick. `playing` alone is not audible yet (first
+      // frames still buffer after the seek), so warm up before the
+      // ramp and re-align while still silent.
       if (!await _startPlaying(incoming)) {
         _bridging = false;
         await _cutTo(nextUri);
         return false;
       }
-      // Micro-fade, not a hard pause: the fresh source needs a
-      // beat to sound, and cutting A first reads as a dropout.
-      // Both sides carry the same waveform here, so 150ms of
-      // overlap under a fade is inaudible.
+      for (var i = 0; i < 5; i++) {
+        if (_disposed || !_bridging) return false;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      // Residual correction: A advanced during seek+spin-up, so the
+      // file now lags A by that latency. Both sides carry the same
+      // waveform here and the file is still silent, so a forward
+      // seek to where A actually is lands an exact join, inaudibly.
+      var correct = 0.0;
       try {
-        for (var i = 1; i <= 5; i++) {
+        final aPos = _active.position.inMilliseconds / 1000.0;
+        final bPos = incoming.position.inMilliseconds / 1000.0;
+        final expected = (aPos - windowStartA).clamp(
+          0.0,
+          math.max(0.0, bridgeSeconds - 0.25),
+        );
+        correct = expected - bPos;
+        if (correct > 0.06) {
+          await incoming
+              .seek(Duration(milliseconds: (expected * 1000).round()))
+              .timeout(const Duration(seconds: 4));
+        } else {
+          correct = 0.0;
+        }
+      } catch (_) {
+        correct = 0.0;
+      }
+      // Overlapped cut: equal-power ramp, A 1->0 while bridge 0->1
+      // over ~240ms. Same waveform on both sides, so the overlap
+      // sums flat instead of doubling.
+      try {
+        const steps = 8;
+        for (var i = 1; i <= steps; i++) {
           if (_disposed || !_bridging) return false;
-          await _active.setVolume(1.0 - i / 5);
+          final g = crossfadeGains(i / steps);
+          await _active.setVolume(g.out);
+          await incoming.setVolume(g.in_);
           await Future<void>.delayed(const Duration(milliseconds: 30));
         }
         await _active.pause().timeout(const Duration(seconds: 4));
@@ -322,7 +363,8 @@ class AutomixEngine {
       ArchLog.i(
         'automix',
         'bridge on resumeB=${resumeB.toStringAsFixed(1)}s '
-            'd=${delta.toStringAsFixed(2)}s',
+            'd=${delta.toStringAsFixed(2)}s '
+            'c=${correct.toStringAsFixed(2)}s',
       );
       return true;
     } catch (e) {
