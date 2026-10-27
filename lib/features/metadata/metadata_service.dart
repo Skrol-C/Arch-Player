@@ -2493,6 +2493,12 @@ class MetadataService {
               'firstSound': ?cachedFirstSound,
             };
             unawaited(_saveMusicalDisk());
+            // A shed caller already resolved with the pre-pass verdict
+            // and an open song page rendered it: wake the matching
+            // family key so both redraw with what this pass found.
+            if (!_dspDone.isClosed) {
+              _dspDone.add('$artist\x00$title\x00$path');
+            }
           }
         }
       } catch (_) {} finally {
@@ -2610,6 +2616,24 @@ class MetadataService {
   /// can't grow it without bound. Entries are deduped by cache key.
   final List<({String title, String artist, String path})> _dspPending = [];
   final Set<String> _dspPendingKeys = {};
+
+  /// DSP pass completions as musicalInfoProvider-style keys
+  /// ('artist\x00title\x00path', raw spellings as passed in). Emitted
+  /// whenever a pass writes fresh verdicts to the disk cache — the
+  /// provider layer invalidates the matching family key so an open
+  /// song page redraws with real data instead of its shed-time
+  /// verdict. Broadcast with no buffer: the provider subscribes at
+  /// creation, before any pass can complete.
+  final StreamController<String> _dspDone =
+      StreamController<String>.broadcast();
+  Stream<String> get dspDone => _dspDone.stream;
+
+  /// Close the completion broadcast. Direct constructions outside the
+  /// provider graph (warm-up, batch tools) never listen, so dropping
+  /// events there is free.
+  void dispose() {
+    if (!_dspDone.isClosed) _dspDone.close();
+  }
 
   static String _dspCacheKey(String artist, String title) =>
       '${artist.toLowerCase()}\u0000${title.toLowerCase()}';

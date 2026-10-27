@@ -12,9 +12,23 @@ import '../needle/needle_store.dart';
 import '../needle/sandbox.dart' show NeedleException;
 import 'metadata_service.dart';
 
-final metadataServiceProvider = Provider<MetadataService>(
-  (ref) => MetadataService(),
-);
+/// Single owner of the metadata service: DSP passes complete behind
+/// playback (single-flight queue), so each completion invalidates the
+/// matching [musicalInfoProvider] family key — an open song page
+/// redraws with real tempo/key/vocals instead of its shed-time
+/// verdict. Key shape unchanged.
+final Provider<MetadataService> metadataServiceProvider =
+    Provider<MetadataService>((ref) {
+  final svc = MetadataService();
+  final sub = svc.dspDone.listen((key) {
+    ref.invalidate(musicalInfoProvider(key));
+  });
+  ref.onDispose(() {
+    sub.cancel();
+    svc.dispose();
+  });
+  return svc;
+});
 
 /// Every tag the file itself carries, read off the UI thread (compute,
 /// not Isolate.run: a closure here would capture this provider's ref
