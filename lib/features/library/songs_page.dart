@@ -9,7 +9,8 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showSongMenu, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction, showSongMenu;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'library_chrome.dart';
 import 'library_controls.dart';
@@ -94,23 +95,21 @@ class _SongsPageState extends ConsumerState<SongsPage> {
 
   Future<void> _openViewMenu(BuildContext buttonContext) async {
     final view = ref.read(libraryViewProvider);
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: buttonContext,
-      groups: [
-        [
-          MenuAction(
-            icon: CupertinoIcons.square_grid_2x2,
-            label: 'Grid',
-            value: 'grid',
-            selected: view == ViewMode.grid,
-          ),
-          MenuAction(
-            icon: CupertinoIcons.list_bullet,
-            label: 'List',
-            value: 'list',
-            selected: view == ViewMode.list,
-          ),
-        ],
+      items: [
+        MenuAction(
+          icon: CupertinoIcons.square_grid_2x2,
+          label: 'Grid',
+          value: 'grid',
+          selected: view == ViewMode.grid,
+        ),
+        MenuAction(
+          icon: CupertinoIcons.list_bullet,
+          label: 'List',
+          value: 'list',
+          selected: view == ViewMode.list,
+        ),
       ],
     );
     if (!mounted) return;

@@ -17,7 +17,8 @@ import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../needle/download_sheet.dart' show showDownloadSheet;
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'add_to_playlist.dart' show newPlaylistDialog;
 import 'data/playlist_store.dart';
@@ -189,8 +190,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
                           ? _sel.exit()
                           : Navigator.of(context).maybePop(),
                       onAdd: () => _openPicker(context, ref, playlist),
-                      onMenu: () =>
-                          _headerMenu(context, ref, playlist, members),
+                      onMenu: (c) =>
+                          _headerMenu(c, ref, playlist, members),
                     ),
                     SliverToBoxAdapter(
                       child: _Controls(
@@ -367,46 +368,42 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     Playlist playlist,
     List<Song> members,
   ) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: context,
-      groups: [
-        [
+      items: [
+        const MenuAction(
+          icon: CupertinoIcons.person_badge_plus,
+          label: 'Add songs',
+          value: 'add',
+        ),
+        if (!playlist.isSystem) ...[
           const MenuAction(
-            icon: CupertinoIcons.person_badge_plus,
-            label: 'Add songs',
-            value: 'add',
+            icon: CupertinoIcons.photo,
+            label: 'Change cover art',
+            value: 'cover',
           ),
-          if (!playlist.isSystem) ...[
-            const MenuAction(
-              icon: CupertinoIcons.photo,
-              label: 'Change cover art',
-              value: 'cover',
-            ),
-            const MenuAction(
-              icon: CupertinoIcons.pencil,
-              label: 'Rename',
-              value: 'rename',
-            ),
-            MenuAction(
-              icon: CupertinoIcons.arrow_up_arrow_down,
-              label: _reordering ? 'Done reordering' : 'Reorder',
-              value: 'reorder',
-            ),
-          ],
           const MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
-            value: 'share',
+            icon: CupertinoIcons.pencil,
+            label: 'Rename',
+            value: 'rename',
+          ),
+          MenuAction(
+            icon: CupertinoIcons.arrow_up_arrow_down,
+            label: _reordering ? 'Done reordering' : 'Reorder',
+            value: 'reorder',
           ),
         ],
+        const MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          value: 'share',
+        ),
         if (!playlist.isSystem)
-          [
-            const MenuAction(
-              icon: CupertinoIcons.delete,
-              label: 'Delete playlist',
-              value: 'delete',
-            ),
-          ],
+          const MenuAction(
+            icon: CupertinoIcons.delete,
+            label: 'Delete playlist',
+            value: 'delete',
+          ),
       ],
     );
     if (!context.mounted || value == null) return;
@@ -490,7 +487,7 @@ class _Hero extends StatelessWidget {
   final ValueChanged<Color>? onWash;
   final VoidCallback onBack;
   final VoidCallback onAdd;
-  final VoidCallback onMenu;
+  final void Function(BuildContext) onMenu;
 
   const _Hero({
     required this.playlist,
@@ -538,13 +535,15 @@ class _Hero extends StatelessWidget {
                   icon: const Icon(Icons.add_rounded, color: ink),
                   tooltip: 'Add songs',
                 ),
-                IconButton(
-                  onPressed: onMenu,
-                  icon: const Icon(
-                    CupertinoIcons.ellipsis,
-                    color: ink,
+                Builder(
+                  builder: (btnContext) => IconButton(
+                    onPressed: () => onMenu(btnContext),
+                    icon: const Icon(
+                      CupertinoIcons.ellipsis,
+                      color: ink,
+                    ),
+                    tooltip: 'More',
                   ),
-                  tooltip: 'More',
                 ),
               ],
             ),
@@ -1105,12 +1104,14 @@ class _PlaylistRow extends ConsumerWidget {
                 onPressed: onRemove,
               )
             else
-              IconButton(
-                icon: const Icon(
-                  CupertinoIcons.ellipsis,
-                  color: inkDim,
+              Builder(
+                builder: (btnContext) => IconButton(
+                  icon: const Icon(
+                    CupertinoIcons.ellipsis,
+                    color: inkDim,
+                  ),
+                  onPressed: () => _rowMenu(ref, btnContext),
                 ),
-                onPressed: () => _rowMenu(ref, context),
               ),
           ],
         ],
@@ -1120,24 +1121,20 @@ class _PlaylistRow extends ConsumerWidget {
 
   Future<void> _rowMenu(WidgetRef ref, BuildContext context) async {
     final starred = ref.read(playlistsProvider.notifier).isStarred(song.id);
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: context,
-      groups: [
-        [
-          MenuAction(
-            icon: starred
-                ? CupertinoIcons.star_fill
-                : CupertinoIcons.star,
-            label: starred ? 'Unstar' : 'Star',
-            value: 'star',
-            selected: starred,
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.minus_circle,
-            label: 'Remove from Favourites',
-            value: 'remove',
-          ),
-        ],
+      items: [
+        MenuAction(
+          icon: starred ? CupertinoIcons.star_fill : CupertinoIcons.star,
+          label: starred ? 'Unstar' : 'Star',
+          value: 'star',
+          selected: starred,
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.minus_circle,
+          label: 'Remove from Favourites',
+          value: 'remove',
+        ),
       ],
     );
     if (!context.mounted || value == null) return;

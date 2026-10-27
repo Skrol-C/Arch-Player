@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/log.dart';
 import '../../core/theme.dart';
+import '../settings/widgets/arch_switch.dart';
 import 'extension.dart';
 
 /// Manifest-driven settings form: string, boolean, select rows
@@ -85,7 +86,7 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
     }
     switch (s.type) {
       case 'boolean':
-        return SwitchListTile(
+        return ListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(s.label,
               style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -94,12 +95,13 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
               : Text(s.description,
                   style: const TextStyle(
                       color: inkDim, fontSize: 13)),
-          value: _value == 'true',
-          activeThumbColor: archPink,
-          onChanged: (on) {
-            HapticFeedback.selectionClick();
-            _save(on ? 'true' : 'false');
-          },
+          trailing: ArchSwitch(
+            value: _value == 'true',
+            onChanged: (on) {
+              HapticFeedback.selectionClick();
+              _save(on ? 'true' : 'false');
+            },
+          ),
         );
       case 'select':
         return ListTile(

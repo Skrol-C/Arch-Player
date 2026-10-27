@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../../core/app_prefs.dart';
 import '../../../core/log.dart';
 import '../../../core/theme.dart';
 import '../../player/player_providers.dart';
+import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
 
 /// Appearance: theme choice with a live preview card. The preview
@@ -70,13 +70,9 @@ class AppearancePage extends ConsumerWidget {
                 subtitle: goo
                     ? 'On - mini melts into the pill'
                     : 'Off - classic fall, lighter on GPU',
-                trailing: LiquidGlassSwitch(
-                  // House switch: clear glass thumb, pink track when on.
-                  // The swell paints outside the footprint, and the page
-                  // list clips - hence the reserved room.
+                trailing: ArchSwitch(
                   value: goo,
-                  activeColor: archPink,
-                  reserveSwellRoom: true,
+                  // Persisted inside the notifier itself.
                   onChanged: (v) {
                     ref.read(pillGooProvider.notifier).set(v);
                     ArchLog.i('settings', 'pill goo -> $v');

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
 import '../../core/theme.dart';
+import '../settings/widgets/arch_switch.dart';
 import 'extension.dart';
 import 'extension_settings.dart';
 import 'needle_store.dart';
@@ -105,7 +106,7 @@ class _ExtensionRow extends ConsumerWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
         children: [
-          SwitchListTile(
+          ListTile(
             title: Text(
               info.displayName,
               style: const TextStyle(fontWeight: FontWeight.w600),
@@ -114,14 +115,15 @@ class _ExtensionRow extends ConsumerWidget {
               '${info.version}'
               '${info.roles.isEmpty ? '' : ' - ${info.roles.join(', ')}'}',
             ),
-            value: info.enabled,
-            activeThumbColor: archPink,
-            onChanged: (on) async {
-              HapticFeedback.selectionClick();
-              await ref
-                  .read(installedExtensionsProvider.notifier)
-                  .setEnabled(info.id, on);
-            },
+            trailing: ArchSwitch(
+              value: info.enabled,
+              onChanged: (on) async {
+                HapticFeedback.selectionClick();
+                await ref
+                    .read(installedExtensionsProvider.notifier)
+                    .setEnabled(info.id, on);
+              },
+            ),
           ),
           Padding(
             padding:

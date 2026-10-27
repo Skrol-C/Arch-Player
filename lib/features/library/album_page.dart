@@ -21,7 +21,8 @@ import '../player/format_marks.dart';
 import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showTrackMenu, showSongMenu;
+import '../player/track_menu.dart' show MenuAction, showSongMenu;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'add_to_playlist.dart' show showAddToPlaylistSheet;
 import 'data/playlist_store.dart';
@@ -195,33 +196,31 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
     _DisplayTrack t,
     String cover,
   ) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: btnContext,
-      groups: [
-        [
-          const MenuAction(
-            icon: CupertinoIcons.play_fill,
-            label: 'Preview',
-            value: 'preview',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.cloud_download,
-            label: 'Pull via Needle',
-            value: 'pull',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.person,
-            label: 'Go to Artist',
-            subtitle: widget.album.artist,
-            value: 'artist',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
-            subtitle: '${t.title} - ${widget.album.artist}',
-            value: 'share',
-          ),
-        ],
+      items: [
+        const MenuAction(
+          icon: CupertinoIcons.play_fill,
+          label: 'Preview',
+          value: 'preview',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.cloud_download,
+          label: 'Pull via Needle',
+          value: 'pull',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.person,
+          label: 'Go to Artist',
+          subtitle: widget.album.artist,
+          value: 'artist',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          subtitle: '${t.title} - ${widget.album.artist}',
+          value: 'share',
+        ),
       ],
     );
     if (!btnContext.mounted) return;
@@ -486,8 +485,8 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
                         onBack: () => selecting
                             ? _exitSel()
                             : Navigator.of(context).maybePop(),
-                        onMore: () =>
-                            _openAlbumMenu(ref, context, play, addAll),
+                        onMore: (c) =>
+                            _openAlbumMenu(ref, c, play, addAll),
                         onArtist: () => ArtistHubPage.openIfAbsent(
                           context,
                           album.artist,
@@ -661,33 +660,29 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
     Future<void> Function(bool shuffleFirst) play,
     Future<void> Function() addAll,
   ) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: context,
-      groups: [
-        [
-          const MenuAction(
-            icon: CupertinoIcons.play_fill,
-            label: 'Play',
-            value: 'play',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.shuffle_medium,
-            label: 'Shuffle',
-            value: 'shuffle',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.music_note_list,
-            label: 'Add all to playlist',
-            value: 'add',
-          ),
-        ],
-        [
-          const MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
-            value: 'share',
-          ),
-        ],
+      items: [
+        const MenuAction(
+          icon: CupertinoIcons.play_fill,
+          label: 'Play',
+          value: 'play',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.shuffle_medium,
+          label: 'Shuffle',
+          value: 'shuffle',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.music_note_list,
+          label: 'Add all to playlist',
+          value: 'add',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          value: 'share',
+        ),
       ],
     );
     if (!context.mounted) return;
@@ -725,7 +720,7 @@ class _AlbumBar extends ConsumerWidget {
   final String releaseType;
   final ValueChanged<Color>? onWash;
   final VoidCallback onBack;
-  final VoidCallback onMore;
+  final void Function(BuildContext) onMore;
   final VoidCallback onArtist;
 
   static const _expanded = 500.0;
@@ -807,11 +802,13 @@ class _AlbumBar extends ConsumerWidget {
                     color: ink,
                   ),
                 ),
-                IconButton(
-                  onPressed: onMore,
-                  icon: const Icon(
-                    CupertinoIcons.ellipsis,
-                    color: ink,
+                Builder(
+                  builder: (btnContext) => IconButton(
+                    onPressed: () => onMore(btnContext),
+                    icon: const Icon(
+                      CupertinoIcons.ellipsis,
+                      color: ink,
+                    ),
                   ),
                 ),
               ],

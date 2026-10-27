@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/log.dart';
 import 'extension.dart';
 
 /// Needle prefs: repos, download quality + folder. Engine-agnostic -
@@ -9,7 +10,12 @@ import 'extension.dart';
 class NeedlePrefs {
   /// Community registry, preloaded so compatible extensions work
   /// out of the box. Users add their own repos alongside it.
+  /// SpotiFLAC-Extension renamed to Mornye-Extension (mornyeapp org);
+  /// the old URL is kept below for stored-list migration only.
   static const defaultRegistry =
+      'https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry.json';
+
+  static const legacyRegistry =
       'https://raw.githubusercontent.com/spotiflacapp/SpotiFLAC-Extension/main/registry.json';
 
   static const qualityLossless = 'lossless';
@@ -45,7 +51,23 @@ class RepoUrlsNotifier extends Notifier<List<String>> {
   Future<void> _sync() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getStringList(_key);
-    if (stored != null) state = List<String>.from(stored);
+    if (stored == null) return;
+    // Pre-rename lists point at the dead SpotiFLAC URL: swap them
+    // forward (deduped) and persist, so the community repo heals
+    // itself on next launch without a reinstall.
+    final migrated = <String>[];
+    var changed = false;
+    for (final u in stored) {
+      final v =
+          u == NeedlePrefs.legacyRegistry ? NeedlePrefs.defaultRegistry : u;
+      if (v != u) changed = true;
+      if (!migrated.contains(v)) migrated.add(v);
+    }
+    state = List<String>.from(migrated);
+    if (changed) {
+      await prefs.setStringList(_key, migrated);
+      ArchLog.i('needle', 'migrated community registry to Mornye');
+    }
   }
 
   Future<void> add(String url) async {

@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
+import '../settings/widgets/arch_switch.dart';
 import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
@@ -533,16 +534,16 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
     final label = tagFieldOrder[key]!;
     return CascadeIn(
       delayMs: index.clamp(0, 8) * 30,
-      child: SwitchListTile(
+      child: ListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,
         title: Text(label, style: const TextStyle(fontSize: 14)),
         subtitle: Text('N/A',
             style:
                 TextStyle(color: inkDim.withValues(alpha: 0.7), fontSize: 14)),
-        value: _selected.contains(key),
-        activeThumbColor: archPink,
-        onChanged: (on) {
+        trailing: ArchSwitch(
+          value: _selected.contains(key),
+          onChanged: (on) {
           HapticFeedback.selectionClick();
           setState(() {
             if (on) {
@@ -553,7 +554,8 @@ class _DoctorPageState extends ConsumerState<_DoctorPage> {
             _gathered = null;
                           _corrections = {};
           });
-        },
+          },
+        ),
       ),
     );
   }

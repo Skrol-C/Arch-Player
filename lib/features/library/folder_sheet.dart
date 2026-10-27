@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/log.dart';
 import '../../core/theme.dart';
 import '../player/morph_icon.dart';
+import '../settings/widgets/arch_switch.dart';
 import 'library_providers.dart';
 
 /// Unlimited folder control: picked homes, per-folder toggles, add more.
@@ -53,12 +54,14 @@ class FolderSheet extends ConsumerWidget {
                     // ripple forever, and states persist so only
                     // newly added rows ever replay.
                     delayMs: i.clamp(0, 8) * 30,
-                    child: SwitchListTile(
+                    child: ListTile(
                       title: Text(folder.label),
                       subtitle: Text('${folder.count} songs'),
-                      value: !off,
-                      activeThumbColor: archPink,
-                      onChanged: (on) => toggleFolder(ref, folder.key, !on),
+                      trailing: ArchSwitch(
+                        value: !off,
+                        onChanged: (on) =>
+                            toggleFolder(ref, folder.key, !on),
+                      ),
                     ),
                   );
                 },
