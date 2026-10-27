@@ -39,7 +39,18 @@ void openPlayer(WidgetRef ref, BuildContext context) {
     ref.read(playerOpenProvider.notifier).state = true;
   }
   final route = ModalRoute.of(context);
-  if (route == null || route.isFirst || _playerRouteOpen) return;
+  if (route == null || route.isFirst) {
+    // Overlay path: no pushed player route is involved, so a stale
+    // route flag would hide the overlay AND the dock with no player
+    // anywhere (the stuck-pill state). Heal it here, loudly.
+    if (ref.read(playerRouteOpenProvider)) {
+      ArchLog.i('player', 'openPlayer: stale route flag cleared');
+      _playerRouteOpen = false;
+      ref.read(playerRouteOpenProvider.notifier).state = false;
+    }
+    return;
+  }
+  if (_playerRouteOpen) return;
   if (!context.mounted) return;
   _playerRouteOpen = true;
   ref.read(playerRouteOpenProvider.notifier).state = true;
@@ -71,7 +82,12 @@ void resetPlayerFlags(WidgetRef ref) {
 /// out as a route. The shell overlay IS the first route, so it
 /// needs no pop — popping there would kill the app.
 void closePlayer(WidgetRef ref, BuildContext context) {
+  // Eager clear: the push-.then clears these on pop, but a pop that
+  // never completes its future would wedge the dock hidden. Clearing
+  // up front keeps every close self-healing; the .then repeats it.
+  _playerRouteOpen = false;
   ref.read(playerOpenProvider.notifier).state = false;
+  ref.read(playerRouteOpenProvider.notifier).state = false;
   final route = ModalRoute.of(context);
   if (route != null && !route.isFirst) {
     Navigator.of(context).pop();

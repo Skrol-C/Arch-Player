@@ -97,9 +97,9 @@ Future<void> _logMusical(WidgetRef ref, Song song) async {
   } catch (_) {}
 }
 
-/// One-time shader warmup: paints the menu + sheet lens recipes
-/// offscreen once at startup so the first real menu/sheet open
-/// doesn't stall compiling Impeller programs. Removed right
+/// One-time shader warmup: paints the menu + sheet + dock lens recipes
+/// offscreen once at startup so the first real menu/sheet open or pill
+/// split doesn't stall compiling Impeller programs. Removed right
 /// after; reduced-motion still cuts all travel.
 class _GlassWarmer extends StatefulWidget {
   const _GlassWarmer();
@@ -154,6 +154,17 @@ class _WarmLenses extends StatelessWidget {
         ),
         LiquidGlassLens(
           style: ArchGlass.sheet(),
+          child: const SizedBox(width: 2, height: 2),
+        ),
+        // Dock recipes (full pill + minis are capsule, lobes circle):
+        // without these the first split shows plain lenses for ~200ms
+        // while Impeller compiles the programs.
+        LiquidGlassLens(
+          style: ArchGlass.capsule(),
+          child: const SizedBox(width: 2, height: 2),
+        ),
+        LiquidGlassLens(
+          style: ArchGlass.circle(),
           child: const SizedBox(width: 2, height: 2),
         ),
       ],

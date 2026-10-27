@@ -47,7 +47,7 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 /// contentFollow 1 so it travels inside the growing blob instead of
 /// sitting pinned at full size under small glass.
 ///
-/// Timing: 0.45 s droplet spring (2π/√195), zeta 0.70 with a lead
+/// Timing: 0.40 s droplet spring (2π/√246.7), zeta 0.70 with a lead
 /// overshoot (leadBounce 0.15) for the liquid snap-back. The old dot
 /// lingers 0.18 s so both blobs coexist and the blender holds the
 /// neck; the menu content lands at 0.25–0.9 so the glass leads.
@@ -95,8 +95,8 @@ Duration _reverseDuration(BuildContext context) => Motion.reduced(context)
 /// same value both directions, so dismiss deflates back into the
 /// button dot instead of detaching.
 LiquidGlassMorphMotion _morphMotion() => const LiquidGlassMorphMotion(
-  stiffness: 195.0,
-  damping: 19.5,
+  stiffness: 246.7,
+  damping: 22.0,
   stretch: 0.9,
   anchor: Alignment.center,
   advanced: LiquidGlassMorphAdvanced(
@@ -110,7 +110,7 @@ LiquidGlassMorphMotion _morphMotion() => const LiquidGlassMorphMotion(
     // draining to a speck, so the menu reads as the button grown up
     // rather than a card parked beside it. Costs some droplet neck.
     sourceFollows: true,
-    neckRamp: 16,
+    neckRamp: 24,
     contentOutEnd: 0.40,
     contentInStart: 0.25,
     contentInEnd: 0.9,
@@ -285,7 +285,7 @@ class _MorphPageState extends State<_MorphPage> {
                       width: open ? _menuWidth : null,
                       alignment: alignment,
                       motion: _morphMotion(),
-                      smoothness: 48,
+                      smoothness: 36,
                       style: ArchGlass.menuMorph(),
                       child: open
                           ? _MorphRows(

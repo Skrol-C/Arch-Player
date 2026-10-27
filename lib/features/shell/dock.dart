@@ -168,8 +168,9 @@ class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
 const double _searchAtTop = 40;
 
 /// Gravity fall for the resting mini on collapse: accelerates down for
-/// the first stretch, kisses the pill with a small rebound, gone by
-/// the landing. Opacity holds through the fall, then drops.
+/// the first stretch, dissolves BEFORE touching the pill (two stacked
+/// lenses read gray), gone well before the landing. The compact mini
+/// takes over between the lobes; on expand this runs in reverse.
 ({double y, double opacity}) _miniFall(double t) {
   if (t <= 0) return (y: 0.0, opacity: 1.0);
   if (t >= 1) return (y: 56.0, opacity: 0.0);
@@ -181,7 +182,9 @@ const double _searchAtTop = 40;
     final k = (t - 0.7) / 0.3;
     y = 56 - math.sin(k * math.pi) * 8 * (1 - k);
   }
-  final opacity = 1 - ((t - 0.45) / 0.55).clamp(0.0, 1.0);
+  // Contact with the pill starts at y=12 (the resting gap); the fade
+  // is done by y~11 (t=0.32) so glass never stacks on glass.
+  final opacity = 1 - ((t - 0.10) / 0.22).clamp(0.0, 1.0);
   return (y: y, opacity: opacity);
 }
 
@@ -195,13 +198,25 @@ class NowPlayingDock extends ConsumerWidget {
   static const double pillWidth = 340;
   static const double miniWidth = 280;
 
+  /// The mini yields like the pill: full-bleed minus margins on
+  /// narrow windows instead of clipping past the screen edge.
+  static double miniWidthOf(BuildContext context) {
+    return math
+        .min(
+          miniWidth,
+          math.max(0.0, MediaQuery.sizeOf(context).width - 32),
+        )
+        .toDouble();
+  }
+
   /// Adaptive measured width: full-bleed minus margins, capped for
-  /// tablets, floored so four tabs never demand more than fits (the
-  /// old 300 floor overflowed 320-wide screens). Labels shrink a
-  /// point under large text instead of pushing the pill offscreen.
+  /// tablets. No floor: split-screen and largest-display-size windows
+  /// can run narrower than any tab-legible minimum, and a squished
+  /// pill beats a clipped one. Labels shrink a point under large
+  /// text instead of pushing the pill offscreen.
   static const double _pillMaxWidth = 340;
   static double pillWidthOf(BuildContext context) {
-    return (MediaQuery.sizeOf(context).width - 32).clamp(272.0, _pillMaxWidth);
+    return (MediaQuery.sizeOf(context).width - 32).clamp(0.0, _pillMaxWidth);
   }
 
   static double tabLabelSize(BuildContext context) {
@@ -220,15 +235,16 @@ class NowPlayingDock extends ConsumerWidget {
     // 380ms spring travel: the parting must be SEEN, not inferred.
     // NOTE: never wrap this in Center - Positioned gives unbounded
     // height and Center cannot lay out in it (dead taps app-wide).
-    // Batch: mini + pill + lobes share one backdrop read instead of
-    // one each - the Honor perf win. If glass ever artifacts here,
-    // delete the batch first (one line), decor stays.
+    // Batch REMOVED (was here): mini + pill + lobes shared one backdrop
+    // read, and the shared capture resized under traveling members -
+    // the gray shift on collapse/expand. Each lens reads its own
+    // backdrop now; if the Honor chugs, the batch goes back and the
+    // travel gets a different cure.
     return Positioned(
       left: 0,
       right: 0,
       bottom: bottom,
-      child: LiquidGlassBatch(
-        child: TweenAnimationBuilder<double>(
+      child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: collapsed ? 1.0 : 0.0),
           duration: Motion.reduced(context)
               ? Duration.zero
@@ -252,12 +268,15 @@ class NowPlayingDock extends ConsumerWidget {
                           child: Transform.translate(
                             offset: Offset(0, fall.y),
                             child: SizedBox(
-                              width: miniWidth,
-                              // Remounts replay the entrance; track changes reuse
-                              // the mounted bar silently.
+                              width: NowPlayingDock.miniWidthOf(context),
+                              // The fall curve IS the entrance/exit: no
+                              // FocalEntrance here, its 650ms materialize
+                              // replayed on every expand and read gray.
+                              // Track changes reuse the mounted bar
+                              // silently (keyed art inside MiniPlayer).
                               child: t > 0.9
                                   ? const SizedBox.shrink()
-                                  : const FocalEntrance(child: MiniPlayer()),
+                                  : const MiniPlayer(),
                             ),
                           ),
                         );
@@ -299,7 +318,6 @@ class NowPlayingDock extends ConsumerWidget {
             );
           },
         ),
-      ),
     );
   }
 
