@@ -47,9 +47,10 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 /// contentFollow 1 so it travels inside the growing blob instead of
 /// sitting pinned at full size under small glass.
 ///
-/// Timing: 0.40 s spring (2π/√246.7), zeta 0.70 for the ripple, with
-/// a slight lead overshoot (leadZeta = zeta − leadBounce = 0.60) for
-/// the liquid snap-back.
+/// Timing: 0.45 s droplet spring (2π/√195), zeta 0.70 with a lead
+/// overshoot (leadBounce 0.15) for the liquid snap-back. The old dot
+/// lingers 0.18 s so both blobs coexist and the blender holds the
+/// neck; the menu content lands at 0.25–0.9 so the glass leads.
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
@@ -94,22 +95,25 @@ Duration _reverseDuration(BuildContext context) => Motion.reduced(context)
 /// same value both directions, so dismiss deflates back into the
 /// button dot instead of detaching.
 LiquidGlassMorphMotion _morphMotion() => const LiquidGlassMorphMotion(
-  stiffness: 246.7,
-  damping: 22.0,
+  stiffness: 195.0,
+  damping: 19.5,
   stretch: 0.9,
   anchor: Alignment.center,
   advanced: LiquidGlassMorphAdvanced(
-    leadBounce: 0.10,
+    leadBounce: 0.15,
     followDelay: 0.09,
     seedScale: 0.55,
-    linger: 0.05,
+    linger: 0.18,
     drainSpeed: 1.5,
-    drainInward: 0.35,
-    sourceFollows: false,
-    neckRamp: 12,
+    drainInward: 0.5,
+    // The swallow: the button dot flows INTO the menu instead of
+    // draining to a speck, so the menu reads as the button grown up
+    // rather than a card parked beside it. Costs some droplet neck.
+    sourceFollows: true,
+    neckRamp: 16,
     contentOutEnd: 0.40,
-    contentInStart: 0.12,
-    contentInEnd: 1.0,
+    contentInStart: 0.25,
+    contentInEnd: 0.9,
     newScaleFrom: 0.55,
     oldScaleTo: 0.92,
     contentBlur: 8,
@@ -255,7 +259,12 @@ class _MorphPageState extends State<_MorphPage> {
         return FocusScope(
           canRequestFocus: false,
           skipTraversal: true,
-          child: SizedBox.expand(
+          // InkWell rows need a Material ancestor for the ink controller;
+          // the transparent route page has none, so the menu brings its
+          // own that paints nothing.
+          child: Material(
+            type: MaterialType.transparency,
+            child: SizedBox.expand(
             child: reduced
                 ? Opacity(
                     opacity: t.clamp(0.0, 1.0),
@@ -269,12 +278,11 @@ class _MorphPageState extends State<_MorphPage> {
                   )
                 : IgnorePointer(
                     ignoring: seedShown || (t < 0.6 && !reverse),
-                    // anchoredPop (anchor: null) grows the new blob around
-                    // the widget alignment — the hinge alignmentFor put
-                    // on the button — instead of fluid's center leap.
-                    // See LiquidGlassMorphMotion.anchor docs.
+                    // Center-anchor droplet: the new blob is born small
+                    // in the seed and its anchor leaps seed-centre ->
+                    // menu-centre while size lags, dragging the neck.
                     child: LiquidGlassMorph(
-                      width: _menuWidth,
+                      width: open ? _menuWidth : null,
                       alignment: alignment,
                       motion: _morphMotion(),
                       smoothness: 48,
@@ -291,6 +299,7 @@ class _MorphPageState extends State<_MorphPage> {
                             ),
                     ),
                   ),
+            ),
           ),
         );
       },
@@ -307,17 +316,27 @@ class _MorphRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < items.length; i++)
-            _MorphRow(
-              action: items[i],
-              last: i == items.length - 1,
-            ),
-        ],
+    // The morph measures its child under unbounded height to read the
+    // natural size; InkWell's internals cannot take infinity (debug
+    // red-screen, silent garbage in release), so the measure is capped
+    // at the screen - never the binding constraint on a real menu,
+    // just infinity made finite.
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              _MorphRow(
+                action: items[i],
+                last: i == items.length - 1,
+              ),
+          ],
+        ),
       ),
     );
   }
