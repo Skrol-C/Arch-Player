@@ -134,6 +134,16 @@ double voiceSpacing(String voice) => switch (voice) {
   _ => 0.0,
 };
 
+/// AMOLED tokens: pure-black surfaces so OLED pixels stay off.
+/// Borders and body text separate by tone, never by glow — no
+/// shadows, no translucency. Borderline greys are deliberately
+/// lifted so hairlines survive on true black.
+const amoledBlack = Color(0xFF000000);
+const amoledRaised = Color(0xFF0A0A0C);
+const amoledLine = Color(0xFF2A2A2E);
+const amoledInk = Color(0xFFF5F5F7);
+const amoledDim = Color(0xFFA1A1A6);
+
 ThemeData archTheme() {
   final base = ThemeData.light(useMaterial3: true);
   return base.copyWith(
@@ -146,5 +156,28 @@ ThemeData archTheme() {
       onSurfaceVariant: inkDim,
     ),
     textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
+  );
+}
+
+/// Dark themes: `amoled=false` is the soft raised dark; `amoled=true`
+/// is pure #000 for OLED power saving. Both keep pink-red as the
+/// single accent and body text at full tone for separation.
+ThemeData archDarkTheme({bool amoled = false}) {
+  final base = ThemeData.dark(useMaterial3: true);
+  final bg = amoled ? amoledBlack : night;
+  final raised = amoled ? amoledRaised : nightRaised;
+  final body = amoled ? amoledInk : moon;
+  final dim = amoled ? amoledDim : moonDim;
+  return base.copyWith(
+    scaffoldBackgroundColor: bg,
+    colorScheme: ColorScheme.dark(
+      primary: archPink,
+      surface: bg,
+      surfaceContainerHighest: raised,
+      onSurface: body,
+      onSurfaceVariant: dim,
+      outline: amoled ? amoledLine : const Color(0xFF3A3A40),
+    ),
+    textTheme: base.textTheme.apply(bodyColor: body, displayColor: body),
   );
 }

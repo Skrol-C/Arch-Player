@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';import 'package:flutter/materi
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import 'core/app_prefs.dart';
 import 'core/log.dart';
 import 'core/theme.dart';
 import 'features/needle/needle_core.dart';
@@ -74,15 +75,22 @@ Future<void> main() async {
   ArchLog.i('app', 'arch player v2 up');
 }
 
-class ArchApp extends StatelessWidget {
+class ArchApp extends ConsumerWidget {
   const ArchApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(appThemeModeProvider);
     return MaterialApp(
       title: 'Arch Player',
       debugShowCheckedModeBanner: false,
       theme: archTheme(),
+      darkTheme: archDarkTheme(amoled: mode == AppThemeMode.amoled),
+      themeMode: switch (mode) {
+        AppThemeMode.system => ThemeMode.system,
+        AppThemeMode.light => ThemeMode.light,
+        AppThemeMode.dark || AppThemeMode.amoled => ThemeMode.dark,
+      },
       // Neutral overscroll app-wide: the default glow paints in
       // colorScheme.primary (our pink-red) and reads as an error
       // flash at every list edge.

@@ -1,34 +1,207 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
-import '../../core/motion.dart';
-import '../../core/theme.dart';
+import '../library/library_providers.dart';
 import '../needle/download_page.dart';
 import '../needle/extensions_page.dart';
 import '../needle/repo_page.dart';
+import '../profile/profile_pic.dart';
+import '../profile/profile_screen.dart';
 import '../shell/dock.dart';
 import 'log_screen.dart';
-import 'needle_teaser.dart';
+import 'pages/about_page.dart';
+import 'pages/app_page.dart';
+import 'pages/appearance_page.dart';
+import 'pages/backup_page.dart';
+import 'pages/cache_page.dart';
+import 'pages/donate_page.dart';
+import 'pages/files_page.dart';
+import 'pages/library_page.dart';
+import 'pages/lyrics_page.dart';
+import 'pages/metadata_page.dart';
+import 'pages/network_page.dart';
+import 'pages/playback_page.dart';
+import 'pages/shortcuts_page.dart';
+import 'widgets/setting_bits.dart';
 
-/// Settings hub: Apple-grouped white cards. Full map - working rows act,
-/// future rows open designed teaser panels. Nothing dead, nothing shouty.
-class SettingsScreen extends ConsumerWidget {
+/// Settings hub: five cards, search across every entry, profile
+/// header. Every row lands somewhere real — no teasers, no dead
+/// ends. Playback houses automix; Logs and Cache are full screens.
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _Entry {
+  final String card;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget page;
+
+  const _Entry({
+    required this.card,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.page,
+  });
+}
+
+final _entries = [
+  _Entry(
+    card: 'Personal',
+    icon: Icons.extension_rounded,
+    title: 'Extensions',
+    subtitle: 'Providers plug in here — sandboxed',
+    page: ExtensionsPage(),
+  ),
+  _Entry(
+    card: 'Personal',
+    icon: Icons.store_rounded,
+    title: 'Repositories',
+    subtitle: 'Community default preloaded',
+    page: RepoPage(),
+  ),
+  _Entry(
+    card: 'Personal',
+    icon: Icons.volunteer_activism_rounded,
+    title: 'Donate',
+    subtitle: 'Keep Arch independent',
+    page: DonatePage(),
+  ),
+  _Entry(
+    card: 'Personal',
+    icon: Icons.palette_rounded,
+    title: 'Appearance',
+    subtitle: 'Theme + AMOLED + live preview',
+    page: AppearancePage(),
+  ),
+  _Entry(
+    card: 'Collection',
+    icon: Icons.library_music_rounded,
+    title: 'Library',
+    subtitle: 'Scan state, counts, rescan',
+    page: LibraryPage(),
+  ),
+  _Entry(
+    card: 'Collection',
+    icon: Icons.dns_rounded,
+    title: 'Network storage',
+    subtitle: 'Remembered server locations',
+    page: NetworkStoragePage(),
+  ),
+  _Entry(
+    card: 'Collection',
+    icon: Icons.hub_rounded,
+    title: 'Metadata',
+    subtitle: 'Provider lanes + display',
+    page: MetadataPage(),
+  ),
+  _Entry(
+    card: 'Collection',
+    icon: Icons.lyrics_rounded,
+    title: 'Lyrics',
+    subtitle: 'Resolution order + haptics',
+    page: LyricsPage(),
+  ),
+  _Entry(
+    card: 'Playing',
+    icon: Icons.tune_rounded,
+    title: 'Playback',
+    subtitle: 'Automix, shuffle, repeat, autoplay',
+    page: PlaybackPage(),
+  ),
+  _Entry(
+    card: 'Playing',
+    icon: Icons.download_rounded,
+    title: 'Downloads',
+    subtitle: 'Quality tier and storage folder',
+    page: DownloadPage(),
+  ),
+  _Entry(
+    card: 'Playing',
+    icon: Icons.folder_rounded,
+    title: 'Files',
+    subtitle: 'Music folders + Needle storage',
+    page: FilesPage(),
+  ),
+  _Entry(
+    card: 'Playing',
+    icon: Icons.phone_android_rounded,
+    title: 'App',
+    subtitle: 'Battery, notifications, system',
+    page: AppPage(),
+  ),
+  _Entry(
+    card: 'Care',
+    icon: Icons.bolt_rounded,
+    title: 'Shortcuts',
+    subtitle: 'One-tap actions',
+    page: ShortcutsPage(),
+  ),
+  _Entry(
+    card: 'Care',
+    icon: Icons.cleaning_services_rounded,
+    title: 'Cache',
+    subtitle: 'Sizes + clearing, nothing owned lost',
+    page: CachePage(),
+  ),
+  _Entry(
+    card: 'Care',
+    icon: Icons.backup_rounded,
+    title: 'Backup',
+    subtitle: 'Playlists out and back in',
+    page: BackupPage(),
+  ),
+  _Entry(
+    card: 'Care',
+    icon: Icons.receipt_long_rounded,
+    title: 'Logs',
+    subtitle: 'What the app has been doing',
+    page: LogScreen(),
+  ),
+  _Entry(
+    card: 'About',
+    icon: Icons.info_outline_rounded,
+    title: 'About',
+    subtitle: 'Developer, version, updates, credit',
+    page: AboutPage(),
+  ),
+];
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
     ArchLog.i('nav', 'settings open');
+    final scheme = Theme.of(context).colorScheme;
+    final songs = ref.watch(songsProvider).value ?? [];
+    final q = _query.trim().toLowerCase();
+    final shown = q.isEmpty
+        ? _entries
+        : _entries
+              .where(
+                (e) =>
+                    e.title.toLowerCase().contains(q) ||
+                    e.subtitle.toLowerCase().contains(q),
+              )
+              .toList();
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: scheme.surface,
       appBar: AppBar(
-        backgroundColor: paper,
-        foregroundColor: ink,
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
@@ -37,8 +210,10 @@ class SettingsScreen extends ConsumerWidget {
           style: ArchGlass.circle(radius: 24),
           child: IconButton(
             onPressed: () => Navigator.of(context).maybePop(),
-            icon:
-                const Icon(CupertinoIcons.chevron_left, color: ink),
+            icon: Icon(
+              CupertinoIcons.chevron_left,
+              color: scheme.onSurface,
+            ),
           ),
         ),
       ),
@@ -46,105 +221,47 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 160),
-      children: [
-        FocalEntrance(
-          child: Text(
-            'Settings',
-            style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
+            children: [
+              _ProfileHeader(trackCount: songs.length),
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: 'Search settings',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                  ),
+                ),
+              ),
+              if (shown.isEmpty)
+                SettingState.empty(
+                  'Nothing matches that search.',
+                )
+              else
+                for (final card in _cardsInOrder(shown))
+                  SettingGroup(
+                    title: card,
+                    children: [
+                      for (final e in shown.where(
+                        (x) => x.card == card,
+                      ))
+                        SettingRow(
+                          icon: e.icon,
+                          title: e.title,
+                          subtitle: e.subtitle,
+                          push: e.page,
+                        ),
+                    ],
+                  ),
+            ],
           ),
-        ),
-        SizedBox(height: 16),
-        _Group(
-          title: 'Library',
-          children: [
-            _Row(
-              icon: Icons.folder_rounded,
-              title: 'Music folders',
-              subtitle: 'Counts, toggles and adding live in Library',
-              route: _SoonRoute(
-                label: 'Folder management lives in Library > Folders',
-              ),
-            ),
-            _Row(
-              icon: Icons.refresh_rounded,
-              title: 'Rescan library',
-              subtitle: 'Pick up new and removed files',
-              route: _SoonRoute(
-                label: 'Rescan arrives with the library engine',
-              ),
-            ),
-            _Row(
-              icon: Icons.image_rounded,
-              title: 'Artwork cache',
-              subtitle: 'Sizes and clearing live here when art lands',
-              route: _SoonRoute(
-                label: 'Art cache controls arrive with artwork',
-              ),
-            ),
-          ],
-        ),
-        _Group(
-          title: 'Metadata',
-          children: [
-            _Row(
-              icon: Icons.hub_rounded,
-              title: 'Providers',
-              subtitle: 'MusicBrainz - Deezer - Last.fm status',
-              route: _SoonRoute(
-                label: 'Provider status arrives with enrichment',
-              ),
-            ),
-          ],
-        ),
-        _Group(
-          title: 'Downloads',
-          children: [
-            _Row(
-              icon: Icons.extension_rounded,
-              title: 'Extensions',
-              subtitle: 'Providers plug in here - sandboxed',
-              push: ExtensionsPage(),
-            ),
-            _Row(
-              icon: Icons.store_rounded,
-              title: 'Repositories',
-              subtitle: 'Community default preloaded',
-              push: RepoPage(),
-            ),
-            _Row(
-              icon: Icons.tune_rounded,
-              title: 'Download prefs',
-              subtitle: 'Quality tier and storage folder',
-              push: DownloadPage(),
-            ),
-            _Row(
-              icon: Icons.download_rounded,
-              title: 'Needle',
-              subtitle: 'Quality, queue, storage - the one-stop shop',
-              push: NeedleTeaser(),
-            ),
-          ],
-        ),
-        _Group(title: 'Playback', children: [_BatteryRow(), _NotifRow()]),
-        _Group(
-          title: 'Diagnostics',
-          children: [
-            _Row(
-              icon: Icons.receipt_long_rounded,
-              title: 'View log',
-              subtitle: 'What the app has been doing',
-              push: LogScreen(),
-            ),
-            _Row(
-              icon: Icons.info_outline_rounded,
-              title: 'About',
-              subtitle: 'Version and the Arch promise',
-              route: _SoonRoute(label: 'Arch Player v2 - Needle coming soon'),
-            ),
-          ],
-        ),
-      ],
-    ),
           const NowPlayingDock(),
         ],
       ),
@@ -152,276 +269,81 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-class _Group extends StatelessWidget {
-  final String title;
-  final List<Widget> children;
+List<String> _cardsInOrder(List<_Entry> shown) {
+  const order = [
+    'Personal',
+    'Collection',
+    'Playing',
+    'Care',
+    'About',
+  ];
+  return [
+    for (final c in order)
+      if (shown.any((e) => e.card == c)) c,
+  ];
+}
 
-  const _Group({required this.title, required this.children});
+class _ProfileHeader extends ConsumerWidget {
+  final int trackCount;
+
+  const _ProfileHeader({required this.trackCount});
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-          child: Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              color: inkDim,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.6,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final pic = ref.watch(profilePicProvider);
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+      },
+      child: Row(
+        children: [
+          ClipOval(
+            child: SizedBox(
+              width: 52,
+              height: 52,
+              child: pic != null && File(pic).existsSync()
+                  ? Image.file(File(pic), fit: BoxFit.cover)
+                  : Container(
+                      color: scheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.person_rounded,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
             ),
           ),
-        ),
-        Material(
-          // Material owns the group background (not a DecoratedBox) so
-          // each ListTile's ink splash has a canvas and never hides.
-          color: paperRaised,
-          borderRadius: BorderRadius.circular(20),
-          child: Column(children: children),
-        ),
-      ],
-    );
-  }
-}
-
-/// Battery exemption: Honor-class killers murder background audio
-/// without it. One tap opens the system screen; status re-checks on
-/// return. Never naggy - one row, honest copy.
-class _BatteryRow extends StatefulWidget {
-  const _BatteryRow();
-
-  @override
-  State<_BatteryRow> createState() => _BatteryRowState();
-}
-
-class _BatteryRowState extends State<_BatteryRow> {
-  bool? _exempt;
-
-  @override
-  void initState() {
-    super.initState();
-    _check();
-  }
-
-  Future<void> _check() async {
-    final s = await Permission.ignoreBatteryOptimizations.status;
-    if (mounted) setState(() => _exempt = s.isGranted);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final exempt = _exempt;
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: paper,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          exempt == true
-              ? Icons.battery_full_rounded
-              : Icons.battery_alert_rounded,
-          color: archPink,
-        ),
-      ),
-      title: const Text(
-        'Background playback',
-        style: TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        exempt == null
-            ? 'Checking...'
-            : exempt
-            ? 'Unrestricted - survives the background'
-            : 'Restricted - tap to allow background play',
-        maxLines: 2,
-        style: const TextStyle(color: inkDim, fontSize: 13),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
-      onTap: () async {
-        HapticFeedback.selectionClick();
-        // Honor-class devices often lack the standard intent: the call
-        // returns silently with nothing shown. Log the outcome and
-        // fall back to the app's system page, which always exists.
-        try {
-          final before = await Permission.ignoreBatteryOptimizations.status;
-          await Permission.ignoreBatteryOptimizations.request();
-          await _check();
-          final after = await Permission.ignoreBatteryOptimizations.status;
-          ArchLog.i(
-            'settings',
-            'battery exemption: was=${before.isGranted} now=${after.isGranted}',
-          );
-          if (!after.isGranted && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text(
-                  'System screen did not open - allow it manually',
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                action: SnackBarAction(
-                  label: 'Settings',
-                  onPressed: () => openAppSettings(),
+                Text(
+                  '$trackCount tracks in your library',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-            );
-          }
-        } catch (e) {
-          ArchLog.w('settings', 'battery exemption failed: $e');
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Could not open system screen'),
-              action: SnackBarAction(
-                label: 'Settings',
-                onPressed: () => openAppSettings(),
-              ),
+              ],
             ),
-          );
-        }
-      },
-    );
-  }
-}
-
-class _NotifRow extends StatefulWidget {
-  const _NotifRow();
-
-  @override
-  State<_NotifRow> createState() => _NotifRowState();
-}
-
-class _NotifRowState extends State<_NotifRow> {
-  bool? _granted;
-
-  @override
-  void initState() {
-    super.initState();
-    _check();
-  }
-
-  Future<void> _check() async {
-    final s = await Permission.notification.status;
-    if (mounted) setState(() => _granted = s.isGranted);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final granted = _granted;
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: paper,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          granted == true
-              ? Icons.notifications_active_rounded
-              : Icons.notifications_off_rounded,
-          color: archPink,
-        ),
-      ),
-      title: const Text(
-        'Playback notifications',
-        style: TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        granted == null
-            ? 'Checking...'
-            : granted
-            ? 'On - controls appear while playing'
-            : 'Off - tap to enable in settings',
-        maxLines: 2,
-        style: const TextStyle(color: inkDim, fontSize: 13),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
-      onTap: () async {
-        HapticFeedback.selectionClick();
-        if (granted != true) await openAppSettings();
-        await _check();
-      },
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget? push;
-  final _SoonRoute? route;
-
-  const _Row({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.push,
-    this.route,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: paper,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: archPink),
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(
-        subtitle,
-        maxLines: 2,
-        style: const TextStyle(color: inkDim, fontSize: 13),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
-      onTap: () {
-        final target = push ?? route?.page;
-        if (target == null) return;
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) => target));
-      },
-    );
-  }
-}
-
-/// A designed teaser panel: calm title, quiet copy, never a dead end.
-class _SoonRoute {
-  final String label;
-  const _SoonRoute({required this.label});
-
-  Widget get page => _SoonPage(label: label);
-}
-
-class _SoonPage extends StatelessWidget {
-  final String label;
-  const _SoonPage({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Soon')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            const Text(
-              'This arrives with its engine slice. Nothing here is a dead end - it just isn\u2019t built yet.',
-              style: TextStyle(color: inkDim, height: 1.5),
-            ),
-          ],
-        ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: scheme.onSurfaceVariant,
+          ),
+        ],
       ),
     );
   }

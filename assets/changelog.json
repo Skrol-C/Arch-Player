@@ -1,0 +1,851 @@
+{
+  "generatedAt": "2026-10-27T10:08:12.527498Z",
+  "commits": [
+    {
+      "hash": "419ef5b7ebb4572424db17730b61adf9a5c41c47",
+      "message": "automix: tame echo envelope (send fade-in, lowered taps, feathered tail)",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "5b059f1f09794ba0fd4a6326c42e8e2183eb974a",
+      "message": "DSP completion invalidates all watched key variants for the track",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "cb502d8735cdf218d9aec2f15563b4c09877d658",
+      "message": "Invalidate musicalInfoProvider when a DSP pass completes",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "4365a5048a3d1b4fd19fb281efb5d3cbb3bef395",
+      "message": "player: skip-next never no-ops at queue rail + clean engine-start-failure fallback",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "2508d58cbfd68ffce97877d39b7f8e4cbf07328c",
+      "message": "automix: gapless bridge-start handoff (silent pre-roll + re-align + equal-power overlap)",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "59d88fc233dbb27d3a060c1c7ae0e980850afb7d",
+      "message": "automix: single-flight DSP analysis (cache-only picks, background drain) + re-anchor Up Next on engine entry",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "c1b16cc7c4a37592d9d65816aacd39d32a8792ba",
+      "message": "automix: hard recent-play exclusion (N=10) kills harmonic ping-pong; play-history stack fixes prev/next",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "db401803d55891e9716c4204c37ffdba2436557f",
+      "message": "automix: tight tempo gate to Â±8%, echo-out bridge fallback, longer pre-roll",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "25ddd1c30641381222c6c3dfe65fd151081ec705",
+      "message": "automix: phase-normalization bridge fix (stale deep-B entry)",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "c31ba6fb4ab851fbbcf17598dce5f14c2e45e79f",
+      "message": "automix: gapless bridge joins + fix deep B entry (resumeB overshoot)",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "b864f67213ec253311688512de4b0fb037e2d3d1",
+      "message": "player: fix 10s tap stall with automix on (fire-and-poll transport)",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "9593d7f307013d6e6b19d4676f900c8a6d2081b4",
+      "message": "automix: widen bridge tempo gate 0.92-1.08 to 0.80-1.25, key-blend tempo-less pairs",
+      "author": "Skrol-C",
+      "date": "2026-10-27"
+    },
+    {
+      "hash": "5f6882db0e08d0012456babdb760c459226818e4",
+      "message": "fix(player): schedule backfill analysis behind taps",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "a04960c0e53ee0c1961e6b9349f0a7a4e0c93088",
+      "message": "fix(automix): fire bridges at file start, prime-paused landing, micro-fade entry",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "47c41b941b666a3c1b10612fb007a3ea4249d18c",
+      "message": "fix(automix): seamless joins via micro-fade and primed landing; atempo lane to DJ-standard 8%",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "ea3da15b7abe3b822f96fd153310e239af4c6035",
+      "message": "fix(automix): ducking handles clash, gate never refuses; orphan renders logged",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "aa7079eff080afdfb8ed4c5e2459a28c1e5c16f4",
+      "message": "fix(automix): refused pairs banned from harmonic picks",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "7cb2679827dba08dc36ff5f7f1ac4393409f5fab",
+      "message": "fix(automix): bridge window follows the file, not the live clamp",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "c7cd7c879f605b650278eca7d5c90dd27e91573c",
+      "message": "fix(automix): log vocal-clash step-downs, name total clash rejection",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "89b34bbd6c8ade66d271103c92570e94f9ba7554",
+      "message": "fix(automix): dead-pair memo stops render retry storm, gate logs name the blocker",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "dcfef0ca9fe4d70084d967ba31317662d3d1e935",
+      "message": "fix(metadata): poison-proof musical save, warm cache at startup, heal cold reads",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "d084e1c06e5cfbaf48f4eb48ed48e47a1cef6f8d",
+      "message": "fix(player): queue badges disk-cache only, kills queue-open stall",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "f019b996bb3254361a96e7653ca19082c681d5ad",
+      "message": "fix(automix): name bridge render skip reasons once per pair",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "9c8d5e35974c9b2e62bc76dea4340761a5a4365c",
+      "message": "feat(automix): baked-bridge pipeline in live path with live fallback",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "286b5bc0b4d0fb8b70cc55aaa7da771dbd5ca2c0",
+      "message": "feat(automix): engine bridge handoff with B-mapped clock",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "f5bc6c92059011312e99ae0963f53c3e1eaa53bb",
+      "message": "fix(automix): pause-park keeps source warm, kills 10s post-teardown play stall",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "a421ac05519b77881ccce0cbc9c19742931330d0",
+      "message": "fix(player): cache-only lane probe on tap, late-success timing",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "54b2c8fc82d7a5c40ea3e4210119a239c7cc83df",
+      "message": "fix(autoplay): random when automix off, bounded cache-only fill, volume choke, notif dedupe",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "4923e9bf98dd2f2f007bda47e3ac97624e744d61",
+      "message": "feat(automix): harmonic batches, autoplay, crossfade tap and pause, notif art",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "4fcf3d71b6c6c011d55b144ca8268c717d09c0cd",
+      "message": "feat(automix): harmonic batch ordering plus autoplay with queue toggle",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "e6839227e1f166e162b89315fdd75b8769449ec3",
+      "message": "feat(automix): vocal-aware mix-out, deeper mix-in, vocal-gated bars",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "1cfe0fb3fe40ad379325cf1e0450b96782805234",
+      "message": "feat(automix): vocal-ducking in baked blends",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "06b8cf5d201eb25f2b4d84d9eeaa2ff050dd2ab8",
+      "message": "feat(automix): vocal entry 0.5 counts voiced rap, v2 backfill",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "c98b914204e1b1bb7d6fb7c6ac7cb6d12648c357",
+      "message": "feat(automix): HPSS vocal lane with versioned cache and device logging",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "0365bc2c20d054c0339369841af0854647067c17",
+      "message": "feat(automix): HPSS vocal-lane detection core plus tests",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "3d2df76c94cf8c3e735bb8222631985ffacf7426",
+      "message": "feat(automix): queue-ahead pre-analysis warms next two tracks",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "bfbaca3da9a06bd2827602074a2b0fd74cf86af8",
+      "message": "feat(automix): adaptive bars, mix-out point, 85 percent exit",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "3ded813176b71b7336332c980b09a12ba316d005",
+      "message": "feat(automix): mix-in groove scan, steeper bass swap",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "95449d32f04245e554308f1969136bd6b06998fa",
+      "message": "feat(automix): baked-blend prototype renderer plus lab preview trigger",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "b1348638e81179034b11c6f205a2c2ac9ef63795",
+      "message": "feat(automix): metrical prior counts quarters below 80",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "a83cb1cddf0568b7ef1d542a2b6fac287ff2196e",
+      "message": "feat(automix): feel-double on every sub-100 verdict, tempo v6",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "6b5e3fbcef20ed78119c7575d58fc136b720e960",
+      "message": "feat(automix): mid-band feel-double for unanimous half-time locks",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "3c5a3b1d886933e70716c11ea85ab92e0d399be6",
+      "message": "feat(automix): low-band second opinion confirms starved true readings",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "2f7191f9c79f7d97e06dc971ebd1a7dc64fe3a24",
+      "message": "feat(automix): version key verdicts, tempo v4 for pair recall",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "2b6454512730784854b8225484a888260f118acf",
+      "message": "fix(automix): tight tolerance for folded pair agreement",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "8d5b6551277a942f41ebb1b8460de06d1bfc4c6c",
+      "message": "feat(automix): pair-agreement tempo fallback, relative-key tie waiver",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "4f8143f0c691bd850c2b3f84d6938a362fff77ad",
+      "message": "feat(automix): tempo cache v3 for octave tie-break backfill",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "2972d64372516c821433e6b996bcebc3711560cf",
+      "message": "feat(automix): low-band octave tie-break for majority-half locks",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "1666c2051f0825da40aecff9b80d9d04ab931906",
+      "message": "feat(automix): key misses report top-2 evidence in log",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "3524dc34567b2b8019389bdbc74d1a7e27afc2c0",
+      "message": "feat(automix): version-stamp tempo cache, lazy backfill on algorithm rev",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "d2f29784cc26e784ba2926bbb24a704eb9710e75",
+      "message": "fix(automix): fallback verdict logs attempted folds, not raw",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "ee6f6342a6b00730818a4f0878b1e9f2a2d0957b",
+      "message": "feat(automix): agreement-shaped tempo confidence, DAD calibration",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "e8ef92aa1d6eff9e2b93c3d3df42c1e2e7af3bbe",
+      "message": "feat(automix): log fold verdict per analysis, bpm on tempo misses",
+      "author": "Skrol-C",
+      "date": "2026-10-26"
+    },
+    {
+      "hash": "8f77a2d74439cfa2ea61abcceff66ff86f068011",
+      "message": "feat(automix): octave-fold window tempos onto median, require consensus",
+      "author": "Skrol-C",
+      "date": "2026-10-25"
+    },
+    {
+      "hash": "bc2f49df5a7de62b8a3b29301e498c6adada954b",
+      "message": "Dedupe notif art: _attachArtFile skips when song id unchanged",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "ea562fd7b2dc368df096670f2ee9f3a128187cb2",
+      "message": "fix(automix): single-source position publish, guard stale index",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "d144be9d76eb6537bb67af74c68938b22ac438da",
+      "message": "feat(automix): start incoming on first sound, beat-snapped",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "9fdc9b69818851e82f766f03dd786a987335cfcf",
+      "message": "fix(automix): poll real playback, generation guard against zombie starts",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "2307b16c5336197cb8cd4d868945932af64cde75",
+      "message": "fix(automix): release playlist output before engine start, state logs",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "575a8da5d098f696dee15ab915dd2c70df334b5a",
+      "message": "fix(automix): engine players skip focus arbitration, toggle self-corrects",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "ef0a3c34499b70326f29602775196aa1d0e297cf",
+      "message": "fix(automix): bounded awaits, cut fallback, no wedged mix",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "b5b09b2817a1c1d67ebb09a617c94b6bf13e411e",
+      "message": "chore(automix): lifecycle + guard diagnostics",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "c8116af81cc1dded9a5d4b11cb9c8529f8a949b8",
+      "message": "fix(automix): duration fallback, completion advance, mix probe",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "8c7775aa7b2208f194e1b0aff6b4c888e454c8cd",
+      "message": "feat(automix): engine owns transport, adaptive crossfade live",
+      "author": "Skrol-C",
+      "date": "2026-10-24"
+    },
+    {
+      "hash": "ad08f8114df641f1b5b71610ce68116d8bd9f529",
+      "message": "feat(automix): adaptive crossfade brain + dual-player engine",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "c200f2114a1bfe59c8683e4743c8101ace42fc12",
+      "message": "feat(automix): live Automix toggle in queue header",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "18da66f5976af35ea027cf274d6331fd0b545720",
+      "message": "fix(automix): collapse doubled provenance tags on read+write",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "010204bc6d5cc67e57f756670505cea5b85469f9",
+      "message": "feat(automix): multi-window tempo sweep with track-time phase",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "f402087c0d1e15050401b82be581539900d168bf",
+      "message": "feat(song): Harmonic section with Camelot key badge + tempo",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "194bc21a381162ca03980b677a3bf1d39dc6c46d",
+      "message": "fix(automix): dsp source tag dup, log gate misses",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "44d368f24b1eb68c9171c0c2ec763238406575f2",
+      "message": "feat(automix): on-device key detection, shared DSP decode",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "684ea341a1199aebc0a4f4d3672a5797cbedf8a3",
+      "message": "feat(automix): Mornye-ported beat grid + on-device DSP lane",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "f9db0b86fdad66f559ede128a52359c64e56b981",
+      "message": "feat(playlists): select-mode containment badges, grid + list",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "993467fe399fea1bdfe22cf348ca489d83a59d44",
+      "message": "feat(playlists): contained rows show Already-there chip",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "a96996b9de9cce6d7aee68d3f5a26c54ca6dc242",
+      "message": "feat(automix): GetSongBPM lane + embedded musical info, cached",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "6cbd662e0449e2b7cc6dc225ad0c99ca7fc3e756",
+      "message": "chore(license): declare GPL-3.0, GetSongBPM key plumbing",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "b681ef4ea3a30f7d0c7d0ebee65b3e61a2382aeb",
+      "message": "feat(player): cover-borrowed two-tone low-end gradient",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "1b219a06241d260d071f8f1d8c5f7148e49706fc",
+      "message": "feat(player): stronger art wash + low-end red gradient",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "b5b3f777aaa08f9dfd5d8435c2a29092330788ee",
+      "message": "feat(player): lens-less utility row, wider action gaps",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "1ad9c49491cccf36cdfc25238d4dd26fe37a6452",
+      "message": "feat(player): utility row spacing + inert Arch Hub placeholder",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "2298ba9eb93cc3ca08e835f6748b89799222e427",
+      "message": "feat(shuffle): guaranteed-fresh permutation, current pinned",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "ca4c58124c294cf15438c0a5f9fda0a7a6e07400",
+      "message": "feat(shuffle): Up Next mirrors engine order, display-safe index ops",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "333300dc9cd365f0ecdc89d856e5400dad8d46a3",
+      "message": "feat(shuffle): engine owns order, drop Shuffle Library button",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "3248a109e1d48fd6ea048e78577fda34a3371181",
+      "message": "feat(song): song page metadata lanes, sharper hub covers",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "e30ada22fd5875bd7043d296492b0d2450bc10a8",
+      "message": "feat(player): single-mount player route, gated scroll reporter, crash-card reset",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "eecacd3b04af07382f4e242c61550476294d6dca",
+      "message": "feat(playlists): pending rows with pull-to-library, cover eviction",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "4fe9d654521ef0613f96a496cc8752c163cc17a0",
+      "message": "feat(search): shared black SINGLE-EP badge",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "4b19fcabcb9b47216ba5bcbe305d531299fa37fc",
+      "message": "feat(gallery): dressed release gallery + remote album surface",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "2e80ceddd3f5fce25fec97b829918d658247ead0",
+      "message": "feat(artist): artist rework, fan-stack discography hubs, Popular select",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "f40fe6db45c2a60b4f2ebb283edbac50fe964488",
+      "message": "feat(album): album page rework, hi-res cascade, lossless mark",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "1b30188587a30e184203be87ed162958821a21a0",
+      "message": "feat(metadata): hi-res cover lanes, discography hubs, listener cascade",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "7f61baa9ba28ce5840cd680ad1908446fe0c0c7c",
+      "message": "feat(core): shared TypeBadge + ghost skeleton primitives",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "8f5e8eaba4c9e900556b97042b4e8d9d1d9b1e8a",
+      "message": "Playlists v1 + select mode (WA0011/WA0077-79 grammar)",
+      "author": "Skrol-C",
+      "date": "2026-10-23"
+    },
+    {
+      "hash": "2143afcf00fc40121dd505bd6a944a25c97675e8",
+      "message": "Player rework + pill revamp (rebrand slate)",
+      "author": "Skrol-C",
+      "date": "2026-10-19"
+    },
+    {
+      "hash": "4cdcc8cb040303e1d0a56ab474e633cab2930ae4",
+      "message": "Library + Home: index redesign (WA0008-WA0013 grammar)",
+      "author": "Skrol-C",
+      "date": "2026-10-19"
+    },
+    {
+      "hash": "8a77494183648dcde76a69a2b0c6f9200aa172c2",
+      "message": "Embed: stop stripping covers on m4a retags, retry audio-only only when needed",
+      "author": "Skrol-C",
+      "date": "2026-10-19"
+    },
+    {
+      "hash": "1a21b18beb0eff1f9a0dc54efb134d2398eb4ee1",
+      "message": "Song Doctor repair flow: full tag reads, rich embeds, codec-mismatch retry",
+      "author": "Skrol-C",
+      "date": "2026-10-17"
+    },
+    {
+      "hash": "8e9f653e8e2f96d65dfe2184556b6ee115ee4053",
+      "message": "MusicBrainz lane: release-first lookup, and the tracks key that never read",
+      "author": "Skrol-C",
+      "date": "2026-10-17"
+    },
+    {
+      "hash": "a6123b3972a4d0be3d5a004b62784ae5c491fcc8",
+      "message": "Track facts: multi-provider cascade + Apple queries that find the hit",
+      "author": "Skrol-C",
+      "date": "2026-10-17"
+    },
+    {
+      "hash": "853df06e02d2955c02d0e4e66408117b7dc71363",
+      "message": "Rich tags: read every tag on the song page, fill and embed at pull",
+      "author": "Skrol-C",
+      "date": "2026-10-17"
+    },
+    {
+      "hash": "ffac5f14a0c20abec084ddab91678f5b4f85520b",
+      "message": "File art: hero draws the cover from the file, Opus tags fixed",
+      "author": "Skrol-C",
+      "date": "2026-10-17"
+    },
+    {
+      "hash": "1f84f1f037e5b3b275de0151b62c361342e02da7",
+      "message": "Fonts: 60 display voices, binaries local-only",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "38b951ad3bc0d49388033da2146c44ffc80e658b",
+      "message": "Needle pull metadata: embed at pull, hi-res art, catalog truth",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "b96a110ab701c7fce171b6df707eaacf0787bcff",
+      "message": "Player menu: Song Doctor + Lyric Finder placeholders",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "f8edb4985d5b4d979a4c33bb45ae19ec7912eabb",
+      "message": "Needle hub: queue, sheet, catalog, structure, motion",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "696f094584a083fe062bd47de5a4c2ab863d7c15",
+      "message": "Art flicker kill: memoized art futures, sticky art extras",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "45ae628fabf957d8f264069983c4c769d3e39cbb",
+      "message": "Rust batch: resume + fingerprint (device-proven)",
+      "author": "Skrol-C",
+      "date": "2026-10-16"
+    },
+    {
+      "hash": "e7cefe7333b1c776d0ce0f92b86049b88aa342ec",
+      "message": "Preview art network fallback + trailing play mark",
+      "author": "Skrol-C",
+      "date": "2026-10-15"
+    },
+    {
+      "hash": "a6156abace408980fcd249df952d62c2e4cbbb0a",
+      "message": "Search destination + Song page + previews",
+      "author": "Skrol-C",
+      "date": "2026-10-15"
+    },
+    {
+      "hash": "2798ca58c4194313278019710996181f0098e840",
+      "message": "Needle compat: port host API, signed sessions, downloads, verify sheet, search + pull UI",
+      "author": "Skrol-C",
+      "date": "2026-10-15"
+    },
+    {
+      "hash": "98434d8ec58e78919905002dd27845b864b50f78",
+      "message": "Needle foundation: tagging fix, album merge, settings UI, Rust core + sandbox + host bridge",
+      "author": "Skrol-C",
+      "date": "2026-10-14"
+    },
+    {
+      "hash": "ee894a4b3b1ff28c873c7d4b8cf4226c5bd54379",
+      "message": "Menu saga closed: single morphed lens, shared cascade, consistent sheets",
+      "author": "Skrol-C",
+      "date": "2026-10-13"
+    },
+    {
+      "hash": "c237c5ed5b721071b11fc9c552ecdc77ee45fbd4",
+      "message": "Menu: opaque travel + cover-dissolve glass turn-on (issue 650 trick base)",
+      "author": "Skrol-C",
+      "date": "2026-10-13"
+    },
+    {
+      "hash": "3e57b52ced01834f8bc60ab52f7d92a85d5d82fe",
+      "message": "Player pass: release notification keep, chevron out, SF icons, smoothness, lyrics stage, transport overhaul, menu rebuild",
+      "author": "Skrol-C",
+      "date": "2026-10-13"
+    },
+    {
+      "hash": "8d4293ed0291bd6842903df15b33d31dee12f206",
+      "message": "Hero bleed: long melt scrim + artist-tone wash, no hard photo cutoff",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "9249ade75c0b1a9b3e4436e9507f0307cb3ec181",
+      "message": "Fix zone mismatch: binding init inside guarded zone",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "9b3cb195cc1b014bfbbd306b0668947fc78090e7",
+      "message": "Chore: untrack reference screenshots (local design input only)",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "7ea203d6df47a4906f5857c5ad582fc3b4c472f7",
+      "message": "Artist restyle: action row, ranked Popular+expand, overflow menus, bucket counts, editorial About",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "b23c52463cd325bca4030d7824522377f6ca5966",
+      "message": "Display name Arch Player; Arch icon set (densities + adaptive/mono); preview art + guarded playback",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "3dbc0e68611b771fbe01dc58cbf0daa1c0a5bf2a",
+      "message": "Phase 1 engine: guided setup, own scan, atomic playback, white library + artist + player",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "d071e119eda77ccf391f4190a3a86c377dab6a44",
+      "message": "Fix: Settings destination renders real hub, not demo list",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "497ba87856217cc59e6c8e2e126eee1459baa515",
+      "message": "Settings hub: Apple-grouped white cards, log screen, Needle teaser",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "023a4078c5c97dd690d370196d7875e0300a3fdc",
+      "message": "Phase 0: clean v2 scaffold (white theme, file logging, error net, pill trial), Gradle diet",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "ade8a5bb2e96e8645cf571d253b6a1fce33d20f7",
+      "message": "Remove Home destination (library-first focus)",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "fa113ad47e05330f31d0335a799c8e8067e3fe38",
+      "message": "Starve the blank: cap all decoded images, global image cache ceilings",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "2eccd6665e6c996fb8241197a924fa3721d1a4c7",
+      "message": "Home diagnostics: build breadcrumbs, loading-aware body, fresh-mount destination keys",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "abe21a8e5e72ec443778bf029f68673bd9b5d0da",
+      "message": "Unwedge player: 20s queue timeout, guarded taps everywhere, no silent hangs",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "91e59245ac36fe7737f645c92352f50f317ba7e0",
+      "message": "Kill Hero flight + same-artist double-push guard (route corruption -> blank pages)",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "43b5479b55f2573b4da55ef50554feae80655afa",
+      "message": "Trace preview lifecycle; isCurrent by id (no more all-rows-lit)",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "f6a813d64360f475a9083ade61f4ffefcd31a8af",
+      "message": "Diagnostics: opaque loading scaffold, scan breadcrumbs, native channel timing logs",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "d8004431e528b54ce40fed584a807a025a0a7b57",
+      "message": "Blank curse: unique Hero tags, preview single-flight+errors, error net, LRU art, atomic validated cache",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "c7a63099cfe8a9022837024b8018f2df2760c3c1",
+      "message": "Artist v2: cover fan hubs, heart follow, CAA art pipeline, Apple-calm pass",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "68a4e5f2cc80902823af9e319b9ec95da9da6f58",
+      "message": "Artist page: hero + real top songs with previews, spring-out hubs, gallery, motion tokens",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "c62887fe3a9275aed6144f29df086cf371954d16",
+      "message": "Survival pass: untinted notif icon, wake/battery perms, audio-first startup, battery exemption row, drop unused deps",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "e081d0840ecf18c85f23676537dd9a9909809626",
+      "message": "Fixes: channel work off main thread (ANR), real notification icon + permission",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "1ec575a9befe1117ff0ab984db573ba152028d94",
+      "message": "Speed pass: parallel pic/bio/releases, progressive artist render, cached portraits, prefetch top artists, fix post-await ref reads",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "cf383fc96dc949a70b0fb1d765053a68aaaa0a1e",
+      "message": "Engine parity: own MediaStore channel, just_audio+audio_service, folders, search/sort, MB+Deezer+Last.fm artist pages",
+      "author": "Skrol-C",
+      "date": "2026-10-09"
+    },
+    {
+      "hash": "928cd619c58822f902ae99598caaadd305070e7e",
+      "message": "Chore: docs live locally, repo holds code",
+      "author": "Skrol-C",
+      "date": "2026-10-08"
+    },
+    {
+      "hash": "203649fc71fdcf451f1ff326f408a8a3950f0b44",
+      "message": "Needle plan: provider-system design (core once, community adapters, registry phases)",
+      "author": "Skrol-C",
+      "date": "2026-10-08"
+    },
+    {
+      "hash": "5a81de4544054c3a6226d648d517d873eaeab0e2",
+      "message": "Glass pill presence: proper withImpeller placement, Arch red selection, brighter items, slide animation",
+      "author": "Skrol-C",
+      "date": "2026-10-08"
+    },
+    {
+      "hash": "1caa735cef08794a9e912e1fe827f7379bbcef95",
+      "message": "Flutter return: clean scaffold + liquid glass pill trial (green screen)",
+      "author": "Skrol-C",
+      "date": "2026-10-08"
+    }
+  ]
+}
