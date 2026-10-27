@@ -97,34 +97,17 @@ class NotifArt {
 }
 
 /// Own heartbeat: background playback. UI may crash; this keeps playing.
-/// A rendered bridge waiting for its window. The file already holds
-/// the overlap (A-outro + B-intro mixed); the joins are same-waveform
-/// cuts and the clock stays B-mapped throughout. Null = nothing
-/// ready: run the live fade, never wait.
-class _BridgeJob {
+/// Live blend waiting for its window. Planning (decodes + geometry)
+/// runs beside playback; the fire uses it or falls back to the live
+/// crossfade below. Null = nothing planned: run the fade, never wait.
+class _LiveJob {
   final int from;
   final int next;
-  final String file;
-  final double startB;
-  final double entryDelay;
-  final double tempoRatio;
-  final double resumeB;
-  final double seconds;
-  final Duration durB;
-  // A track time to fire at: the file starts here, not at
-  // (end - length). Firing late replays the tail.
-  final double windowStartA;
-  const _BridgeJob({
+  final PlannedBlend planned;
+  const _LiveJob({
     required this.from,
     required this.next,
-    required this.file,
-    required this.startB,
-    required this.entryDelay,
-    required this.tempoRatio,
-    required this.resumeB,
-    required this.seconds,
-    required this.durB,
-    required this.windowStartA,
+    required this.planned,
   });
 }
 
@@ -241,63 +224,42 @@ class ArchAudioHandler extends BaseAudioHandler {
   final List<int> _playFuture = [];
   static const int _historyCap = 200;
 
-  /// Rendered bridge waiting for its window (null = run it live).
-  /// Dropped on any invalidation: queue surgery, teardown, supersede.
-  _BridgeJob? _bridge;
-  /// Pair key the waiting job was rendered for (aId>bId).
-  String _bridgePair = '';
-  /// Pair key already pre-buffered on the engine's idle side.
-  /// Cleared with the job; the engine invalidates its own copy on
-  /// any transport change.
-  String _primePair = '';
-  /// One render at a time: ticks retry while this is set.
-  bool _rendering = false;
+  /// Live blend waiting for its window (null = run the fade).
+  /// Planning runs beside playback; dropped on any invalidation:
+  /// queue surgery, teardown, supersede.
+  _LiveJob? _liveJob;
+  /// Pair key the waiting job was planned for (aId>bId).
+  String _livePair = '';
+  /// One plan at a time: ticks retry while this is set.
+  bool _planning = false;
   /// Pair key that already logged its skip reason: the kick runs
   /// every tick, but the log names each gap once, not 150 times.
-  String _renderSkipPair = '';
-  /// Refused pairs (aId>bId): failed post-decode (geometry/ratio/
-  /// clash) or crashed. Never re-rendered — ticks would burn a full
-  /// decode + scan set every 400ms — and never re-picked by the
-  /// harmonic walk, so ordering stops offering pairs the renderer
-  /// refuses. Cleared on transport change. Pre-decode skips (no
-  /// tempo, no path) keep retrying: background analysis can heal
-  /// them mid-track.
-  final Set<String> _deadPairs = {};
+  String _planSkipPair = '';
 
-  void _renderSkip(String pair, String reason) {
-    if (pair == _renderSkipPair) return;
-    _renderSkipPair = pair;
-    ArchLog.i('automix', 'bridge skip $pair ($reason)');
+  void _planSkip(String pair, String reason) {
+    if (pair == _planSkipPair) return;
+    _planSkipPair = pair;
+    ArchLog.i('automix', 'live skip $pair ($reason)');
   }
-  /// One landing flight at a time.
-  bool _landing = false;
 
   /// True while the waiting job still names the live queue.
   /// Appends (autoplay) keep it; moves/removes/rebuilds drop it.
-  bool _bridgeValid() {
-    final job = _bridge;
-    if (job == null || _bridgePair.isEmpty) return false;
+  bool _liveValid() {
+    final job = _liveJob;
+    if (job == null || _livePair.isEmpty) return false;
     if (job.from < 0 || job.next < 0) return false;
     if (job.from >= _songs.length || job.next >= _songs.length) {
       return false;
     }
-    return _bridgePair ==
+    return _livePair ==
         '${_songs[job.from].id}>${_songs[job.next].id}';
   }
 
-  /// Delete the waiting file and forget the job. The file is
-  /// transient render output: never user data, never referenced
-  /// once the window passes.
-  void _dropBridgeFile() {
-    final f = _bridge?.file;
-    _bridge = null;
-    _bridgePair = '';
-    _primePair = '';
-    if (f != null && f.isNotEmpty) {
-      try {
-        File(f).deleteSync();
-      } catch (_) {}
-    }
+  /// Forget the waiting job. Planning output is pure geometry —
+  /// no files to delete, just stop considering it.
+  void _dropLiveJob() {
+    _liveJob = null;
+    _livePair = '';
   }
 
   /// Autoplay: when the queue runs out, the UI is asked for more music
@@ -586,9 +548,9 @@ class ArchAudioHandler extends BaseAudioHandler {
     // Queue mutations invalidate harmonic positions (index-based).
     // The next tick refills from the new truth; display follows.
     _harmonicBatch.clear();
-    // A waiting bridge names queue positions: drops itself when
+    // A waiting live job names queue positions: drops itself when
     // they no longer name its pair (appends keep a valid one).
-    if (!_bridgeValid()) _dropBridgeFile();
+    if (!_liveValid()) _dropLiveJob();
     _republishOrder();
   }
 
@@ -613,20 +575,11 @@ class ArchAudioHandler extends BaseAudioHandler {
     final fromId = (_mixIndex >= 0 && _mixIndex < _songs.length)
         ? _songs[_mixIndex].id
         : -1;
-    // Refused nexts are banned for this position: ordering stops
-    // offering pairs the renderer already rejected (vocal clash,
-    // geometry, ratio). Data-driven refusals only — heals (tempo
-    // arriving late) were never dead, so they still retry.
-    final deadNext = <int>{
-      for (final p in _deadPairs)
-        if (p.startsWith('$fromId>'))
-          int.tryParse(p.split('>').last) ?? -1,
-    }..remove(-1);
     final picked = ho.pickHarmonicBatch(
       songs: _songs,
       infoOf: infoOf,
       fromId: fromId,
-      recentIds: {..._harmonicRecentIds, ...deadNext},
+      recentIds: {..._harmonicRecentIds},
       k: k,
     );
     _harmonicBatch = [
@@ -1462,11 +1415,10 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
   /// playlist player at the engine's exact position and index.
   Future<void> _teardownEngine({required bool resume}) async {
     _mixGen++;
-    // Abandon the pipeline with the phase: the render guard and
-    // the landing wait both bail on the generation/flag.
-    _dropBridgeFile();
-    _deadPairs.clear();
-    _landing = false;
+    // Abandon the pipeline with the generation: the plan guard and
+    // the blend wait both bail on it.
+    _dropLiveJob();
+    _planning = false;
     _mixTick?.cancel();
     _mixTick = null;
     final engine = _engine;
@@ -1515,11 +1467,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
     if (!_automixOn) return _mixWhy('automix off');
     if (_mixFiring) return _mixWhy('already firing');
     if (engine.isCrossfading) return _mixWhy('crossfading');
-    if (engine.bridging) {
-      // The file plays; B lands itself at the join (one flight).
-      unawaited(_landBridge());
-      return _mixWhy('bridging');
-    }
+    if (engine.liveBlending) return _mixWhy('blending');
     // A track that already ran out still needs the next one: treat
     // completion as "window open now" so automix never dies at a
     // boundary just because a tick landed late.
@@ -1548,85 +1496,74 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       }
       return _mixWhy('no next');
     }
-    // One bridge rendering ahead: flag-guarded per tick, once per
-    // pair. The render runs beside playback; the window uses it or
-    // falls back to the live fade below.
-    if (_bridge == null && !_rendering) {
-      unawaited(_renderBridgeFor(_mixIndex, next));
+    // One live plan ahead: flag-guarded per tick, once per pair.
+    // Planning (decodes + geometry) runs beside playback; the fire
+    // uses it or falls back to the crossfade below.
+    if (_liveJob == null && !_planning) {
+      unawaited(_planLiveFor(_mixIndex, next));
     }
-    // The window follows the waiting bridge, not the live plan: a
-    // 16-bar file fires ~30s out, not at the 10s live clamp. Firing
-    // a long bridge at the short window jumps A backward instead of
-    // blending — the live plan must never time a baked file.
+    // The window follows the waiting plan, not the crossfade plan: a
+    // 16-bar blend fires ~30s out, not at the 10s live clamp. Firing
+    // a long blend at the short window jumps A backward instead of
+    // blending — the crossfade must never time a live plan.
     final pair = '${_songs[_mixIndex].id}>${_songs[next].id}';
-    final job = (_bridgeValid() && _bridgePair == pair) ? _bridge! : null;
+    final job = (_liveValid() && _livePair == pair) ? _liveJob! : null;
     final plan = _mixPlan(_mixIndex, next);
     final window = job != null
-        ? Duration(milliseconds: (job.seconds * 1000).round())
+        ? Duration(
+            milliseconds: (job.planned.plan.seconds * 1000).round())
         : plan.duration;
-    // Bridges fire at their file start: the mix-out point can
-    // sit well before EOF, and firing at (end - length) replays
-    // the tail.
+    // Live blends start at their window: the mix-out point can sit
+    // well before EOF, and firing at (end - length) replays the tail.
     final fireAt = job != null
-        ? Duration(milliseconds: (job.windowStartA * 1000).round())
+        ? Duration(
+            milliseconds: (job.planned.windowStartA * 1000).round())
         : null;
     final remaining = finished ? -const Duration(seconds: 1) : total - engine.position;
     _mixProbe(engine, total, remaining, next, plan, window, fireAt);
+    // The engine waits on its own clock past this point (20ms poll),
+    // so arm it with load lead instead of at the fire exactly.
+    const loadLead = Duration(seconds: 12);
     if (job != null) {
-      // Pre-buffer the bridge on the idle side while it approaches:
-      // the fire then costs a seek+play, not a load. Once per pair.
-      if (!finished &&
-          remaining <= window + const Duration(seconds: 8) &&
-          _primePair != pair) {
-        _primePair = pair;
-        unawaited(engine.primeBridge(Uri.file(job.file)));
-      }
-      if (!finished && engine.position < fireAt!) return;
+      if (!finished && remaining > window + loadLead) return;
     } else if (remaining > window) {
       return;
     }
     _mixFiring = true;
     try {
       final song = _songs[next];
-      // Baked bridge first: the file holds the overlap, the joins
-      // are same-waveform and the clock stays B-mapped. Anything
-      // missing or stale falls through to the live fade below.
+      // Live blend first: two players, recipe gains, one join. The
+      // engine times the fire itself; anything missing falls through
+      // to the crossfade below.
       if (job != null) {
         ArchLog.i(
           'automix',
-          'bridge fire id=${song.id} '
-              '${job.seconds.toStringAsFixed(1)}s',
+          'live fire id=${song.id} '
+              '${job.planned.plan.seconds.toStringAsFixed(1)}s',
         );
-        final bridged = await engine
-            .bridgeTo(
-              bridgeUri: Uri.file(job.file),
-              nextUri: song.uri,
-              startB: job.startB,
-              entryDelay: job.entryDelay,
-              tempoRatio: job.tempoRatio,
-              resumeB: job.resumeB,
-              durB: song.duration,
-              bridgeSeconds: job.seconds,
-              windowStartA: job.windowStartA,
+        final blended = await engine
+            .liveBlendTo(nextUri: song.uri, planned: job.planned)
+            .timeout(
+              Duration(seconds: job.planned.plan.seconds.round() + 30),
             )
-            .timeout(Duration(seconds: job.seconds.round() + 30))
             .catchError((Object e) {
-          ArchLog.w('automix', 'bridge timeout: $e');
+          ArchLog.w('automix', 'live blend timeout: $e');
           return false;
         });
-        if (bridged) {
+        if (blended) {
           _historyAdvance(_songs[_mixIndex].id, song.id);
           _mixIndex = next;
           _harmonicConsume(next);
           _setItem(song.toMediaItem());
           unawaited(_attachArtFile(song));
           _republishOrder();
-          ArchLog.i('automix', 'bridge on id=${song.id}');
+          ArchLog.i('automix', 'live blend on id=${song.id}');
           unawaited(_warmUpcoming());
           return;
         }
-        // Spent either way: never retry a dead file each tick.
-        _dropBridgeFile();
+        // Spent: never retry a dead plan each tick — the fade below
+        // still lands the transition now.
+        _dropLiveJob();
       }
       final startAt = _mixStartOffset(next);
       // Belt and braces: the engine bounds its own awaits, but the
@@ -1734,36 +1671,35 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
   /// Fire-and-forget and sequential — never on the playback path,
   /// never parallel decodes. Superseded the moment transport moves
   /// on (generation guard).
-  /// Render the bridge for [aIdx] -> [bIdx] beside playback. One
+  /// Plan the live blend for [aIdx] -> [bIdx] beside playback. One
   /// at a time (ticks retry while busy); cache-only inputs, so the
-  /// only heavy work is the decode + FFmpeg render itself — never
-  /// on the tap/skip/play path, always generation-guarded. Owned
-  /// files only; tempo-less pairs with a key fit still render (no
-  /// stretch), anything else stays live.
-  Future<void> _renderBridgeFor(int aIdx, int bIdx) async {
-    if (_rendering) return;
+  /// only heavy work is the decode + geometry scans — never on the
+  /// tap/skip/play path, always generation-guarded. Owned files
+  /// only; tempo-less or out-of-gate pairs stay on the crossfade
+  /// (analysis heals, planning retries).
+  Future<void> _planLiveFor(int aIdx, int bIdx) async {
+    if (_planning) return;
     if (aIdx < 0 || bIdx < 0) return;
     if (aIdx >= _songs.length || bIdx >= _songs.length) return;
     final meta = _meta;
     final a = _songs[aIdx];
     final b = _songs[bIdx];
     final pair = '${a.id}>${b.id}';
-    if (pair == _bridgePair && _bridge != null) return;
-    if (_deadPairs.contains(pair)) return;
+    if (pair == _livePair && _liveJob != null) return;
     if (meta == null || !_automixOn || _engine == null) {
-      _renderSkip(pair, 'not ready');
+      _planSkip(pair, 'not ready');
       return;
     }
     if (a.path.isEmpty || b.path.isEmpty) {
-      _renderSkip(pair, 'no file path');
+      _planSkip(pair, 'no file path');
       return;
     }
     if (!a.path.startsWith('/') || !b.path.startsWith('/')) {
-      _renderSkip(pair, 'non-file uri');
+      _planSkip(pair, 'non-file uri');
       return;
     }
     final gen = _mixGen;
-    _rendering = true;
+    _planning = true;
     try {
       final ia = meta.musicalInfoCached(
         title: a.title,
@@ -1775,53 +1711,29 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         artist: b.artist,
         path: b.path,
       );
-      // Effective grid: known tempos when both sides have them, else
-      // blend on key/energy instead of skipping outright — no stretch
-      // (grid from the known side, else a nominal 120, so ratio is
-      // exactly 1.0 and atempo stays transparent). Beat placement
-      // degrades, the blend still renders. Pairs with no key either
-      // keep retrying: background analysis can heal them mid-track.
-      var bpmA = ia?.bpm;
-      var bpmB = ib?.bpm;
-      var bars = 16;
-      var keyBlend = false;
+      final bpmA = ia?.bpm;
+      final bpmB = ib?.bpm;
       if (bpmA == null || bpmB == null) {
-        final rel = ho.harmonicRelation(
-          ia?.openKey.isEmpty ?? true ? null : ia?.openKey,
-          ib?.openKey.isEmpty ?? true ? null : ib?.openKey,
-        );
-        switch (rel) {
-          case ho.HarmonicRel.same:
-          case ho.HarmonicRel.relative:
-          case ho.HarmonicRel.adjacent:
-          case ho.HarmonicRel.energy:
-            final known = bpmA ?? bpmB ?? 120.0;
-            bpmA = known;
-            bpmB = known;
-            bars = 8;
-            keyBlend = true;
-            ArchLog.i('automix', 'bridge key-blend $pair (${rel.name})');
-          case ho.HarmonicRel.far:
-          case ho.HarmonicRel.unknown:
-            _renderSkip(pair, 'no tempo, no key');
-            return;
-        }
+        _planSkip(pair, 'no tempo');
+        return;
       }
-      // Same band as the renderer (tight ±8%: 0.92–1.08). In-gate
-      // pairs tempo-blend; tempo-known but out-of-gate pairs fall
-      // to the echo-out bridge (no stretch) instead of dying here.
-      // Key-blend pins ratio=1.0 so it never trips this. Unplannable
-      // geometry still dies in the renderer and stays dead.
+      // Tight ±8% gate, same band as the recipe: in-gate pairs blend
+      // live with stretch; out-of-gate pairs ride the crossfade the
+      // user already likes (no drunk atempo smear, no echo DSP live).
       final ratio = bpmA / bpmB;
-      var echoOut = false;
       if (ratio < 0.92 || ratio > 1.08) {
-        echoOut = true;
-        ArchLog.i(
-          'automix',
-          'bridge echo-out $pair (ratio ${ratio.toStringAsFixed(2)})',
-        );
+        _planSkip(pair, 'tempo gap ${ratio.toStringAsFixed(2)}');
+        return;
       }
-      final rb = await renderBridge(
+      final bars = blendBars(
+        openA: ia?.openKey,
+        openB: ib?.openKey,
+        bpmA: bpmA,
+        bpmB: bpmB,
+        durA: a.duration.inMilliseconds / 1000.0,
+        durB: b.duration.inMilliseconds / 1000.0,
+      );
+      final planned = await planBridge(
         BlendSpec(
           aPath: a.path,
           bPath: b.path,
@@ -1840,87 +1752,40 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
             title: b.title,
             artist: b.artist,
           ),
-          bars: echoOut ? 8 : bars,
+          bars: bars,
         ),
-        tag: 'live_${a.id}_${b.id}',
-        echoOut: echoOut,
       );
-      // Transport moved on mid-render: the file is orphaned. Loud,
-      // because renders take minutes and taps take seconds — every
-      // skip during a render restarts its clock.
+      // Transport moved on mid-plan: geometry is orphaned. Planning
+      // is cheaper than a render, but the log still names it loud —
+      // skips during a plan restart its clock.
       if (gen != _mixGen || !_automixOn || _engine == null) {
-        if (rb != null) {
-          try {
-            File(rb.file).deleteSync();
-          } catch (_) {}
-        }
-        ArchLog.i('automix', 'bridge orphan $pair (transport moved on)');
+        ArchLog.i('automix', 'live orphan $pair (transport moved on)');
         return;
       }
-      if (rb == null) {
-        _deadPairs.add(pair);
+      if (planned == null) {
+        _planSkip(pair, 'unplannable geometry');
         return;
       }
-      // Queue moved under the render: same orphan rule.
+      // Queue moved under the plan: same orphan rule.
       if (aIdx >= _songs.length ||
           bIdx >= _songs.length ||
           _songs[aIdx].id != a.id ||
           _songs[bIdx].id != b.id) {
-        try {
-          File(rb.file).deleteSync();
-        } catch (_) {}
-        ArchLog.i('automix', 'bridge orphan $pair (queue moved)');
+        ArchLog.i('automix', 'live orphan $pair (queue moved)');
         return;
       }
-      if (_bridge != null && _bridgePair != pair) _dropBridgeFile();
-      _bridge = _BridgeJob(
-        from: aIdx,
-        next: bIdx,
-        file: rb.file,
-        startB: rb.plan.startB,
-        entryDelay: rb.plan.entryDelay,
-        tempoRatio: rb.plan.tempoRatio,
-        resumeB: rb.resumeB,
-        seconds: rb.plan.seconds,
-        durB: b.duration,
-        windowStartA: rb.windowStartA,
-      );
-      _bridgePair = pair;
+      _liveJob = _LiveJob(from: aIdx, next: bIdx, planned: planned);
+      _livePair = pair;
       ArchLog.i(
         'automix',
-        'bridge ready ${a.id}>${b.id} '
-            '${rb.plan.seconds.toStringAsFixed(1)}s '
-            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''}${echoOut ? ', echo send=${echoSendSecs.toStringAsFixed(1)}s taps=$echoTapDecays tail=${echoTailSecs.toStringAsFixed(1)}s' : ''})',
+        'live ready ${a.id}>${b.id} '
+            '${planned.plan.seconds.toStringAsFixed(1)}s '
+            '(${planned.plan.bars} bars)',
       );
     } catch (e) {
-      ArchLog.w('automix', 'bridge render failed: $e');
-      _deadPairs.add(pair);
+      ArchLog.w('automix', 'live plan failed: $e');
     } finally {
-      _rendering = false;
-    }
-  }
-
-  /// Land B under a playing bridge. One flight at a time; the
-  /// engine flips exactly at the join, then the file is deleted.
-  /// Interrupts clear the phase via stop(), and the wait bails.
-  Future<void> _landBridge() async {
-    if (_landing) return;
-    _landing = true;
-    try {
-      final engine = _engine;
-      final job = _bridge;
-      if (engine == null || job == null || !_bridgeValid()) return;
-      final b = _songs[job.next];
-      final ok = await engine.finishBridge(b.uri);
-      // Landed or cut: the file is done either way.
-      _dropBridgeFile();
-      if (ok) {
-        _republishOrder();
-        ArchLog.i('automix', 'bridge landed id=${b.id}');
-        unawaited(_warmUpcoming());
-      }
-    } finally {
-      _landing = false;
+      _planning = false;
     }
   }
 
@@ -2008,9 +1873,9 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         path: _songs[b].path,
       );
     } catch (_) {}
-    // Live lengths stay on the grid too: bar counts from the same
-    // planner the bridges use, clamped to the live band (long
-    // blends are the bridge's job - a 32-bar live fade sprawls).
+    // Fallback fade stays on the grid too: bar counts from the same
+    // planner the live blend uses, clamped to the fade band (long
+    // blends are the blend's job - a 32-bar fade sprawls).
     final bars = blendBars(
       openA: ia?.openKey,
       openB: ib?.openKey,

@@ -19,15 +19,28 @@ import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/log.dart';
+import 'baked_blend.dart' show PlannedBlend;
 import 'crossfade.dart';
+import 'live_blend.dart';
 
 class AutomixEngine {
   // Session activation is handled by the app once (the transport owns
   // audio focus); these players must NOT each request focus, or the
   // incoming one blocks waiting for a grant the parked player still
   // holds — that is the play() hang that killed the first mixes.
-  final AudioPlayer _a = AudioPlayer(handleAudioSessionActivation: false);
-  final AudioPlayer _b = AudioPlayer(handleAudioSessionActivation: false);
+  // Per-player EQ for the bass swap: the outgoing lane cuts its lows
+  // while the incoming lane runs full-range. Stock just_audio OS
+  // effects — no fork, no native dep.
+  final AndroidEqualizer _eqA = AndroidEqualizer();
+  final AndroidEqualizer _eqB = AndroidEqualizer();
+  late final AudioPlayer _a = AudioPlayer(
+    audioPipeline: AudioPipeline(androidAudioEffects: [_eqA]),
+    handleAudioSessionActivation: false,
+  );
+  late final AudioPlayer _b = AudioPlayer(
+    audioPipeline: AudioPipeline(androidAudioEffects: [_eqB]),
+    handleAudioSessionActivation: false,
+  );
 
   /// True while [_a] is the audible side. Swaps each transition.
   bool _aActive = true;
@@ -37,21 +50,14 @@ class AutomixEngine {
   bool _disposed = false;
   bool _crossfading = false;
 
-  /// Baked-bridge phase: the active side plays a rendered bridge
-  /// file (A-outro + B-intro already mixed) instead of a live ramp.
-  /// The clock stays B-mapped throughout, so the scrubber and the
-  /// notification glide into B with no jump at either join.
-  bool _bridging = false;
-  double _bridgeStartB = 0;
-  double _bridgeEntryDelay = 0;
-  double _bridgeRatio = 1;
-  double _bridgeResumeB = 0;
-  double _bridgeSeconds = 0;
-  Duration? _bridgeDurB;
-  /// Bridge file pre-buffered on the idle side (path): set by
-  /// [primeBridge], consumed by [bridgeTo]. Any transport change to
-  /// the idle side invalidates it.
-  String _primedBridgePath = '';
+  /// Live-blend phase: both players audible, gains automated from the
+  /// recipe. Bumped on stop/teardown so a stale wait/ramp can never
+  /// land late on the new transport.
+  bool _live = false;
+  int _liveGen = 0;
+  // Last automated B gain, so a mid-blend pause/resume restores the
+  // mix instead of punching the incoming lane in loud.
+  double _lastLiveB = 0.0;
 
   void _cancelRamp() {
     _tick?.cancel();
@@ -80,25 +86,15 @@ class AutomixEngine {
 
   AudioPlayer get _active => _aActive ? _a : _b;
   AudioPlayer get _idle => _aActive ? _b : _a;
+  AndroidEqualizer get _activeEq => _aActive ? _eqA : _eqB;
 
   bool get isCrossfading => _crossfading;
-  bool get bridging => _bridging;
-  bool get playing => _active.playing;
+  bool get liveBlending => _live;
+  bool get playing => _active.playing || (_live && _idle.playing);
   bool get completed =>
       _active.processingState == ProcessingState.completed;
-  /// B track time during a bridge: the bridge file holds B
-  /// tempo-corrected, so file time past the entry delay maps back
-  /// through the stretch ratio. Clamped to the track.
-  Duration get position {
-    if (!_bridging) return _active.position;
-    final bp = _active.position.inMilliseconds / 1000.0;
-    final bt =
-        _bridgeStartB + (bp - _bridgeEntryDelay) * _bridgeRatio;
-    final dur = _bridgeDurB?.inMilliseconds ?? 0;
-    final ms = (bt * 1000).round().clamp(0, dur > 0 ? dur : 1 << 62);
-    return Duration(milliseconds: ms);
-  }
-  Duration? get duration => _bridging ? _bridgeDurB : _active.duration;
+  Duration get position => _active.position;
+  Duration? get duration => _active.duration;
 
   /// Processing state and buffered position of the audible side, for
   /// the handler's single-source publish tick.
@@ -125,39 +121,36 @@ class AutomixEngine {
     return p.playing;
   }
 
-  /// Pre-buffer the bridge file on the idle side ahead of the fire:
-  /// the join then costs a seek+play, not a load. Paused and silent
-  /// until [bridgeTo] takes it. Safe to call every tick; the same
-  /// path is a no-op. Returns false when there is nothing to prime.
-  Future<bool> primeBridge(Uri bridgeUri) async {
-    if (_disposed || _bridging || _crossfading) return false;
+  /// Bass swap on one lane: cut everything under ~200Hz (the baked
+  /// highpass=f=160 by ear on device bands) while the lanes overlap,
+  /// restore after. Best effort and bounded — a stuck EQ call must
+  /// never wedge a blend.
+  Future<void> _bassCut(
+    AudioPlayer p,
+    AndroidEqualizer eq,
+    bool cut,
+  ) async {
     try {
-      final path = bridgeUri.toFilePath();
-      if (path == _primedBridgePath &&
-          _idle.processingState != ProcessingState.idle) {
-        return true;
+      final params =
+          await eq.parameters.timeout(const Duration(seconds: 4));
+      if (cut) {
+        for (final band in params.bands) {
+          if (band.centerFrequency < 200) {
+            await band.setGain(params.minDecibels);
+          }
+        }
+        await eq.setEnabled(true);
+      } else {
+        await eq.setEnabled(false);
+        for (final band in params.bands) {
+          if (band.gain != 0.0) await band.setGain(0.0);
+        }
       }
-      final incoming = _idle;
-      await incoming
-          .setAudioSource(AudioSource.uri(bridgeUri))
-          .timeout(const Duration(seconds: 12));
-      if (_disposed || _bridging) {
-        _primedBridgePath = '';
-        return false;
-      }
-      await incoming.seek(Duration.zero);
-      await incoming.setVolume(1.0);
-      _primedBridgePath = path;
-      return true;
-    } catch (_) {
-      _primedBridgePath = '';
-      return false;
-    }
+    } catch (_) {}
   }
 
   Future<bool> start(Uri uri, {Duration at = Duration.zero}) async {
     if (_disposed) return false;
-    _primedBridgePath = '';
     try {
       // Preload inside setAudioSource so the 15s bound covers the
       // actual decode/load.
@@ -194,9 +187,8 @@ class AutomixEngine {
     required double seconds,
     Duration startAt = Duration.zero,
   }) async {
-    if (_disposed || _crossfading) return false;
+    if (_disposed || _crossfading || _live) return false;
     _crossfading = true;
-    _primedBridgePath = '';
     try {
       final incoming = _idle;
       await incoming
@@ -210,6 +202,11 @@ class AutomixEngine {
           await incoming.seek(startAt).timeout(const Duration(seconds: 4));
         } catch (_) {}
       }
+      // A previous live blend may have left this side tempo-shifted;
+      // crossfades always run at natural speed.
+      try {
+        await incoming.setSpeed(1.0);
+      } catch (_) {}
       await incoming.setVolume(0.0);
       if (!await _startPlaying(incoming)) {
         await _cutTo(next);
@@ -242,239 +239,137 @@ class AutomixEngine {
     }
   }
 
-  /// Baked-bridge handoff, gapless at the start: the file is
-  /// pre-buffered by [primeBridge], then pre-rolled SILENTLY under A
-  /// (A never stops, so no silence is possible), re-aligned to A
-  /// while still silent, and crossfaded in with an equal-power ramp.
-  /// A always overshoots the window (400ms tick + load), so the file
-  /// seeks forward by that overshoot before rolling: file t maps to
-  /// A@(windowStartA + t), an exact same-waveform join, no replay.
-  /// Startup latency then drifts the join (A advances while the fresh
-  /// source spins up), so after warm-up the residual is measured and
-  /// corrected with a silent forward seek before the ramp — the
-  /// overlap carries identical waveforms, so the correction is
-  /// inaudible. Geometry maps the clock onto B for the whole phase;
-  /// [finishBridge] lands B itself. Failure cuts straight to B: a
-  /// hard cut beats silence.
-  Future<bool> bridgeTo({
-    required Uri bridgeUri,
+  /// Live two-player blend: the outgoing lane keeps playing while the
+  /// incoming lane preloads at [planned] entry (tempo-matched, bass
+  /// cut on the outgoing side), then both lanes run the recipe gains
+  /// with sum limiting. One overlap, one join — no bridge file, no
+  /// tail landing. Failures cut straight to B: a hard cut beats
+  /// silence. Returns false when superseded (skip/toggle/teardown).
+  Future<bool> liveBlendTo({
     required Uri nextUri,
-    required double startB,
-    required double entryDelay,
-    required double tempoRatio,
-    required double resumeB,
-    required Duration durB,
-    required double bridgeSeconds,
-    required double windowStartA,
+    required PlannedBlend planned,
   }) async {
-    if (_disposed || _crossfading || _bridging) return false;
-    _bridging = true;
+    if (_disposed || _crossfading || _live) return false;
+    _live = true;
+    _lastLiveB = 0.0;
+    final gen = _liveGen;
+    final plan = planned.plan;
+    bool live() => _live && gen == _liveGen && !_disposed;
     try {
+      final outgoing = _active;
+      final outgoingEq = _activeEq;
       final incoming = _idle;
-      final path = bridgeUri.toFilePath();
-      if (_primedBridgePath != path ||
-          incoming.processingState == ProcessingState.idle) {
-        await incoming
-            .setAudioSource(AudioSource.uri(bridgeUri))
-            .timeout(const Duration(seconds: 12));
-        if (_disposed) {
-          _bridging = false;
-          return false;
-        }
-        _primedBridgePath = path;
-      }
-      // Overshoot compensation: A kept playing past the window while
-      // the tick/load ran. Start the file where A is, not where the
-      // window was — the join is same-waveform either way, exact here.
-      var delta = 0.0;
-      try {
-        delta = _active.position.inMilliseconds / 1000.0 - windowStartA;
-      } catch (_) {}
-      delta = delta.clamp(0.0, math.max(0.0, bridgeSeconds - 0.25));
-      if (delta > 0.005) {
+      await incoming
+          .setAudioSource(AudioSource.uri(nextUri))
+          .timeout(const Duration(seconds: 12));
+      if (!live()) return false;
+      if (plan.startB > 0.05) {
         try {
           await incoming
-              .seek(Duration(milliseconds: (delta * 1000).round()))
+              .seek(Duration(milliseconds: (plan.startB * 1000).round()))
               .timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
+      if ((plan.tempoRatio - 1.0).abs() > 0.0005) {
+        try {
+          await incoming.setSpeed(plan.tempoRatio);
         } catch (_) {}
       }
       await incoming.setVolume(0.0);
-      // Pre-roll UNDER A: the bridge starts silently while A stays
-      // at full gain, so there is no silence window at all — the old
-      // punch-in-loud-then-fade-A read as a dropout plus a
-      // volume-up tick. `playing` alone is not audible yet (first
-      // frames still buffer after the seek), so warm up before the
-      // ramp and re-align while still silent.
-      if (!await _startPlaying(incoming)) {
-        _bridging = false;
-        await _cutTo(nextUri);
-        return false;
-      }
-      for (var i = 0; i < 5; i++) {
-        if (_disposed || !_bridging) return false;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      // Residual correction: A advanced during seek+spin-up, so the
-      // file now lags A by that latency. Both sides carry the same
-      // waveform here and the file is still silent, so a forward
-      // seek to where A actually is lands an exact join, inaudibly.
-      var correct = 0.0;
-      try {
-        final aPos = _active.position.inMilliseconds / 1000.0;
-        final bPos = incoming.position.inMilliseconds / 1000.0;
-        final expected = (aPos - windowStartA).clamp(
-          0.0,
-          math.max(0.0, bridgeSeconds - 0.25),
-        );
-        correct = expected - bPos;
-        if (correct > 0.06) {
-          await incoming
-              .seek(Duration(milliseconds: (expected * 1000).round()))
-              .timeout(const Duration(seconds: 4));
-        } else {
-          correct = 0.0;
-        }
-      } catch (_) {
-        correct = 0.0;
-      }
-      // Overlapped cut: equal-power ramp, A 1->0 while bridge 0->1
-      // over ~240ms. Same waveform on both sides, so the overlap
-      // sums flat instead of doubling.
-      try {
-        const steps = 8;
-        for (var i = 1; i <= steps; i++) {
-          if (_disposed || !_bridging) return false;
-          final g = crossfadeGains(i / steps);
-          await _active.setVolume(g.out);
-          await incoming.setVolume(g.in_);
-          await Future<void>.delayed(const Duration(milliseconds: 30));
-        }
-        await _active.pause().timeout(const Duration(seconds: 4));
-        await _active.setVolume(1.0);
-      } catch (_) {}
-      _bridgeStartB = startB;
-      _bridgeEntryDelay = entryDelay;
-      _bridgeRatio = tempoRatio;
-      _bridgeResumeB = resumeB;
-      _bridgeSeconds = bridgeSeconds;
-      _bridgeDurB = durB;
-      _aActive = !_aActive;
-      _primedBridgePath = '';
-      ArchLog.i(
-        'automix',
-        'bridge on resumeB=${resumeB.toStringAsFixed(1)}s '
-            'd=${delta.toStringAsFixed(2)}s '
-            'c=${correct.toStringAsFixed(2)}s',
-      );
-      return true;
-    } catch (e) {
-      ArchLog.w('automix', 'bridge failed, cutting to B: $e');
-      _bridging = false;
-      await _cutTo(nextUri);
-      return false;
-    }
-  }
-
-  /// Land B after its bridge: load B at [resumeB] on the far side,
-  /// start it, take the chair. Same-waveform join at the tail —
-  /// the bridge ends as pure B. Failure cuts to B from here.
-  Future<bool> finishBridge(Uri nextUri) async {
-    if (!_bridging || _disposed) return false;
-    try {
-      final landing = _idle;
-      final loadWatch = Stopwatch()..start();
-      await landing
-          .setAudioSource(AudioSource.uri(nextUri))
-          .timeout(const Duration(seconds: 12));
-      loadWatch.stop();
-      ArchLog.i(
-        'automix',
-        'bridge B loaded in=${loadWatch.elapsedMilliseconds}ms '
-        'resumeB=${_bridgeResumeB.toStringAsFixed(1)}s',
-      );
-      if (_disposed) return false;
-      if (_bridgeResumeB > 0.05) {
+      // Bass swap for the overlap only.
+      await _bassCut(outgoing, outgoingEq, true);
+      // Precise fire: the tick that armed this ran up to 400ms early,
+      // and entryDelay sits inside one beat. Wait on the live clock.
+      final fireAt = planned.windowStartA + plan.entryDelay;
+      while (live()) {
+        double pos;
         try {
-          await landing
-              .seek(Duration(milliseconds: (_bridgeResumeB * 1000).round()))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {}
-      }
-      // Prime only: prepared, paused, silent. Starting now would
-      // silently consume B under the tail and land mid-song; the
-      // prepared player starts in milliseconds at the join.
-      await landing.setVolume(0.0);
-      // Join on completion (20ms poll): waveforms match at the
-      // cut, so a hard swap is seamless. Aborted by any interrupt.
-      // Pre-roll the last 600ms: B-load measured 349ms on device
-      // ('bridge B loaded in=349ms'), plus start latency — starting
-      // the landing while the tail still plays overlaps identical
-      // waveforms (inaudible) instead of leaving load+start silence
-      // after completion.
-      const preRollSecs = 0.6;
-      final deadline = DateTime.now().add(
-        Duration(seconds: _bridgeSeconds.round() + 30),
-      );
-      while (!_disposed && _bridging) {
-        if (_active.processingState == ProcessingState.completed) break;
-        try {
-          final bp = _active.position.inMilliseconds / 1000.0;
-          if (_bridgeSeconds > 0 && _bridgeSeconds - bp <= preRollSecs) {
-            break;
-          }
-        } catch (_) {}
-        if (DateTime.now().isAfter(deadline)) break;
+          pos = outgoing.position.inMilliseconds / 1000.0;
+        } catch (_) {
+          break;
+        }
+        if (pos >= fireAt) break;
+        if (outgoing.processingState == ProcessingState.completed) break;
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      if (!_bridging || _disposed) return false;
-      if (!await _startPlaying(landing)) {
+      if (!live()) {
+        await _bassCut(outgoing, outgoingEq, false);
+        return false;
+      }
+      if (!await _startPlaying(incoming)) {
+        _live = false;
+        await _bassCut(outgoing, outgoingEq, false);
         await _cutTo(nextUri);
         return false;
       }
-      await landing.setVolume(1.0);
+      // Overlapped recipe: 25ms ticks, both writes batched (sequential
+      // platform round-trips zipper on raspy vocals — spike-proven).
+      final t0 = DateTime.now();
+      while (live()) {
+        final t =
+            DateTime.now().difference(t0).inMilliseconds / 1000.0;
+        if (t >= plan.seconds) break;
+        final g = limitedGains(liveGains(plan, t));
+        _lastLiveB = g.b;
+        await Future.wait([
+          outgoing.setVolume(g.a),
+          incoming.setVolume(g.b),
+        ]);
+        if (outgoing.processingState == ProcessingState.completed &&
+            t > plan.seconds - 1.0) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+      if (!live()) {
+        await _bassCut(outgoing, outgoingEq, false);
+        return false;
+      }
+      await incoming.setVolume(1.0);
       try {
-        await _active.pause().timeout(const Duration(seconds: 4));
-        await _active.setVolume(1.0);
+        await outgoing.pause().timeout(const Duration(seconds: 4));
+        await outgoing.setVolume(1.0);
+        await outgoing.setSpeed(1.0);
       } catch (_) {}
+      await _bassCut(outgoing, outgoingEq, false);
       _aActive = !_aActive;
-      _primedBridgePath = '';
-      _bridging = false;
+      // Ease the tempo home: B entered matched to A, unwind to 1.0x.
+      final r0 = plan.tempoRatio;
+      if ((r0 - 1.0).abs() > 0.0005) {
+        for (var i = 1; i <= 8; i++) {
+          if (!live()) break;
+          try {
+            await _active.setSpeed(1.0 + (r0 - 1.0) * (1 - i / 8));
+          } catch (_) {}
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        }
+        try {
+          await _active.setSpeed(1.0);
+        } catch (_) {}
+      }
       ArchLog.i(
         'automix',
-        'bridge landed resumeB=${_bridgeResumeB.toStringAsFixed(1)}s',
+        'live blend on ${plan.seconds.toStringAsFixed(1)}s '
+        'ratio=${plan.tempoRatio.toStringAsFixed(4)} '
+        'ducks=${plan.ducks.length}',
       );
       return true;
     } catch (e) {
-      ArchLog.w('automix', 'bridge landing failed, cutting: $e');
+      ArchLog.w('automix', 'live blend failed, cutting to B: $e');
+      _live = false;
       await _cutTo(nextUri);
-      _bridging = false;
       return false;
+    } finally {
+      _live = false;
     }
-  }
-
-  /// Drop a bridge without landing: interrupts (skip, tap, toggle)
-  /// stop the file and clear the phase; the caller starts whatever
-  /// transport comes next.
-  Future<void> dropBridge() async {
-    if (!_bridging) return;
-    _bridging = false;
-    _primedBridgePath = '';
-    try {
-      await _active.stop().timeout(const Duration(seconds: 4));
-      await _active.setVolume(1.0);
-    } catch (_) {}
-    _aActive = true;
   }
 
   /// Emergency handoff: promote the incoming side at full volume and
   /// park the outgoing one. Used when a load or ramp stalls — a hard
   /// cut is always better than silence.
   Future<void> _cutTo(Uri next) async {
-    // A fallback cut ends any bridge phase first: the mapped clock
-    // must never outlive the file it describes.
-    _bridging = false;
-    _bridgeDurB = null;
-    _primedBridgePath = '';
+    _live = false;
+    _liveGen++;
     final incoming = _idle;
     try {
       if (incoming.processingState == ProcessingState.idle) {
@@ -482,6 +377,10 @@ class AutomixEngine {
             .setAudioSource(AudioSource.uri(next))
             .timeout(const Duration(seconds: 12));
       }
+      try {
+        await incoming.setSpeed(1.0);
+        await _bassCut(incoming, _aActive ? _eqB : _eqA, false);
+      } catch (_) {}
       await incoming.setVolume(1.0);
       await _startPlaying(incoming);
       try {
@@ -540,6 +439,13 @@ class AutomixEngine {
   Future<void> pause() async {
     try {
       await _active.pause();
+      // Mid-blend the idle lane is audible too: park it or the mix
+      // keeps sounding under the pause.
+      if (_live) {
+        try {
+          await _idle.pause();
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -550,6 +456,15 @@ class AutomixEngine {
   Future<void> resumeAt(double volume) async {
     if (_disposed) return;
     try {
+      if (_live) {
+        // Both lanes back at their last automated gains: resuming at
+        // full on one side would punch it in loud over the other.
+        await _idle.setVolume(_lastLiveB.clamp(0.0, 1.0));
+        await _active.setVolume(volume.clamp(0.0, 1.0));
+        await _startPlaying(_active);
+        await _startPlaying(_idle);
+        return;
+      }
       await _idle.setVolume(0.0);
       await _active.setVolume(volume.clamp(0.0, 1.0));
       await _startPlaying(_active);
@@ -566,13 +481,18 @@ class AutomixEngine {
   /// both sides, resets gains so a later start is clean.
   Future<void> stop() async {
     _cancelRamp();
-    _bridging = false;
-    _bridgeDurB = null;
-    _primedBridgePath = '';
+    _live = false;
+    _liveGen++;
     for (final p in [_a, _b]) {
       try {
         await p.stop();
         await p.setVolume(1.0);
+        await p.setSpeed(1.0);
+      } catch (_) {}
+    }
+    for (final eq in [_eqA, _eqB]) {
+      try {
+        await eq.setEnabled(false);
       } catch (_) {}
     }
     _aActive = true;

@@ -488,6 +488,187 @@ class RenderedBridge {
   });
 }
 
+/// Planning half of the bridge: mix-in/out scans, bar step-down,
+/// stale-phase defense. Async file reads + pure geometry — the live
+/// engine plans from this directly (no render); the baked path
+/// renders from it. Never throws: null = unplannable, run it live.
+class PlannedBlend {
+  /// Alignment that built it (entry delay, B start, stretch).
+  final BlendPlan plan;
+
+  /// B track time where the overlap ends: B resumes here.
+  final double resumeB;
+
+  /// A track time where the overlap starts: the engine fires here,
+  /// not at (end - length). Firing late replays the tail.
+  final double windowStartA;
+
+  /// A track time the window ends at (mix-out point or file end).
+  final double endA;
+  const PlannedBlend({
+    required this.plan,
+    required this.resumeB,
+    required this.windowStartA,
+    required this.endA,
+  });
+}
+
+Future<PlannedBlend?> planBridge(BlendSpec spec,
+    {bool echoOut = false}) async {
+  // Mix-in scan: start B where the drums do, not where the file
+  // makes its first sound. A 25s head is plenty — intros longer
+  // than that are arrangements, not pickups. Then one bar deeper:
+  // the first groove bar is often pickup, the blend wants the
+  // settled groove.
+  //
+  // The scan only verifies the decoded head (~25s). A base deeper
+  // than that (stale cache, window-mapped first sound) would
+  // fast-forward past B's head unseen — bridge enters minutes in
+  // and resumeB lands mid-song. Discard it and scan from the head.
+  const headVerifySecs = 25.0;
+  var firstB = spec.firstSoundB ?? 0.0;
+  if (firstB > headVerifySecs) firstB = 0.0;
+  var grooveInHead = false;
+  try {
+    final head = await decodeMono11k(spec.bPath);
+    if (head != null) {
+      final groove = findMixIn(
+        head,
+        spec.bpmB,
+        spec.phaseB ?? 0.0,
+        firstB,
+      );
+      if (groove > firstB) {
+        firstB = groove;
+        grooveInHead = true;
+      }
+      firstB += 4 * 60.0 / spec.bpmB;
+      ArchLog.i(
+        'automix',
+        'blend mixin groove=${groove.toStringAsFixed(2)} '
+        'phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(3)} '
+        'start=${firstB.toStringAsFixed(2)}',
+      );
+    }
+  } catch (_) {}
+  // Mix-out scan: end A where the drums do, not at dead air.
+  // Falls back to the tail when the groove runs too close to the
+  // start to fit the window — an early groove plus a long tail
+  // still beats a dropout. Then the vocal trim: outro talk that
+  // outlives the groove gets cut instead of fading under B.
+  var endA = spec.durA;
+  try {
+    final full = await decodeMono11k(spec.aPath, full: true);
+    if (full != null) {
+      final out = findMixOut(
+        full,
+        spec.bpmA,
+        spec.phaseA ?? 0.0,
+        spec.durA,
+      );
+      final earliest = spec.bars * 4 * 60.0 / spec.bpmA + 1.0;
+      if (out < spec.durA - 0.5 && out >= earliest) {
+        endA = out;
+      }
+      final talkCut = vocalTalkCut(
+        grooveEnd: endA,
+        durA: spec.durA,
+        vocalA: spec.vocalA,
+        minEnd: earliest,
+      );
+      if (talkCut < endA) {
+        ArchLog.i(
+          'automix',
+          'blend mixout groove=${endA.toStringAsFixed(1)} '
+          'talk=${talkCut.toStringAsFixed(1)}',
+        );
+        endA = talkCut;
+      } else if (endA < spec.durA - 0.5) {
+        ArchLog.i(
+          'automix',
+          'blend mixout tail=${spec.durA.toStringAsFixed(1)} '
+          'groove=${endA.toStringAsFixed(1)}',
+        );
+      }
+    }
+  } catch (_) {}
+  var plan = (echoOut ? buildBestEcho : buildBestBlend)(
+    BlendSpec(
+      aPath: spec.aPath,
+      bPath: spec.bPath,
+      durA: spec.durA,
+      durB: spec.durB,
+      bpmA: spec.bpmA,
+      bpmB: spec.bpmB,
+      phaseA: spec.phaseA,
+      phaseB: spec.phaseB,
+      firstSoundB: firstB,
+      vocalA: spec.vocalA,
+      vocalB: spec.vocalB,
+      endA: endA,
+      bars: spec.bars,
+    ),
+  );
+  if (plan == null) {
+    ArchLog.w('automix', 'blend unplannable (tempo/geometry/duration)');
+    return null;
+  }
+  // Stale-phase defense: the head scan verified the first ~25s and
+  // found the groove in-head, yet the plan enters B deeper than the
+  // verified head. That means phaseB predates phase folding (stale
+  // cache row, e.g. phase ~= 142): startB = phaseB + j*period lands
+  // minutes in. Rebuild with phaseB folded into [0, periodB); when
+  // still deep, reject to the live fade instead of shipping a
+  // mid-song B entry.
+  if (grooveInHead && plan.startB > headVerifySecs && spec.bpmB > 0) {
+    final periodB = 60.0 / spec.bpmB;
+    final normB = (spec.phaseB ?? 0.0) % periodB;
+    ArchLog.w(
+      'automix',
+      'blend stale phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(2)} '
+      'startB=${plan.startB.toStringAsFixed(1)} '
+      'rebuilding norm=${normB.toStringAsFixed(3)}',
+    );
+    final retry = (echoOut ? buildBestEcho : buildBestBlend)(
+      BlendSpec(
+        aPath: spec.aPath,
+        bPath: spec.bPath,
+        durA: spec.durA,
+        durB: spec.durB,
+        bpmA: spec.bpmA,
+        bpmB: spec.bpmB,
+        phaseA: spec.phaseA,
+        phaseB: normB,
+        firstSoundB: firstB,
+        vocalA: spec.vocalA,
+        vocalB: spec.vocalB,
+        endA: endA,
+        bars: spec.bars,
+      ),
+    );
+    if (retry == null || retry.startB > headVerifySecs) {
+      ArchLog.w(
+        'automix',
+        'blend stale phase unrecoverable '
+        'startB=${retry?.startB.toStringAsFixed(1) ?? 'null'} '
+        '(live fade)',
+      );
+      return null;
+    }
+    plan = retry;
+  }
+  // B input time covered by the overlap: entry runs on A time,
+  // the rest maps back through the stretch.
+  final resumeB =
+      plan.startB + (plan.seconds - plan.entryDelay) * plan.tempoRatio;
+  return PlannedBlend(
+    plan: plan,
+    resumeB: resumeB,
+    windowStartA: endA - plan.seconds,
+    endA: endA,
+  );
+}
+
 /// Render the bridge to an AAC file. Returns the path, or null when
 /// the pair can't be bridged or the render fails — never throws, so
 /// the lab trigger can stay fire-and-forget.
@@ -501,148 +682,9 @@ Future<String?> renderBlend(BlendSpec spec, {String? tag}) async =>
 Future<RenderedBridge?> renderBridge(BlendSpec spec,
     {String? tag, bool echoOut = false}) async {
   try {
-    // Mix-in scan: start B where the drums do, not where the file
-    // makes its first sound. A 25s head is plenty — intros longer
-    // than that are arrangements, not pickups. Then one bar deeper:
-    // the first groove bar is often pickup, the blend wants the
-    // settled groove.
-    //
-    // The scan only verifies the decoded head (~25s). A base deeper
-    // than that (stale cache, window-mapped first sound) would
-    // fast-forward past B's head unseen — bridge enters minutes in
-    // and resumeB lands mid-song. Discard it and scan from the head.
-    const headVerifySecs = 25.0;
-    var firstB = spec.firstSoundB ?? 0.0;
-    if (firstB > headVerifySecs) firstB = 0.0;
-    var grooveInHead = false;
-    try {
-      final head = await decodeMono11k(spec.bPath);
-      if (head != null) {
-        final groove = findMixIn(
-          head,
-          spec.bpmB,
-          spec.phaseB ?? 0.0,
-          firstB,
-        );
-        if (groove > firstB) {
-          firstB = groove;
-          grooveInHead = true;
-        }
-        firstB += 4 * 60.0 / spec.bpmB;
-        ArchLog.i(
-          'automix',
-          'blend mixin groove=${groove.toStringAsFixed(2)} '
-          'phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(3)} '
-          'start=${firstB.toStringAsFixed(2)}',
-        );
-      }
-    } catch (_) {}
-    // Mix-out scan: end A where the drums do, not at dead air.
-    // Falls back to the tail when the groove runs too close to the
-    // start to fit the window — an early groove plus a long tail
-    // still beats a dropout. Then the vocal trim: outro talk that
-    // outlives the groove gets cut instead of fading under B.
-    var endA = spec.durA;
-    try {
-      final full = await decodeMono11k(spec.aPath, full: true);
-      if (full != null) {
-        final out = findMixOut(
-          full,
-          spec.bpmA,
-          spec.phaseA ?? 0.0,
-          spec.durA,
-        );
-        final earliest = spec.bars * 4 * 60.0 / spec.bpmA + 1.0;
-        if (out < spec.durA - 0.5 && out >= earliest) {
-          endA = out;
-        }
-        final talkCut = vocalTalkCut(
-          grooveEnd: endA,
-          durA: spec.durA,
-          vocalA: spec.vocalA,
-          minEnd: earliest,
-        );
-        if (talkCut < endA) {
-          ArchLog.i(
-            'automix',
-            'blend mixout groove=${endA.toStringAsFixed(1)} '
-            'talk=${talkCut.toStringAsFixed(1)}',
-          );
-          endA = talkCut;
-        } else if (endA < spec.durA - 0.5) {
-          ArchLog.i(
-            'automix',
-            'blend mixout tail=${spec.durA.toStringAsFixed(1)} '
-            'groove=${endA.toStringAsFixed(1)}',
-          );
-        }
-      }
-    } catch (_) {}
-    var plan = (echoOut ? buildBestEcho : buildBestBlend)(
-      BlendSpec(
-        aPath: spec.aPath,
-        bPath: spec.bPath,
-        durA: spec.durA,
-        durB: spec.durB,
-        bpmA: spec.bpmA,
-        bpmB: spec.bpmB,
-        phaseA: spec.phaseA,
-        phaseB: spec.phaseB,
-        firstSoundB: firstB,
-        vocalA: spec.vocalA,
-        vocalB: spec.vocalB,
-        endA: endA,
-        bars: spec.bars,
-      ),
-    );
-    if (plan == null) {
-      ArchLog.w('automix', 'blend unplannable (tempo/geometry/duration)');
-      return null;
-    }
-    // Stale-phase defense: the head scan verified the first ~25s and
-    // found the groove in-head, yet the plan enters B deeper than the
-    // verified head. That means phaseB predates phase folding (stale
-    // cache row, e.g. phase ~= 142): startB = phaseB + j*period lands
-    // minutes in. Rebuild with phaseB folded into [0, periodB); when
-    // still deep, reject to the live fade instead of shipping a
-    // mid-song B entry.
-    if (grooveInHead && plan.startB > headVerifySecs && spec.bpmB > 0) {
-      final periodB = 60.0 / spec.bpmB;
-      final normB = (spec.phaseB ?? 0.0) % periodB;
-      ArchLog.w(
-        'automix',
-        'blend stale phaseB=${(spec.phaseB ?? 0.0).toStringAsFixed(2)} '
-        'startB=${plan.startB.toStringAsFixed(1)} '
-        'rebuilding norm=${normB.toStringAsFixed(3)}',
-      );
-      final retry = (echoOut ? buildBestEcho : buildBestBlend)(
-        BlendSpec(
-          aPath: spec.aPath,
-          bPath: spec.bPath,
-          durA: spec.durA,
-          durB: spec.durB,
-          bpmA: spec.bpmA,
-          bpmB: spec.bpmB,
-          phaseA: spec.phaseA,
-          phaseB: normB,
-          firstSoundB: firstB,
-          vocalA: spec.vocalA,
-          vocalB: spec.vocalB,
-          endA: endA,
-          bars: spec.bars,
-        ),
-      );
-      if (retry == null || retry.startB > headVerifySecs) {
-        ArchLog.w(
-          'automix',
-          'blend stale phase unrecoverable '
-          'startB=${retry?.startB.toStringAsFixed(1) ?? 'null'} '
-          '(live fade)',
-        );
-        return null;
-      }
-      plan = retry;
-    }
+    final planned = await planBridge(spec, echoOut: echoOut);
+    if (planned == null) return null;
+    final plan = planned.plan;
     final dir = await getTemporaryDirectory();
     final out =
         '${dir.path}/blend_${tag ?? DateTime.now().millisecondsSinceEpoch}.m4a';
@@ -684,13 +726,11 @@ Future<RenderedBridge?> renderBridge(BlendSpec spec,
     );
     // B input time covered by the file: entry runs on A time,
     // the rest maps back through the stretch.
-    final resumeB =
-        plan.startB + (plan.seconds - plan.entryDelay) * plan.tempoRatio;
     return RenderedBridge(
       file: out,
       plan: plan,
-      resumeB: resumeB,
-      windowStartA: endA - plan.seconds,
+      resumeB: planned.resumeB,
+      windowStartA: planned.windowStartA,
     );
   } catch (e) {
     ArchLog.w('automix', 'blend render error: $e');
