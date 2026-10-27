@@ -2,6 +2,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/log.dart';
 import 'core/theme.dart';
@@ -56,11 +57,17 @@ Future<void> main() async {
   // Glass shaders compile off the critical path: first glass frame may
   // frost for a blink on cold start, then it's glass forever.
   LiquidGlassShaders.ensureLoaded().ignore();
+  // Persisted appearance before first frame: the dock reads the melt
+  // toggle on its first build, so the saved value must win over the
+  // default before runApp, not after a first settings visit.
+  final prefs = await SharedPreferences.getInstance();
+  final goo = prefs.getBool('pillGoo') ?? true;
   runApp(
     ProviderScope(
       overrides: [
         audioHandlerProvider.overrideWithValue(handler),
         metadataServiceProvider.overrideWithValue(meta),
+        pillGooProvider.overrideWith((ref) => goo),
       ],
       child: const ArchApp(),
     ),

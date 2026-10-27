@@ -4,11 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../player/player_providers.dart';
 import '../needle/download_page.dart';
 import '../needle/extensions_page.dart';
 import '../needle/repo_page.dart';
@@ -54,6 +56,10 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         SizedBox(height: 16),
+        _Group(
+          title: 'Appearance',
+          children: const [_GooRow()],
+        ),
         _Group(
           title: 'Library',
           children: [
@@ -346,6 +352,53 @@ class _NotifRowState extends State<_NotifRow> {
         if (granted != true) await openAppSettings();
         await _check();
       },
+    );
+  }
+}
+
+/// Melted pill: the full mini goo-merges into the pill through a shared
+/// blender instead of falling past it. One extra backdrop pass while the
+/// dock is up - turn off on weak GPUs. Persisted, read at boot.
+class _GooRow extends ConsumerWidget {
+  const _GooRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final goo = ref.watch(pillGooProvider);
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: paper,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.water_drop_rounded, color: archPink),
+      ),
+      title: const Text(
+        'Melted pill',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        goo
+            ? 'On - mini melts into the pill'
+            : 'Off - classic fall, lighter on GPU',
+        maxLines: 2,
+        style: const TextStyle(color: inkDim, fontSize: 13),
+      ),
+      trailing: LiquidGlassSwitch(
+        value: goo,
+        // House switch: clear glass thumb, pink track when on. The swell
+        // paints outside the footprint, and the settings list clips -
+        // hence the reserved room.
+        activeColor: archPink,
+        reserveSwellRoom: true,
+        onChanged: (v) async {
+          ref.read(pillGooProvider.notifier).state = v;
+          (await SharedPreferences.getInstance()).setBool('pillGoo', v);
+          ArchLog.i('settings', 'pill goo -> $v');
+        },
+      ),
     );
   }
 }

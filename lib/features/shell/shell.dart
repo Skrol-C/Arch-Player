@@ -167,6 +167,34 @@ class _WarmLenses extends StatelessWidget {
           style: ArchGlass.circle(),
           child: const SizedBox(width: 2, height: 2),
         ),
+        // The metaball shader itself: without this the first pill
+        // split shows plain lenses for ~200ms while it compiles.
+        LiquidGlassBlender(
+          smoothness: 36,
+          style: ArchGlass.capsule(),
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                child: SizedBox(
+                  width: 2,
+                  height: 2,
+                  child: LiquidGlassLens(),
+                ),
+              ),
+              Positioned(
+                left: 4,
+                top: 0,
+                child: SizedBox(
+                  width: 2,
+                  height: 2,
+                  child: LiquidGlassLens(),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

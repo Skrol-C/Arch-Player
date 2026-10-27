@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
@@ -28,6 +30,35 @@ final destinationProvider = StateProvider<Destination>(
 /// mini between. Collapses on scroll-down, expands on tap, scroll-up,
 /// or destination change. Player-open hides everything regardless.
 final pillCollapsedProvider = StateProvider<bool>((ref) => false);
+
+/// Goo energy: scroll velocity + travel pour in as a target, 0..1.3.
+/// The dock reads the live value for dip + neck radius. Reset on
+/// release (the spring overshoots home) and on direction change.
+final gooEnergyProvider = StateProvider<double>((ref) => 0.0);
+
+/// Tab-switch pulse: a neck briefly grows between the resting mini and
+/// the pill while the tab indicator travels. 1 on switch, eased out.
+final destPulseProvider = StateProvider<double>((ref) => 0.0);
+
+Timer? _destPulseTimer;
+
+/// Twelve 60ms ticks, 1 -> 0. A re-fired switch restarts the ramp.
+void _fireDestPulse(WidgetRef ref) {
+  _destPulseTimer?.cancel();
+  ref.read(destPulseProvider.notifier).state = 1.0;
+  var step = 0;
+  _destPulseTimer =
+      Timer.periodic(const Duration(milliseconds: 60), (timer) {
+    step++;
+    final v = 1.0 - step / 12;
+    if (v <= 0) {
+      timer.cancel();
+      ref.read(destPulseProvider.notifier).state = 0.0;
+    } else {
+      ref.read(destPulseProvider.notifier).state = v;
+    }
+  });
+}
 
 /// Where the library search bar sits. Three stops, not two:
 /// `hidden` deep in a list, `peek` as a slim row after a downward
@@ -68,7 +99,8 @@ class DockScrollReporter extends ConsumerStatefulWidget {
       _DockScrollReporterState();
 }
 
-class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
+class _DockScrollReporterState extends ConsumerState<DockScrollReporter>
+    with SingleTickerProviderStateMixin {
   /// Sustained-travel accumulator: flips only fire after enough
   /// same-direction travel, so scroll wobble never restarts the
   /// 380ms glass choreography mid-flight. Reset on direction change.
@@ -103,6 +135,61 @@ class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
     _lastFlip = DateTime.now();
   }
 
+  /// Quantized so a drag costs light rebuilds, not 60fps churn.
+  void _setEnergy(WidgetRef ref, double v) {
+    final e = ref.read(gooEnergyProvider.notifier);
+    final rounded = (v * 200).round() / 200;
+    if (e.state == rounded) return;
+    e.state = rounded;
+  }
+
+  /// Goo spring: scroll pours in a target, the ticker integrates a
+  /// bouncy follow (zeta ~0.5, so release overshoots into a brief
+  /// separation). Still while settled - no ticker, no rebuilds.
+  double _energy = 0;
+  double _energyVel = 0;
+  double _energyTarget = 0;
+  Ticker? _springTicker;
+  Duration? _lastTick;
+  DateTime? _lastEventAt;
+
+  @override
+  void dispose() {
+    _springTicker?.dispose();
+    super.dispose();
+  }
+
+  void _kickSpring() {
+    if (Motion.reduced(context)) {
+      _energy = _energyTarget;
+      _energyVel = 0;
+      _setEnergy(ref, _energy);
+      return;
+    }
+    _springTicker ??= createTicker(_springTick);
+    if (!_springTicker!.isActive) {
+      _lastTick = null;
+      _springTicker!.start();
+    }
+  }
+
+  void _springTick(Duration elapsed) {
+    final dt = _lastTick == null
+        ? 1 / 60
+        : math.min(
+            (elapsed - _lastTick!).inMicroseconds / 1e6, 1 / 20);
+    _lastTick = elapsed;
+    _energyVel += ((_energyTarget - _energy) * 140 - _energyVel * 12) * dt;
+    _energy += _energyVel * dt;
+    if ((_energyTarget - _energy).abs() < 0.002 &&
+        _energyVel.abs() < 0.02) {
+      _energy = _energyTarget;
+      _energyVel = 0;
+      _springTicker?.stop();
+    }
+    _setEnergy(ref, _energy);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ref = this.ref;
@@ -114,7 +201,15 @@ class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
         }
         return false;
       },
-      child: NotificationListener<UserScrollNotification>(
+      child: NotificationListener<ScrollEndNotification>(
+        onNotification: (_) {
+          // Finger lifted: pour out through the spring so release
+          // overshoots into a brief separation instead of snapping.
+          _energyTarget = 0.0;
+          _kickSpring();
+          return false;
+        },
+        child: NotificationListener<UserScrollNotification>(
         onNotification: (n) {
           if (n.metrics.axis != Axis.vertical) return false;
           final dir = n.direction;
@@ -123,8 +218,29 @@ class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
             _lastDir = dir;
             _accum = 0;
           }
-          _accum += (n.metrics.pixels - (_lastPx ?? n.metrics.pixels)).abs();
+          final delta = n.metrics.pixels - (_lastPx ?? n.metrics.pixels);
+          _accum += delta.abs();
           _lastPx = n.metrics.pixels;
+          // Scroll energy: sustained travel toward the threshold plus a
+          // velocity kick, so the goo reacts to how far AND how fast.
+          // Anything but forward-dragging pours straight out.
+          if (dir == ScrollDirection.forward) {
+            final now = DateTime.now();
+            var kick = 0.0;
+            if (_lastEventAt != null) {
+              final dt =
+                  now.difference(_lastEventAt!).inMicroseconds / 1e6;
+              if (dt > 0) {
+                kick = (delta.abs() / dt / 8000).clamp(0.0, 0.5);
+              }
+            }
+            _lastEventAt = now;
+            _energyTarget =
+                ((_accum / _downThreshold) + kick).clamp(0.0, 1.3);
+          } else {
+            _energyTarget = 0.0;
+          }
+          _kickSpring();
           final locked = _lockOpen();
           if (dir == ScrollDirection.forward &&
               n.metrics.pixels > _downThreshold &&
@@ -157,6 +273,7 @@ class _DockScrollReporterState extends ConsumerState<DockScrollReporter> {
           return false;
         },
         child: widget.child,
+        ),
       ),
     );
   }
@@ -219,6 +336,16 @@ class NowPlayingDock extends ConsumerWidget {
     return (MediaQuery.sizeOf(context).width - 32).clamp(0.0, _pillMaxWidth);
   }
 
+  /// The pill's exact material, shared verbatim: the goo union paints
+  /// with this, so the parked pill reads identical in and out of the
+  /// melt. Members opt out of adaptivity (the group owns the one
+  /// verdict); only shapes and layout flow in.
+  static LiquidGlassStyle pillGlassStyle() =>
+      LiquidGlassTabBar.defaultStyle.copyWith(
+        appearance: ArchGlass.frostAppearance,
+        adaptivity: ArchGlass.adaptive,
+      );
+
   static double tabLabelSize(BuildContext context) {
     return MediaQuery.textScalerOf(context).scale(1.0) > 1.15 ? 9 : 10;
   }
@@ -229,10 +356,20 @@ class NowPlayingDock extends ConsumerWidget {
     if (playerOpen) return const SizedBox.shrink();
     final miniVisible = ref.watch(miniVisibleProvider);
     final collapsed = ref.watch(pillCollapsedProvider);
+    final goo = ref.watch(pillGooProvider);
+    final energy = ref.watch(gooEnergyProvider);
+    final pulse = ref.watch(destPulseProvider);
+    ref.listen(destinationProvider, (prev, next) {
+      if (prev != next) _fireDestPulse(ref);
+    });
+    final pillW = NowPlayingDock.pillWidthOf(context);
+    final miniW = NowPlayingDock.miniWidthOf(context);
     final bottom = MediaQuery.paddingOf(context).bottom + 12;
     // Single driver t: 0 = full unit, 1 = split. Everything below reads
     // t and nothing else - locked choreography, no drift between parts.
-    // 380ms spring travel: the parting must be SEEN, not inferred.
+    // 700ms melt travel: the fusing must be SEEN, not inferred. This is
+    // the shell's moment - the tab bar's own 400ms pill glide plays
+    // second fiddle under it.
     // NOTE: never wrap this in Center - Positioned gives unbounded
     // height and Center cannot lay out in it (dead taps app-wide).
     // Batch REMOVED (was here): mini + pill + lobes shared one backdrop
@@ -248,9 +385,140 @@ class NowPlayingDock extends ConsumerWidget {
           tween: Tween(begin: 0, end: collapsed ? 1.0 : 0.0),
           duration: Motion.reduced(context)
               ? Duration.zero
-              : const Duration(milliseconds: 380),
+              : const Duration(milliseconds: 700),
           curve: Motion.arrival,
           builder: (context, t, _) {
+            // Goo branch: the full mini melts into the pill through one
+            // shared blender instead of falling past it. Same t driver;
+            // the mini sinks 84px so it ends fully enclosed in the pill
+            // (union == pill, no pop when the swap lands), its content
+            // fading with submersion depth. Reverses on expand. Members
+            // must stay mounted on fixed sizes while 0 < t <= 0.9 - under
+            // two qualifying members the union bails and paints nothing.
+            // Always mounted: at rest a soft neck joins mini + pill (the
+            // look the first goo had); scroll energy deepens it, the
+            // choreography absorbs it. Members hold fixed sizes while
+            // 0 < t <= 0.9 - under two qualifying members the union bails.
+            if (goo && miniVisible) {
+              const unitH = 68.0 + 12.0 + 76.0;
+              // Scroll energy dips the mini (overshoot lifts on release);
+              // a switching tab dips it too.
+              // Ploop: mid-travel the mini overshoots past rest, the neck
+              // stretches long, then it all springs home. Same curve both
+              // directions - anticipation on the way in, overshoot out.
+              final ploop = -14.0 *
+                  math.sin((((0.35 - t) / 0.35).clamp(0.0, 1.0)) * math.pi);
+              final miniTop = 84.0 * t +
+                  12.0 * energy * (1 - t) +
+                  10.0 * pulse +
+                  ploop;
+              final overlap = miniTop + 68.0 - (unitH - 76.0);
+              // Contents outlive the merge: the glass becomes one body
+              // while both rows are still readable, then the mini drains
+              // away inside. Fading with the outlines reads as a fade.
+              final gooOpacity =
+                  1 - ((overlap - 30.0) / 30.0).clamp(0.0, 1.0);
+              // The pill holds full content through the merge, then hands
+              // over to the split cluster fast.
+              final pillOpacity =
+                  1 - ((t - 0.55) / 0.35).clamp(0.0, 1.0);
+              return SizedBox(
+                width: pillW,
+                height: unitH,
+                child: Stack(
+                  children: [
+                    LiquidGlassBlender(
+                      // Rest neck plus whatever runs hottest: travel,
+                      // scroll energy, tab-switch pulse - and a mid-travel
+                      // swell so the belly fattens before it drains. The
+                      // group wears the pill's own recipe, so parked glass
+                      // reads the same goo or no goo.
+                      smoothness: 14.0 +
+                          22.0 *
+                              math.max(
+                                t,
+                                math.max(
+                                  energy.clamp(0.0, 1.0),
+                                  (pulse * 0.55).clamp(0.0, 1.0),
+                                ),
+                              ) +
+                          12.0 * math.sin(t.clamp(0.0, 1.0) * math.pi),
+                      style: NowPlayingDock.pillGlassStyle(),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: miniTop,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: IgnorePointer(
+                                ignoring: t > 0.5,
+                                child: Opacity(
+                                  opacity: gooOpacity,
+                                  child: SizedBox(
+                                    width: miniW,
+                                    height: 68,
+                                    child: t > 0.9
+                                        ? const SizedBox.shrink()
+                                        : const MiniPlayer(),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: SizedBox(
+                                width: pillW,
+                                height: 76,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    IgnorePointer(
+                                      ignoring: t > 0.5,
+                                      child: Opacity(
+                                        opacity: pillOpacity,
+                                        child: Transform.scale(
+                                          scale: 1 - 0.15 * t,
+                                          child: t > 0.9
+                                              ? const SizedBox.shrink()
+                                              : const _FullPill(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: SizedBox(
+                          width: pillW,
+                          height: 76,
+                          child: IgnorePointer(
+                            ignoring: t <= 0.5,
+                            child: _SplitTravel(
+                              t: t,
+                              miniVisible: miniVisible,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -380,6 +648,7 @@ class _FullPillState extends ConsumerState<_FullPill>
   @override
   Widget build(BuildContext context) {
     final dest = ref.watch(destinationProvider);
+    final goo = ref.watch(pillGooProvider);
     if (_lastDest != null && _lastDest != dest.index) {
       _lastDest = dest.index;
       if (!Motion.reduced(context)) {
@@ -421,9 +690,10 @@ class _FullPillState extends ConsumerState<_FullPill>
         animated: true,
         animationDuration: Duration(milliseconds: 400),
       ),
-      style: LiquidGlassTabBar.defaultStyle.copyWith(
-        appearance: ArchGlass.frostAppearance,
-        adaptivity: ArchGlass.adaptive,
+      style: NowPlayingDock.pillGlassStyle().copyWith(
+        // Blender members can't judge: the group owns the one verdict,
+        // a member tint would override it mid-travel.
+        adaptivity: goo ? LiquidGlassAdaptivity.none : ArchGlass.adaptive,
       ),
     );
     // Queue badge + landing glow: above the Needle tab

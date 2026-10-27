@@ -64,6 +64,12 @@ final miniVisibleProvider = Provider<bool>((ref) {
   return !open && song != null;
 });
 
+/// Melted dock: the full mini goo-merges into the pill through a shared
+/// blender instead of falling past it. One extra backdrop pass while the
+/// dock is up - the Settings > Appearance kill switch for weak GPUs.
+/// Persisted (main overrides the saved value at boot).
+final pillGooProvider = StateProvider<bool>((ref) => true);
+
 /// One resolution rule for media items: library match by songId, else
 /// render from the item itself (streaming previews) so no surface ever
 /// shows "nothing playing" while audio flows.

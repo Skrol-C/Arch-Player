@@ -24,6 +24,7 @@ class MiniPlayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final song = ref.watch(currentSongProvider).value;
     final playing = ref.watch(playingProvider).value ?? false;
+    final goo = ref.watch(pillGooProvider);
     if (song == null) return const SizedBox.shrink();
     final handler = ref.read(audioHandlerProvider);
     return Dismissible(
@@ -34,7 +35,12 @@ class MiniPlayer extends ConsumerWidget {
         await playGuarded(context, () => handler.clearQueue());
       },
       child: LiquidGlassLens(
-        style: ArchGlass.capsule(radius: 34),
+        // Blender members can't judge: the group owns the one verdict.
+        style: goo
+            ? ArchGlass.capsule(
+                radius: 34,
+              ).copyWith(adaptivity: LiquidGlassAdaptivity.none)
+            : ArchGlass.capsule(radius: 34),
         touch: ArchGlass.lensTouch(),
         child: GestureDetector(
           onTap: () => openPlayer(ref, context),
