@@ -1550,7 +1550,8 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
   /// at a time (ticks retry while busy); cache-only inputs, so the
   /// only heavy work is the decode + FFmpeg render itself — never
   /// on the tap/skip/play path, always generation-guarded. Owned
-  /// files with known tempo only; anything else stays live.
+  /// files only; tempo-less pairs with a key fit still render (no
+  /// stretch), anything else stays live.
   Future<void> _renderBridgeFor(int aIdx, int bIdx) async {
     if (_rendering) return;
     if (aIdx < 0 || bIdx < 0) return;
@@ -1586,15 +1587,43 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
         artist: b.artist,
         path: b.path,
       );
-      if (ia?.bpm == null || ib?.bpm == null) {
-        _renderSkip(pair, 'no tempo');
-        return;
+      // Effective grid: known tempos when both sides have them, else
+      // blend on key/energy instead of skipping outright — no stretch
+      // (grid from the known side, else a nominal 120, so ratio is
+      // exactly 1.0 and atempo stays transparent). Beat placement
+      // degrades, the blend still renders. Pairs with no key either
+      // keep retrying: background analysis can heal them mid-track.
+      var bpmA = ia?.bpm;
+      var bpmB = ib?.bpm;
+      var bars = 16;
+      var keyBlend = false;
+      if (bpmA == null || bpmB == null) {
+        final rel = ho.harmonicRelation(
+          ia?.openKey.isEmpty ?? true ? null : ia?.openKey,
+          ib?.openKey.isEmpty ?? true ? null : ib?.openKey,
+        );
+        switch (rel) {
+          case ho.HarmonicRel.same:
+          case ho.HarmonicRel.relative:
+          case ho.HarmonicRel.adjacent:
+          case ho.HarmonicRel.energy:
+            final known = bpmA ?? bpmB ?? 120.0;
+            bpmA = known;
+            bpmB = known;
+            bars = 8;
+            keyBlend = true;
+            ArchLog.i('automix', 'bridge key-blend $pair (${rel.name})');
+          case ho.HarmonicRel.far:
+          case ho.HarmonicRel.unknown:
+            _renderSkip(pair, 'no tempo, no key');
+            return;
+        }
       }
-      // Same band as the renderer (±8% DJ pitch range): hopeless
-      // pairs die here, before paying for decodes — and stay dead
-      // (see _deadPairs).
-      final ratio = ia!.bpm! / ib!.bpm!;
-      if (ratio < 0.92 || ratio > 1.08) {
+      // Same band as the renderer (reciprocal-symmetric 0.80–1.25):
+      // hopeless pairs die here, before paying for decodes — and
+      // stay dead (see _deadPairs).
+      final ratio = bpmA / bpmB;
+      if (ratio < 0.80 || ratio > 1.25) {
         _renderSkip(pair, 'tempo ratio ${ratio.toStringAsFixed(2)}');
         _deadPairs.add(pair);
         return;
@@ -1605,11 +1634,11 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
           bPath: b.path,
           durA: a.duration.inMilliseconds / 1000.0,
           durB: b.duration.inMilliseconds / 1000.0,
-          bpmA: ia.bpm!,
-          bpmB: ib.bpm!,
-          phaseA: ia.phase,
-          phaseB: ib.phase,
-          firstSoundB: ib.firstSound,
+          bpmA: bpmA,
+          bpmB: bpmB,
+          phaseA: ia?.phase,
+          phaseB: ib?.phase,
+          firstSoundB: ib?.firstSound,
           vocalA: meta.vocalSectionsCached(
             title: a.title,
             artist: a.artist,
@@ -1618,7 +1647,7 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
             title: b.title,
             artist: b.artist,
           ),
-          bars: 16,
+          bars: bars,
         ),
         tag: 'live_${a.id}_${b.id}',
       );
@@ -1666,7 +1695,8 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
       ArchLog.i(
         'automix',
         'bridge ready ${a.id}>${b.id} '
-            '${rb.plan.seconds.toStringAsFixed(1)}s (${rb.plan.bars} bars)',
+            '${rb.plan.seconds.toStringAsFixed(1)}s '
+            '(${rb.plan.bars} bars${keyBlend ? ', key' : ''})',
       );
     } catch (e) {
       ArchLog.w('automix', 'bridge render failed: $e');
