@@ -700,7 +700,11 @@ class MetadataService {
       try {
         final uri = Uri.parse('https://lrclib.net/api/get')
             .replace(queryParameters: rungs[r]);
-        final res = await http.get(uri).timeout(const Duration(seconds: 12));
+        // Bounded rungs: lyrics are non-critical, so a dead network
+        // fails fast (4 rungs x 5s) instead of parking each track
+        // resolution for ~48s. Disk cache + embedded tags still serve.
+        final res =
+            await http.get(uri).timeout(const Duration(seconds: 5));
         if (res.statusCode != 200) continue;
         final m = jsonDecode(res.body) as Map;
         final synced = (m['syncedLyrics'] as String?)?.trim();
@@ -2300,6 +2304,18 @@ class MetadataService {
       // Collapse legacy doubled tags ('dsp+dsp') on read; the next
       // write persists the clean form.
       netSrc = netSrc.split('+').toSet().join('+');
+    } else if (_dspBusy && !_dspClaim) {
+      // Shed before the network: a pass is already running, so this
+      // caller enqueues below and returns the cached verdict. Awaiting
+      // the catalog lookup first would park every shed caller on the
+      // network (15s each, serially behind playback) for a verdict it
+      // then throws away — on a big unknown playlist every refill and
+      // warm queues those parks back to back. The drain's own pass
+      // (claim held) still fetches this lane for the track.
+      ArchLog.i(
+        'meta',
+        'musical gsb shed (single-flight busy): $artist - $title',
+      );
     } else {
       final live = await _gsbMusical(title, artist);
       if (live != null) {

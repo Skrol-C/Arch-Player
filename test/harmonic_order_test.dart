@@ -175,4 +175,47 @@ void main() {
       isEmpty,
     );
   });
+
+  test('large pool stays bounded: k-cap, no unknowns, no recents', () {
+    // Regression for the ~100-track playlist freeze audit: the batch
+    // must stay a small horizon over a big pool, never walk the whole
+    // library and never surface an unanalyzable track.
+    final songs = [for (var i = 1; i <= 200; i++) _song(i)];
+    final infos = <int, TrackMusicalInfo>{};
+    for (var i = 1; i <= 200; i++) {
+      // Every 4th track is unknown (no BPM and no key).
+      if (i % 4 == 0) {
+        infos[i] = _info();
+      } else {
+        infos[i] = _info(
+          bpm: 120.0 + (i % 12),
+          open: '${(i % 12) + 1}${i.isEven ? 'm' : 'd'}',
+        );
+      }
+    }
+    final recent = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+    final first = pickHarmonicBatch(
+      songs: songs,
+      infoOf: (s) => infos[s.id],
+      fromId: 1,
+      recentIds: recent,
+      k: 5,
+    );
+    expect(first.length, lessThanOrEqualTo(5));
+    expect(first, isNot(contains(1)));
+    for (final id in first) {
+      expect(recent, isNot(contains(id)));
+      // Unknowns (no BPM and no key) are never picked.
+      expect(id % 4 == 0, isFalse);
+    }
+    // Deterministic: the same pool replays the same horizon.
+    final second = pickHarmonicBatch(
+      songs: songs,
+      infoOf: (s) => infos[s.id],
+      fromId: 1,
+      recentIds: recent,
+      k: 5,
+    );
+    expect(second, first);
+  });
 }
