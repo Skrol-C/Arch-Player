@@ -12,44 +12,57 @@ import '../changelog_store.dart';
 import '../update_service.dart';
 import 'commit_row.dart';
 
-/// Glassy update prompt, Mornye grammar: logo, version jump, what is
-/// new, then Download or Later. Breaking releases and exhausted
-/// skips remove Later — the button row says exactly what happens.
+/// Update prompt: a centered glass dialog, Mornye grammar. Transparent
+/// dialog, max 320 wide, the menu lens as its surface, scale-in
+/// 0.96 to 1.0 over a dimmed barrier. Title, then content, then
+/// full-width buttons: Download first, Later only when skipping is
+/// still allowed. Forced updates lock the barrier too. No logo,
+/// no grab handle — dialogs do not have them.
 Future<void> showUpdateDialog(
   BuildContext context, {
   required UpdateInfo info,
 }) {
-  return showModalBottomSheet<void>(
+  final amoled = isAmoledScheme(context);
+  return showGeneralDialog<void>(
     context: context,
-    useRootNavigator: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.transparent,
-    elevation: 0,
-    isScrollControlled: true,
-    showDragHandle: false,
-    constraints: BoxConstraints(
-      maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-    ),
-    builder: (_) => Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: LiquidGlassLens(
-        style:
-            ArchGlass.sheet(radius: 28, amoled: isAmoledScheme(context)),
-        child: _UpdateSheet(info: info),
+    barrierDismissible: !info.forced,
+    barrierLabel: 'Update available',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (dialogContext, _, _) => SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: LiquidGlassLens(
+            style: ArchGlass.menu(radius: 28, amoled: amoled),
+            child: _UpdateBody(info: info),
+          ),
+        ),
       ),
     ),
+    transitionBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return ScaleTransition(
+        scale: curved.drive(Tween<double>(begin: 0.96, end: 1.0)),
+        child: child,
+      );
+    },
   );
 }
 
-class _UpdateSheet extends StatefulWidget {
+class _UpdateBody extends StatefulWidget {
   final UpdateInfo info;
-  const _UpdateSheet({required this.info});
+  const _UpdateBody({required this.info});
 
   @override
-  State<_UpdateSheet> createState() => _UpdateSheetState();
+  State<_UpdateBody> createState() => _UpdateBodyState();
 }
 
-class _UpdateSheetState extends State<_UpdateSheet> {
+class _UpdateBodyState extends State<_UpdateBody> {
   bool _busy = false;
   double? _progress;
   String? _error;
@@ -59,7 +72,7 @@ class _UpdateSheetState extends State<_UpdateSheet> {
   void initState() {
     super.initState();
     loadChangelog().then((entries) {
-      if (mounted) setState(() => _commits = entries.take(8).toList());
+      if (mounted) setState(() => _commits = entries.take(6).toList());
     });
   }
 
@@ -134,163 +147,127 @@ class _UpdateSheetState extends State<_UpdateSheet> {
     final scheme = Theme.of(context).colorScheme;
     final info = widget.info;
     final remaining = updateMaxSkips - info.skips;
-    return SafeArea(
-      top: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.onSurface.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Update available',
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'v${info.current} to v${info.version}',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (info.breaking) ...[
+            const SizedBox(height: 10),
+            Text(
+              'This one changes the format. It installs now, no skipping.',
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 13,
+                height: 1.4,
               ),
             ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset(
-                    'assets/icon/app_logo.png',
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      width: 48,
-                      height: 48,
-                      color: archPink.withValues(alpha: 0.14),
-                      alignment: Alignment.center,
-                      child: const Text(
-                        'A',
-                        style: TextStyle(
-                          color: archPink,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Update available',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 17,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'v${info.current} to v${info.version}',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (info.breaking) ...[
-              const SizedBox(height: 12),
-              Text(
-                'This one changes the format. It installs now, no skipping.',
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+          ] else if (info.forced) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Skipped five times. This one installs now.',
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 13,
+                height: 1.4,
               ),
-            ] else if (info.forced) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Skipped five times. This one installs now.',
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            if (info.notes.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                info.notes,
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 13,
-                  height: 1.5,
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            if (_commits != null)
-              for (final e in _commits!) CommitRow(entry: e),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: const TextStyle(color: archPink, fontSize: 13),
-              ),
-            ],
-            const SizedBox(height: 12),
-            if (_busy) ...[
-              LinearProgressIndicator(
-                value: _progress,
-                color: archPink,
-                backgroundColor:
-                    scheme.onSurface.withValues(alpha: 0.08),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _busy ? null : _download,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: archPink,
-                    ),
-                    child: Text(
-                      _busy ? 'Downloading…' : 'Download',
-                    ),
-                  ),
-                ),
-                if (!info.forced) ...[
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () async {
-                            HapticFeedback.selectionClick();
-                            await recordUpdateSkip(info.version);
-                            if (context.mounted) {
-                              Navigator.of(context).pop();
-                            }
-                            ArchLog.i('updater',
-                                'later (${remaining - 1} skips left for v${info.version})');
-                          },
-                    child: Text(
-                      remaining > 0 ? 'Later ($remaining left)' : 'Later',
-                    ),
-                  ),
-                ],
-              ],
             ),
           ],
-        ),
+          if (info.notes.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              info.notes,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+          ],
+          if (_commits != null && _commits!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final e in _commits!) CommitRow(entry: e),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: const TextStyle(color: archPink, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 16),
+          if (_busy) ...[
+            LinearProgressIndicator(
+              value: _progress,
+              color: archPink,
+              backgroundColor:
+                  scheme.onSurface.withValues(alpha: 0.08),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _busy ? null : _download,
+              style: FilledButton.styleFrom(
+                backgroundColor: archPink,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                ),
+              ),
+              child: Text(
+                _busy ? 'Downloading…' : 'Download',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          if (!info.forced) ...[
+            const SizedBox(height: 4),
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      HapticFeedback.selectionClick();
+                      await recordUpdateSkip(info.version);
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                      ArchLog.i('updater',
+                          'later (${remaining - 1} left) for v${info.version}');
+                    },
+              child: Text(
+                remaining > 0 ? 'Later ($remaining left)' : 'Later',
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
