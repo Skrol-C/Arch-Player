@@ -4,7 +4,7 @@
 
 # Arch Player
 
-**The most visual player on Android. Local-first music with Needle pulls. Art first, always.**
+**A local-first music player with Needle pulls, with an emphasis on beauty.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?logo=flutter)](https://flutter.dev)
@@ -26,15 +26,17 @@
 
 ## Screenshots
 
-> Fresh shots land here at open-sourcing time.
+| Home | Library |
+| ---- | ------- |
+| ![Home](docs/screenshots/home.png) | ![Library](docs/screenshots/library.png) |
 
-| Home | Library | Player |
-| ---- | ------- | ------ |
-| `docs/screenshots/home.png` | `docs/screenshots/library.png` | `docs/screenshots/player.png` |
+| Player | Search |
+| ------ | ------ |
+| ![Player](docs/screenshots/player.png) | ![Search](docs/screenshots/search.png) |
 
-| Search | Needle queue | AMOLED |
-| ------ | ------------ | ------ |
-| `docs/screenshots/search.png` | `docs/screenshots/needle.png` | `docs/screenshots/amoled.png` |
+| Needle queue | AMOLED |
+| ------------ | ------ |
+| ![Needle queue](docs/screenshots/needle.png) | ![AMOLED](docs/screenshots/amoled.png) |
 
 ## Features
 
@@ -70,10 +72,9 @@
       covers, split artists stay whole.
     </td>
     <td width="50%" valign="top">
-      <b>OTA updates</b>
-      <br>Silent daily check against GitHub releases, glass prompt with
-      the actual changelog, skip pool included, sideload install.
-      Breaking majors install immediately.
+      <b>Automix + sleep timer</b>
+      <br>Harmonically matched gapless handoffs between tracks, a
+      sleep timer, and a full up-next queue with drag reorder.
     </td>
   </tr>
 </table>
@@ -83,18 +84,19 @@
 Arch Player is Flutter + a Rust core (Needle: sandboxed extensions,
 audio analysis), with thin Android platform bridges.
 
-Prereqs (Windows):
+Prereqs:
 
-- Flutter 3.47 at `C:/Users/banan/flutter/bin/flutter.bat` (full path,
-  not on PATH)
+- Flutter 3.47 stable (full path to `flutter/bin`, not on PATH)
 - `JAVA_HOME` pointing at Android Studio's bundled JBR
 - `ANDROID_HOME` pointing at the local Android SDK
+- Rust toolchain with LLVM + Android NDK r28 for the Needle core
+  (first build only fetches it; Dart-only changes never touch it)
 
 Run and verify:
 
 ```bat
-C:/Users/banan/flutter/bin/flutter.bat run -d <phone>
-C:/Users/banan/flutter/bin/dart.bat analyze lib
+flutter run -d <phone>
+dart analyze lib
 ```
 
 Rules that keep the codebase fast: `dart analyze lib` must be clean
@@ -132,6 +134,15 @@ override it; reset returns to the library layout.
 
 No. Everything is on device. Providers plug in as sandboxed
 extensions you install yourself.
+</details>
+
+<details>
+<summary><b>How do I get extensions?</b></summary>
+<br>
+
+Needle, Repositories, browse the community registry, and install.
+Providers plug in as sandboxed extensions you install yourself, and
+the priority order decides which one answers first.
 </details>
 
 <details>
