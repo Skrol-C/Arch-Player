@@ -30,7 +30,11 @@ Future<void> showUpdateDialog(
     barrierColor: Colors.black54,
     transitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (dialogContext, _, _) => SafeArea(
-      child: Center(
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding:
+            const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 320),
           child: LiquidGlassLens(
@@ -72,7 +76,7 @@ class _UpdateBodyState extends State<_UpdateBody> {
   void initState() {
     super.initState();
     loadChangelog().then((entries) {
-      if (mounted) setState(() => _commits = entries.take(6).toList());
+      if (mounted) setState(() => _commits = entries.take(5).toList());
     });
   }
 
@@ -157,7 +161,7 @@ class _UpdateBodyState extends State<_UpdateBody> {
             'Update available',
             style: TextStyle(
               color: scheme.onSurface,
-              fontSize: 20,
+              fontSize: 19,
               fontWeight: FontWeight.w600,
             ),
           ),
