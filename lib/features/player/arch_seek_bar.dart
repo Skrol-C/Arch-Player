@@ -5,9 +5,9 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/song_row.dart' show fmtDuration;
 
-/// House seekbar: a plain hairline with a strict left-to-right pink fill.
+/// House seekbar: a plain 5px track with a strict left-to-right pink fill.
 ///
-/// The groove is never glass - just a 2px line. The ONLY glass is the
+/// The groove is never glass - just a 5px line. The ONLY glass is the
 /// thumb (the package clear-pill lens, [LiquidGlassSlider.defaultStyle]):
 /// it fades/scales in on touch-down and is gone at rest, so the idle
 /// bar is line + fill only.
@@ -171,13 +171,13 @@ class _ArchSeekBarState extends State<ArchSeekBar> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Plain hairline: pale line, pink fill strictly
+                        // Plain 5px track: pale line, pink fill strictly
                         // left-to-right from the track start.
                         Container(
                           width: double.infinity,
-                          height: 2,
+                          height: 5,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(1),
+                            borderRadius: BorderRadius.circular(2.5),
                             color: ink.withValues(alpha: 0.12),
                           ),
                           child: Align(
@@ -186,7 +186,7 @@ class _ArchSeekBarState extends State<ArchSeekBar> {
                               widthFactor: frac,
                               child: Container(
                                 decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(1),
+                                  borderRadius: BorderRadius.circular(2.5),
                                   color: archPink,
                                 ),
                               ),
