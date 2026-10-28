@@ -22,6 +22,7 @@ import '../library/album_page.dart' show AlbumPage;
 import '../library/song_row.dart';
 import '../lyrics/lyrics_view.dart';
 import 'audio_handler.dart';
+import 'arch_seek_bar.dart';
 import 'format_marks.dart';
 import 'morph_icon.dart';
 import 'play_guarded.dart';
@@ -31,8 +32,8 @@ import 'current_art.dart';
 import '../song/song_page.dart';
 
 /// Full player, Apple anatomy in our skin: ambient artwork wash,
-/// morphing art stage (full cover <-> 72px header + panel), scrub
-/// with buffered fill, one 5-wide transport row, lyrics/queue/sleep
+/// morphing art stage (full cover <-> 72px header + panel), glass
+/// seekbar, one 5-wide transport row, lyrics/queue/sleep
 /// below. Panels crossfade in place; the cover travels between its
 /// two sizes. Reduced-motion cuts everything to fades.
 class PlayerScreen extends ConsumerWidget {
@@ -1104,170 +1105,33 @@ class _DragHeroState extends ConsumerState<_DragHero>
   }
 }
 
-/// Scrub with buffered fill and seek preview. Drags preview locally
-/// (big time readout above the bar); the engine seeks on release -
-/// no seek storms.
-class _Scrub extends ConsumerStatefulWidget {
+/// Seek entry: engine position/duration in, guarded seek + lyric
+/// follow out. The gesture lives in [ArchSeekBar]; this only wires
+/// the engine (position stream, guarded seek, dismiss close).
+class _Scrub extends ConsumerWidget {
   final Song song;
   const _Scrub({required this.song});
 
   @override
-  ConsumerState<_Scrub> createState() => _ScrubState();
-}
-
-class _ScrubState extends ConsumerState<_Scrub> {
-  double? _dragMs;
-  // Fine-scrub anchors: the landing time plus where the thumb
-  // started, so vertical distance can gear the sensitivity down.
-  double? _anchorMs;
-  Offset? _anchorGlobal;
-  double _anchorWidth = 1;
-
-  double _sensitivity(double dyDown) {
-    if (dyDown <= 0) return 1.0;
-    // 1:1 at the bar, easing to ~10% a screen away. Coarse jumps
-    // up top, surgical placement below - one gesture, both jobs.
-    return (1.0 - (dyDown / 140) * 0.9).clamp(0.1, 1.0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final song = widget.song;
+  Widget build(BuildContext context, WidgetRef ref) {
     final totalMs = song.duration.inMilliseconds;
     final max = (totalMs > 0 ? totalMs : 1).toDouble();
     final position = ref.watch(positionProvider).value ?? Duration.zero;
-    final shownMs = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
-      0.0,
-      max,
-    );
-    final remainingMs = (totalMs - shownMs.toInt()).clamp(0, totalMs);
     final handler = ref.read(audioHandlerProvider);
-    final dragging = _dragMs != null;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
-      child: Column(
-        children: [
-          // Seek preview: the dragged time reads large above the bar,
-          // then settles back. Nothing while resting.
-          AnimatedOpacity(
-            duration: Motion.stateChange,
-            opacity: dragging ? 1 : 0,
-            child: SizedBox(
-              height: dragging ? 34 : 0,
-              child: dragging
-                  ? Center(
-                      child: Text(
-                        fmtDuration(Duration(milliseconds: shownMs.toInt())),
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    )
-                  : null,
-            ),
-          ),
-          // Glass ribbon seek: the line itself is a thin refractive
-          // strip, pink living inside the glass. Thumbless always -
-          // touch brightens the ribbon and raises the readout, the
-          // shape never morphs. One fill layer only (audit: the old
-          // double-fill ghost was the capsule's white track meeting
-          // the pink at rounded ends - both are gone with it).
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final w = constraints.maxWidth;
-              final frac = max > 0 ? (shownMs / max).clamp(0.0, 1.0) : 0.0;
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragStart: (d) {
-                  _anchorMs = shownMs;
-                  _anchorGlobal = d.globalPosition;
-                  _anchorWidth = w;
-                  setState(() => _dragMs = shownMs.clamp(0.0, max));
-                },
-                onHorizontalDragUpdate: (d) {
-                  final anchor = _anchorMs;
-                  final origin = _anchorGlobal;
-                  if (anchor == null || origin == null) return;
-                  final dx = d.globalPosition.dx - origin.dx;
-                  final dyDown = d.globalPosition.dy - origin.dy;
-                  final ms =
-                      (anchor + dx / _anchorWidth * max * _sensitivity(dyDown))
-                          .clamp(0.0, max);
-                  // Deadband: sub-0.2% tremble never moves the fill.
-                  if ((ms - (_dragMs ?? anchor)).abs() < max * 0.002) {
-                    return;
-                  }
-                  setState(() => _dragMs = ms);
-                },
-                onHorizontalDragEnd: (_) {
-                  final v = _dragMs;
-                  _anchorMs = null;
-                  _anchorGlobal = null;
-                  setState(() => _dragMs = null);
-                  if (v == null) return;
-                  playGuarded(
-                    context,
-                    () => handler.seek(Duration(milliseconds: v.toInt())),
-                  );
-                  LyricsSlot.jumpToActive(ref);
-                },
-                onHorizontalDragCancel: () {
-                  _anchorMs = null;
-                  _anchorGlobal = null;
-                  setState(() => _dragMs = null);
-                },
-                child: Container(
-                  // Fat touch target, thin visual: sensitivity lives
-                  // in the gesture, not in a fat bar.
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  color: Colors.transparent,
-                  child: AnimatedContainer(
-                    duration: Motion.reduced(context)
-                        ? Duration.zero
-                        : const Duration(milliseconds: 200),
-                    curve: Curves.easeOut,
-                    height: dragging ? 16 : 10,
-                    child: LiquidGlassLens(
-                      style: ArchGlass.capsule(radius: 8),
-                      child: Container(
-                        alignment: Alignment.center,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(5),
-                          child: Container(
-                            height: dragging ? 10 : 5,
-                            color: Colors.white.withValues(
-                              alpha: dragging ? 0.35 : 0.22,
-                            ),
-                            child: FractionallySizedBox(
-                              alignment: Alignment.centerLeft,
-                              widthFactor: frac,
-                              child: Container(color: archPink),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                fmtDuration(Duration(milliseconds: shownMs.toInt())),
-                style: const TextStyle(color: inkDim, fontSize: 12),
-              ),
-              Text(
-                '-${fmtDuration(Duration(milliseconds: remainingMs))}',
-                style: const TextStyle(color: inkDim, fontSize: 12),
-              ),
-            ],
-          ),
-        ],
-      ),
+    return ArchSeekBar(
+      positionMs: position.inMilliseconds.toDouble().clamp(0.0, max),
+      totalMs: max,
+      onSeek: (ms) {
+        playGuarded(
+          context,
+          () => handler.seek(Duration(milliseconds: ms.toInt())),
+        );
+        LyricsSlot.jumpToActive(ref);
+      },
+      onDismiss: () {
+        HapticFeedback.mediumImpact();
+        closePlayer(ref, context);
+      },
     );
   }
 }
