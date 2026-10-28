@@ -2006,39 +2006,55 @@ class MetadataService {
     String album = '',
   }) async {
     if (title.trim().isEmpty) return null;
+    final want = normTitle(title);
     try {
-      final q = 'track:"${title.replaceAll('"', '')}"'
-          ' artist:"${artist.replaceAll('"', '')}"';
-      final res = await http
-          .get(Uri.parse(
-              '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
-      final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
-      for (final t in list) {
-        final m = t as Map;
-        final am = m['artist'] as Map?;
-        if (!_sameArtist(artist, (am?['name'] as String?) ?? '')) continue;
-        if (normTitle((m['title'] as String?) ?? '') != normTitle(title)) {
-          continue;
-        }
-        final alb = m['album'] as Map?;
-        if (album.trim().isNotEmpty &&
-            !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
-          continue;
-        }
-        final preview = (m['preview'] as String?) ?? '';
-        if (preview.isEmpty) continue;
-        var cover = '';
-        for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
-          final v = alb?[k] as String?;
-          if (v != null && v.isNotEmpty) {
-            cover = v;
-            break;
+      // Two passes: credited pairing, then title-only. Deezer's chart
+      // credit and the album's credit differ often enough ("Rihanna"
+      // vs "Rihanna, Drake", decorated titles) that a strict miss was
+      // reading as "preview unavailable" on a track that has one.
+      for (final strict in const [true, false]) {
+        final q = strict
+            ? 'track:"${title.replaceAll('"', '')}"'
+                ' artist:"${artist.replaceAll('"', '')}"'
+            : 'track:"${title.replaceAll('"', '')}"';
+        final res = await http
+            .get(Uri.parse(
+                '$_dzBase/search/track?q=${Uri.encodeQueryComponent(q)}&limit=10'))
+            .timeout(const Duration(seconds: 15));
+        if (res.statusCode != 200) continue;
+        final list = (jsonDecode(res.body) as Map)['data'] as List? ?? [];
+        ({String preview, String cover})? loose;
+        for (final t in list) {
+          final m = t as Map;
+          if (normTitle((m['title'] as String?) ?? '') != want) continue;
+          final alb = m['album'] as Map?;
+          if (strict &&
+              album.trim().isNotEmpty &&
+              !_sameAlbum(album, (alb?['title'] as String?) ?? '')) {
+            continue;
           }
+          final preview = (m['preview'] as String?) ?? '';
+          if (preview.isEmpty) continue;
+          var cover = '';
+          for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+            final v = alb?[k] as String?;
+            if (v != null && v.isNotEmpty) {
+              cover = v;
+              break;
+            }
+          }
+          final hit = (preview: preview, cover: cover);
+          final an = ((m['artist'] as Map?)?['name'] as String?) ?? '';
+          if (_sameArtist(artist, an)) {
+            ArchLog.i('meta', 'preview live: $artist - $title');
+            return hit;
+          }
+          loose ??= hit;
         }
-        ArchLog.i('meta', 'preview live: $artist - $title');
-        return (preview: preview, cover: cover);
+        if (loose != null) {
+          ArchLog.i('meta', 'preview live (loose): $artist - $title');
+          return loose;
+        }
       }
     } catch (_) {}
     return null;
@@ -2797,34 +2813,61 @@ class MetadataService {
   }) async {
     if (album.trim().isEmpty) return null;
     try {
-      final q = 'album:"${album.replaceAll('"', '')}"'
-          ' artist:"${artist.replaceAll('"', '')}"';
-      final search = await http
-          .get(
-            Uri.parse(
-              '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=10',
-            ),
-          )
-          .timeout(const Duration(seconds: 15));
-      if (search.statusCode != 200) return null;
-      final hits = (jsonDecode(search.body) as Map)['data'] as List? ?? [];
+      final title = album.replaceAll('"', '');
+      final who = artist.replaceAll('"', '');
+      // Two passes: the credited pairing first, then title-only. A
+      // featured single is often filed under a different credit (or a
+      // decorated title) and the strict query then draws a blank —
+      // which surfaced as "this album would not open" on every hub
+      // card. Title-only still verifies with _sameAlbum, so "AM"
+      // never opens "DAMN.".
       int? albumId;
       String cover = '';
-      for (final h in hits) {
-        final m = h as Map;
-        if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
-        final an = ((m['artist'] as Map?)?['name'] as String?) ?? '';
-        if (artist.trim().isNotEmpty && !_sameArtist(artist, an)) continue;
-        albumId = (m['id'] as num?)?.toInt();
-        if (albumId == null || albumId <= 0) continue;
-        for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
-          final v = m[k] as String?;
-          if (v != null && v.isNotEmpty) {
-            cover = v;
+      for (final strict in const [true, false]) {
+        final q = strict
+            ? 'album:"$title" artist:"$who"'
+            : 'album:"$title"';
+        final search = await http
+            .get(
+              Uri.parse(
+                '$_dzBase/search/album?q=${Uri.encodeQueryComponent(q)}&limit=10',
+              ),
+            )
+            .timeout(const Duration(seconds: 15));
+        if (search.statusCode != 200) continue;
+        final hits = (jsonDecode(search.body) as Map)['data'] as List? ?? [];
+        int? looseId;
+        String looseCover = '';
+        for (final h in hits) {
+          final m = h as Map;
+          if (!_sameAlbum(album, (m['title'] as String?) ?? '')) continue;
+          final id = (m['id'] as num?)?.toInt();
+          if (id == null || id <= 0) continue;
+          String hitCover = '';
+          for (final k in ['cover_xl', 'cover_big', 'cover_medium']) {
+            final v = m[k] as String?;
+            if (v != null && v.isNotEmpty) {
+              hitCover = v;
+              break;
+            }
+          }
+          final an = ((m['artist'] as Map?)?['name'] as String?) ?? '';
+          if (who.trim().isEmpty || _sameArtist(artist, an)) {
+            albumId = id;
+            cover = hitCover;
             break;
           }
+          if (!strict) {
+            looseId ??= id;
+            if (looseCover.isEmpty) looseCover = hitCover;
+          }
         }
-        break;
+        if (albumId != null) break;
+        if (looseId != null) {
+          albumId = looseId;
+          cover = looseCover;
+          break;
+        }
       }
       if (albumId == null) return null;
       final detail = await http

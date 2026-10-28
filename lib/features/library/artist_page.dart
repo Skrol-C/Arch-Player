@@ -61,7 +61,8 @@ class ArtistPage extends ConsumerStatefulWidget {
   ConsumerState<ArtistPage> createState() => _ArtistPageState();
 }
 
-class _ArtistPageState extends ConsumerState<ArtistPage> {
+class _ArtistPageState extends ConsumerState<ArtistPage>
+    with WidgetsBindingObserver {
   /// Currently bloomed fan hub, if any.
   String? _openHub;
 
@@ -78,6 +79,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     ArtistPage._open.add(widget.artistName);
     _sel.addListener(() {
       if (!mounted) return;
@@ -88,9 +90,71 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sel.dispose();
     ArtistPage._open.remove(widget.artistName);
     super.dispose();
+  }
+
+  /// Pull-to-refresh: drop every cached lane and wait for the two the
+  /// page is built around. Offline-then-online used to leave the page
+  /// frozen on a stale error forever (a FutureProvider keeps its error
+  /// until invalidated).
+  Future<void> _refresh() async {
+    final name = widget.artistName;
+    ref.invalidate(artistPicProvider(name));
+    ref.invalidate(artistLogoProvider(name));
+    ref.invalidate(artistBioProvider(name));
+    ref.invalidate(artistListenersProvider(name));
+    ref.invalidate(artistTopProvider(name));
+    ref.invalidate(artistReleasesProvider(name));
+    ArchLog.i('meta', 'artist refresh: $name');
+    try {
+      await ref.read(artistTopProvider(name).future);
+    } catch (_) {}
+    try {
+      await ref.read(artistReleasesProvider(name).future);
+    } catch (_) {}
+  }
+
+  /// Back from another app: if a lane is sitting on an error, the phone
+  /// probably just regained a connection — retry only the broken ones,
+  /// never the whole page, so a resume costs nothing when all is well.
+  void _retryFailed() {
+    final name = widget.artistName;
+    var retried = false;
+    if (ref.read(artistPicProvider(name)).hasError) {
+      ref.invalidate(artistPicProvider(name));
+      retried = true;
+    }
+    if (ref.read(artistLogoProvider(name)).hasError) {
+      ref.invalidate(artistLogoProvider(name));
+      retried = true;
+    }
+    if (ref.read(artistBioProvider(name)).hasError) {
+      ref.invalidate(artistBioProvider(name));
+      retried = true;
+    }
+    if (ref.read(artistListenersProvider(name)).hasError) {
+      ref.invalidate(artistListenersProvider(name));
+      retried = true;
+    }
+    if (ref.read(artistTopProvider(name)).hasError) {
+      ref.invalidate(artistTopProvider(name));
+      retried = true;
+    }
+    if (ref.read(artistReleasesProvider(name)).hasError) {
+      ref.invalidate(artistReleasesProvider(name));
+      retried = true;
+    }
+    if (retried) {
+      ArchLog.i('meta', 'artist retry after resume: $name');
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _retryFailed();
   }
 
   void _exitSel() {
@@ -163,7 +227,11 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CustomScrollView(
+                RefreshIndicator(
+                  color: archPink,
+                  onRefresh: _refresh,
+                  child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
                     _Hero(
                       name: widget.artistName,
@@ -241,6 +309,7 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
                     SliverToBoxAdapter(child: _Bio(bio: bio)),
                     SliverToBoxAdapter(child: SizedBox(height: bottomClear)),
                   ],
+                ),
                 ),
                 if (!selecting) const NowPlayingDock(),
                 Positioned(
@@ -1398,12 +1467,15 @@ class _PopularState extends ConsumerState<_Popular> {
             Builder(
               builder: (context) {
                 // Page height derives from the rows, never the reverse:
-                // two-line ListTiles size with text, so a fixed 350
-                // overflows the moment type scales up. Headroom included.
+                // two-line ListTiles size with text, so a tight budget
+                // overflows the moment type scales or a subtitle grows
+                // (reported: bottom overflowed by 4px). 84 per row is
+                // the M3 two-line tile (72) plus real slack — the
+                // Column stays min-size, the extra is never painted.
                 final scale = MediaQuery.textScalerOf(
                   context,
                 ).scale(1.0).clamp(1.0, 1.6);
-                final pageH = chunks[0].length * 72.0 * scale + 8;
+                final pageH = chunks[0].length * 84.0 * scale + 8;
                 return SizedBox(
                   height: pageH,
                   child: PageView.builder(
