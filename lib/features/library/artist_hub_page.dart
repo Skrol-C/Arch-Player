@@ -131,7 +131,7 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
     final top = songs.take(5).toList();
 
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -149,12 +149,15 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -163,7 +166,9 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                           leftIcon: followed
                               ? CupertinoIcons.star_fill
                               : CupertinoIcons.star,
-                          leftColor: followed ? archPink : ink,
+                          leftColor: followed
+                              ? archPink
+                              : Theme.of(context).colorScheme.onSurface,
                           onLeft: () => ref
                               .read(followedProvider.notifier)
                               .toggle(widget.artistName),
@@ -188,10 +193,14 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                                 radius: 0,
                               )
                             : Container(
-                                color: paperRaised,
-                                child: const Icon(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                child: Icon(
                                   CupertinoIcons.person_fill,
-                                  color: inkDim,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   size: 44,
                                 ),
                               ),
@@ -230,9 +239,11 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Icon(
+                            Icon(
                               CupertinoIcons.chevron_right,
-                              color: inkDim,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               size: 26,
                             ),
                           ],
@@ -270,15 +281,18 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 26)),
                 if (songs.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 20,
                         vertical: 24,
                       ),
                       child: Text(
                         'No local songs for this artist yet.',
-                        style: TextStyle(color: inkDim),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant),
                       ),
                     ),
                   )
@@ -388,12 +402,14 @@ class _TopSongCard extends StatelessWidget {
                     )
                   : Container(
                       decoration: BoxDecoration(
-                        color: paperRaised,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         CupertinoIcons.music_note,
-                        color: inkDim,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         size: 36,
                       ),
                     ),
@@ -409,7 +425,9 @@ class _TopSongCard extends StatelessWidget {
               song.album,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 12),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12),
             ),
           ],
         ),

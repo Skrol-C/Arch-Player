@@ -112,15 +112,15 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     // Deleted elsewhere while open: explicit dead end, never blank.
     if (found == null) {
       return Scaffold(
-        backgroundColor: paper,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(title: const Text('Playlist')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 CupertinoIcons.music_note_list,
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 size: 64,
               ),
               const SizedBox(height: 12),
@@ -161,14 +161,22 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
       },
       child: TweenAnimationBuilder<Color?>(
       tween: ColorTween(
-        begin: ArtTone.pageWashOf(null),
-        end: _washTarget ?? ArtTone.pageWashOf(null),
+        begin: ArtTone.pageWashOf(null,
+            dark: Theme.of(context).brightness == Brightness.dark,
+            amoled: isAmoledScheme(context)),
+        end: _washTarget ??
+            ArtTone.pageWashOf(null,
+                dark: Theme.of(context).brightness == Brightness.dark,
+                amoled: isAmoledScheme(context)),
       ),
       duration: Motion.reduced(context)
           ? Duration.zero
           : const Duration(milliseconds: 400),
       builder: (context, wash, _) {
-        final page = wash ?? ArtTone.pageWashOf(null);
+        final page = wash ??
+            ArtTone.pageWashOf(null,
+                dark: Theme.of(context).brightness == Brightness.dark,
+                amoled: isAmoledScheme(context));
         return Scaffold(
           backgroundColor: page,
           body: DockScrollReporter(
@@ -515,10 +523,12 @@ class _Hero extends StatelessWidget {
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style:
+              ArchGlass.circle(radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: onBack,
-            icon: const Icon(Icons.arrow_back, color: ink),
+            icon: Icon(Icons.arrow_back,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ),
@@ -526,21 +536,24 @@ class _Hero extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.all(8),
           child: LiquidGlassLens(
-            style: ArchGlass.capsule(radius: 24),
+            style:
+                ArchGlass.capsule(radius: 24, amoled: isAmoledScheme(context)),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
                   onPressed: onAdd,
-                  icon: const Icon(Icons.add_rounded, color: ink),
+                  icon: Icon(Icons.add_rounded,
+                      color: Theme.of(context).colorScheme.onSurface),
                   tooltip: 'Add songs',
                 ),
                 Builder(
                   builder: (btnContext) => IconButton(
                     onPressed: () => onMenu(btnContext),
-                    icon: const Icon(
+                    icon: Icon(
                       CupertinoIcons.ellipsis,
-                      color: ink,
+                      color:
+                          Theme.of(btnContext).colorScheme.onSurface,
                     ),
                     tooltip: 'More',
                   ),
@@ -620,8 +633,10 @@ class _Hero extends StatelessWidget {
                                         textAlign: TextAlign.center,
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: ink,
+                                        style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                           fontSize: 30,
                                           fontWeight: FontWeight.w800,
                                           letterSpacing: -0.5,
@@ -643,15 +658,19 @@ class _Hero extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           updatedAgo(playlist.updatedMs),
-                          style: const TextStyle(
-                            color: inkDim,
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
                             fontSize: 13,
                           ),
                         ),
                         Text(
                           '$memberCount song${memberCount == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                            color: inkDim,
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
                             fontSize: 13,
                           ),
                         ),
@@ -670,8 +689,8 @@ class _Hero extends StatelessWidget {
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ink,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
@@ -700,10 +719,10 @@ class _GradientWash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Favourites hero: the red star on light paper, per WA0077.
+    // Favourites hero: the red star, page-toned per WA0077.
     if (playlist.isSystem) {
       return Container(
-        color: paper,
+        color: Theme.of(context).scaffoldBackgroundColor,
         child: const Center(
           child: Padding(
             padding: EdgeInsets.only(bottom: 90),
@@ -724,7 +743,9 @@ class _GradientWash extends StatelessWidget {
           return FutureBuilder<ArtPalette?>(
             future: playlistCoverPalette(playlist.customArt),
             builder: (context, pal) {
-              final wash = ArtTone.pageWashOf(pal.data?.wash);
+              final wash = ArtTone.pageWashOf(pal.data?.wash,
+                  dark: Theme.of(context).brightness == Brightness.dark,
+                  amoled: isAmoledScheme(context));
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 onWash?.call(wash);
               });
@@ -772,7 +793,9 @@ class _AutoGradient extends StatelessWidget {
         final stops =
             snap.data ??
             const [Color(0xFFF6F6F8), Color(0xFFE8E8ED)];
-        final wash = PlaylistArt.washFor(stops);
+        final wash = PlaylistArt.washFor(stops,
+            dark: Theme.of(context).brightness == Brightness.dark,
+            amoled: isAmoledScheme(context));
         WidgetsBinding.instance.addPostFrameCallback((_) {
           onWash?.call(wash);
         });
@@ -845,13 +868,17 @@ class _Controls extends ConsumerWidget {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border: Border.all(color: ink.withValues(alpha: 0.08)),
+                border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.08)),
               ),
-              child: const Icon(
+              child: Icon(
                 CupertinoIcons.shuffle_medium,
-                color: ink,
+                color: Theme.of(context).colorScheme.onSurface,
                 size: 24,
               ),
             ),
@@ -911,11 +938,16 @@ class _Controls extends ConsumerWidget {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border: Border.all(color: ink.withValues(alpha: 0.08)),
+                border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.08)),
               ),
-              child: const Icon(Icons.add_rounded, color: ink, size: 24),
+              child: Icon(Icons.add_rounded,
+                  color: Theme.of(context).colorScheme.onSurface, size: 24),
             ),
           ),
         ],
@@ -952,7 +984,9 @@ class _DetailEmpty extends StatelessWidget {
                         PlaylistArt.fallbackBottom,
                       ],
                     ),
-              color: isSystem ? paperRaised : null,
+              color: isSystem
+                  ? Theme.of(context).colorScheme.surfaceContainerHighest
+                  : null,
             ),
             child: isSystem
                 ? const Icon(Icons.star_rounded, color: archPink, size: 96)
@@ -979,9 +1013,10 @@ class _DetailEmpty extends StatelessWidget {
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Use Add to bring songs in.',
-            style: TextStyle(color: inkDim),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           FilledButton(
@@ -1074,7 +1109,9 @@ class _PlaylistRow extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isCurrent ? archPink : ink,
+          color: isCurrent
+              ? archPink
+              : Theme.of(context).colorScheme.onSurface,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1082,7 +1119,8 @@ class _PlaylistRow extends ConsumerWidget {
         song.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: inkDim),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1092,23 +1130,25 @@ class _PlaylistRow extends ConsumerWidget {
           else
             Text(
               fmtDuration(song.duration),
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           if (sel == null) ...[
             if (onRemove != null)
               IconButton(
-                icon: const Icon(
+                icon: Icon(
                   CupertinoIcons.minus_circle,
-                  color: inkDim,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 onPressed: onRemove,
               )
             else
               Builder(
                 builder: (btnContext) => IconButton(
-                  icon: const Icon(
+                  icon: Icon(
                     CupertinoIcons.ellipsis,
-                    color: inkDim,
+                    color:
+                        Theme.of(btnContext).colorScheme.onSurfaceVariant,
                   ),
                   onPressed: () => _rowMenu(ref, btnContext),
                 ),
@@ -1173,12 +1213,12 @@ class _PendingRow extends StatelessWidget {
         width: 52,
         height: 52,
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Icon(
+        child: Icon(
           CupertinoIcons.exclamationmark_triangle,
-          color: inkDim,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           size: 22,
         ),
       ),
@@ -1187,7 +1227,7 @@ class _PendingRow extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: ink.withValues(alpha: 0.6),
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1195,7 +1235,9 @@ class _PendingRow extends StatelessWidget {
         pending.artist.isEmpty ? 'Not on this device' : pending.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: inkDim, fontSize: 13),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 13),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1204,20 +1246,25 @@ class _PendingRow extends StatelessWidget {
             margin: const EdgeInsets.only(right: 6),
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
-              border: Border.all(color: inkDim.withValues(alpha: 0.5)),
+              border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withValues(alpha: 0.5)),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: const Text(
+            child: Text(
               'MISSING',
               style: TextStyle(
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(CupertinoIcons.minus_circle, color: inkDim),
+            icon: Icon(CupertinoIcons.minus_circle,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             onPressed: onRemove,
           ),
         ],
@@ -1248,9 +1295,10 @@ class _ReorderRow extends StatelessWidget {
         children: [
           ReorderableDragStartListener(
             index: 0,
-            child: const Padding(
-              padding: EdgeInsets.only(right: 8),
-              child: Icon(CupertinoIcons.bars, color: inkDim),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(CupertinoIcons.bars,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ),
           FileArtImage(path: song.path, albumId: song.albumId),
@@ -1260,13 +1308,16 @@ class _ReorderRow extends StatelessWidget {
         song.title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
         song.artist,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: inkDim),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     );
   }

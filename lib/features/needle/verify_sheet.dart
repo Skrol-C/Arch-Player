@@ -32,7 +32,7 @@ Future<bool> showVerifySheet(
   final out = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: paper,
+    backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -145,7 +145,10 @@ class _VerifySheetState extends State<_VerifySheet>
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: inkDim.withValues(alpha: 0.25),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -158,7 +161,9 @@ class _VerifySheetState extends State<_VerifySheet>
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: paperRaised,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
@@ -178,16 +183,22 @@ class _VerifySheetState extends State<_VerifySheet>
                           fontSize: 16,
                         ),
                       ),
-                      const Text(
+                      Text(
                         'A quick check in the browser, once per install.',
-                        style: TextStyle(color: inkDim, fontSize: 13),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 13),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(false),
-                  icon: const Icon(Icons.close_rounded, color: inkDim),
+                  icon: Icon(Icons.close_rounded,
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -207,7 +218,9 @@ class _VerifySheetState extends State<_VerifySheet>
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: paperRaised,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Stack(

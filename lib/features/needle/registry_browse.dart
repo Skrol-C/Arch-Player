@@ -77,15 +77,20 @@ class _RegistryBrowsePageState
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.cloud_off_outlined,
-                      color: inkDim, size: 64),
+                  Icon(Icons.cloud_off_outlined,
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: 64),
                   const SizedBox(height: 12),
                   const Text('Could not reach this registry.',
                       style: TextStyle(
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
-                  const Text('Check the URL and your connection.',
-                      style: TextStyle(color: inkDim)),
+                  Text('Check the URL and your connection.',
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant)),
                   const SizedBox(height: 16),
                   TextButton(
                     onPressed: () => setState(() =>
@@ -99,9 +104,11 @@ class _RegistryBrowsePageState
           }
           final entries = snap.data ?? [];
           if (entries.isEmpty) {
-            return const Center(
+            return Center(
               child: Text('This registry lists no extensions.',
-                  style: TextStyle(color: inkDim)),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant)),
             );
           }
           return ListView.builder(
@@ -113,7 +120,7 @@ class _RegistryBrowsePageState
               final busy = _busy.contains(e.id);
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
@@ -129,12 +136,18 @@ class _RegistryBrowsePageState
                       Text(e.description,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: inkDim, fontSize: 13)),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 13)),
                       const SizedBox(height: 2),
                       Text('v${e.version}',
-                          style: const TextStyle(
-                              color: inkDim, fontSize: 12)),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 12)),
                     ],
                   ),
                   trailing: done

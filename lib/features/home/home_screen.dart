@@ -36,7 +36,7 @@ class HomeScreen extends ConsumerWidget {
     final local = ref.watch(homeLocalProvider);
     final ext = ref.watch(homeExtensionProvider);
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: DockScrollReporter(
         child: CustomScrollView(
           physics: const ClampingScrollPhysics(),
@@ -156,7 +156,7 @@ class HomeScreen extends ConsumerWidget {
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
             ),
             const SizedBox(height: 12),
             FilledButton(
@@ -170,13 +170,13 @@ class HomeScreen extends ConsumerWidget {
   }
 
   Widget _empty(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 48),
         child: Text(
           'Play something and Home fills in — recents, artists, and your providers\u2019 new releases land here.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: inkDim, fontSize: 14),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
         ),
       ),
     );
@@ -197,7 +197,7 @@ class HomeScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _railHead(rail),
+        _railHead(context, rail),
         const SizedBox(height: 10),
         SizedBox(
           height: circular ? 190 : 196,
@@ -228,7 +228,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _railHead(HomeRail rail) {
+  Widget _railHead(BuildContext context, HomeRail rail) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -245,7 +245,7 @@ class HomeScreen extends ConsumerWidget {
           if (rail.subtitle.isNotEmpty)
             Text(
               rail.subtitle,
-              style: const TextStyle(color: inkDim, fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
         ],
       ),
@@ -277,7 +277,7 @@ class HomeScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _railHead(rail),
+        _railHead(context, rail),
         const SizedBox(height: 6),
         _JumpPages(rail: rail, chunks: chunks),
       ],
@@ -293,7 +293,7 @@ class HomeScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _art(item, 140, 18),
+            _art(context, item, 140, 18),
             const SizedBox(height: 6),
             Text(
               item.name,
@@ -307,8 +307,9 @@ class HomeScreen extends ConsumerWidget {
                 item.artists,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(color: inkDim, fontSize: 12),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12),
               ),
           ],
         ),
@@ -316,7 +317,8 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _art(FeedItem item, double size, double radius) {
+  Widget _art(
+      BuildContext context, FeedItem item, double size, double radius) {
     if (item.isLocal && item.song!.path.isNotEmpty) {
       return FileArtImage(
         path: item.song!.path,
@@ -334,22 +336,23 @@ class HomeScreen extends ConsumerWidget {
           height: size,
           memCacheWidth: 280,
           fit: BoxFit.cover,
-          errorWidget: (_, _, _) => _artFallback(size, radius),
+          errorWidget: (ctx, _, _) => _artFallback(ctx, size, radius),
         ),
       );
     }
-    return _artFallback(size, radius);
+    return _artFallback(context, size, radius);
   }
 
-  Widget _artFallback(double size, double radius) {
+  Widget _artFallback(BuildContext context, double size, double radius) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(radius),
       ),
-      child: const Icon(CupertinoIcons.music_note, color: inkDim, size: 36),
+      child: Icon(CupertinoIcons.music_note,
+          color: Theme.of(context).colorScheme.onSurfaceVariant, size: 36),
     );
   }
 
@@ -465,7 +468,7 @@ class _HomeAvatar extends ConsumerWidget {
         width: 38,
         height: 38,
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(19),
         ),
         clipBehavior: Clip.antiAlias,
@@ -475,15 +478,15 @@ class _HomeAvatar extends ConsumerWidget {
                 width: 38,
                 height: 38,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Icon(
+                errorBuilder: (_, _, _) => Icon(
                   CupertinoIcons.person_crop_circle,
-                  color: ink,
+                  color: Theme.of(context).colorScheme.onSurface,
                   size: 30,
                 ),
               )
-            : const Icon(
+            : Icon(
                 CupertinoIcons.person_crop_circle,
-                color: ink,
+                color: Theme.of(context).colorScheme.onSurface,
                 size: 30,
               ),
       ),
@@ -638,7 +641,7 @@ class _DeckState extends ConsumerState<_Deck> {
                     borderRadius: BorderRadius.circular(4),
                     color: i == _visible
                         ? archPink
-                        : inkDim.withValues(alpha: 0.3),
+                        : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
                   ),
                 ),
               const Spacer(),
@@ -666,22 +669,23 @@ class _DeckState extends ConsumerState<_Deck> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: paperRaised,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(24),
           ),
-          child: const Column(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(CupertinoIcons.shuffle, color: archPink, size: 44),
-              SizedBox(height: 10),
-              Text(
+              const Icon(CupertinoIcons.shuffle,
+                  color: archPink, size: 44),
+              const SizedBox(height: 10),
+              const Text(
                 'Re-deal',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'Fresh five',
-                style: TextStyle(color: inkDim, fontSize: 13),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
               ),
             ],
           ),
@@ -782,7 +786,7 @@ class _JumpPagesState extends ConsumerState<_JumpPages> {
                   borderRadius: BorderRadius.circular(4),
                   color: i == _visible
                       ? archPink
-                      : inkDim.withValues(alpha: 0.3),
+                      : Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
                 ),
               ),
           ],
@@ -834,7 +838,7 @@ class _JumpRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: isCurrent ? archPink : ink,
+                      color: isCurrent ? archPink : Theme.of(context).colorScheme.onSurface,
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
                     ),
@@ -843,7 +847,7 @@ class _JumpRow extends StatelessWidget {
                     song.artist.isEmpty ? 'Unknown artist' : song.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: inkDim, fontSize: 13),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
                   ),
                 ],
               ),
@@ -852,7 +856,7 @@ class _JumpRow extends StatelessWidget {
             if (isCurrent) const SizedBox(width: 8),
             Text(
               fmtDuration(song.duration),
-              style: const TextStyle(color: inkDim, fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
           ],
         ),
@@ -903,7 +907,7 @@ class _PortraitCard extends StatelessWidget {
               child: SizedBox(
                 width: size,
                 height: size,
-                child: _portraitArt(item, size),
+                child: _portraitArt(context, item, size),
               ),
             ),
             const SizedBox(height: 6),
@@ -921,7 +925,7 @@ class _PortraitCard extends StatelessWidget {
     );
   }
 
-  Widget _portraitArt(FeedItem item, double size) {
+  Widget _portraitArt(BuildContext context, FeedItem item, double size) {
     if (item.song != null && item.song!.path.isNotEmpty) {
       return FileArtImage(
         path: item.song!.path,
@@ -937,17 +941,18 @@ class _PortraitCard extends StatelessWidget {
         height: size,
         memCacheWidth: 280,
         fit: BoxFit.cover,
-        errorWidget: (_, _, _) => Container(
-          color: paperRaised,
-          child: const Icon(CupertinoIcons.music_note,
-              color: inkDim, size: 44),
+        errorWidget: (ctx, _, _) => Container(
+          color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+          child: Icon(CupertinoIcons.music_note,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 44),
         ),
       );
     }
     return Container(
-      color: paperRaised,
-      child: const Icon(CupertinoIcons.music_note,
-          color: inkDim, size: 44),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Icon(CupertinoIcons.music_note,
+          color: Theme.of(context).colorScheme.onSurfaceVariant, size: 44),
     );
   }
 }
@@ -1090,7 +1095,7 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(
               widget.rail.subtitle,
-              style: const TextStyle(color: inkDim, fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
           ),
         const SizedBox(height: 10),
@@ -1108,7 +1113,7 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
                 padding: EdgeInsets.only(
                     right: i == widget.rail.items.length - 1 ? 0 : 12),
                 child: open && _expansionEnabled
-                    ? _expandedCard(item)
+                    ? _expandedCard(context, item)
                     : _portraitCard(item),
               );
             },
@@ -1134,7 +1139,7 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
     );
   }
 
-  Widget _expandedCard(FeedItem item) {
+  Widget _expandedCard(BuildContext context, FeedItem item) {
     return GestureDetector(
       onTap: _collapse,
       child: AnimatedContainer(
@@ -1144,7 +1149,7 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: Container(
-            color: paperRaised,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             padding: const EdgeInsets.all(10),
             child: Row(
               children: [
@@ -1170,10 +1175,12 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
                                   radius: 0,
                                 )
                               : Container(
-                                  color: paperRaised,
-                                  child: const Icon(
+                                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                  child: Icon(
                                       CupertinoIcons.music_note,
-                                      color: inkDim,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                       size: 40),
                                 ),
                         ),
@@ -1375,9 +1382,12 @@ class _FanRow extends StatelessWidget {
                         radius: 0,
                       )
                     : Container(
-                        color: paper,
-                        child: const Icon(CupertinoIcons.music_note,
-                            color: inkDim, size: 16),
+                        color: Theme.of(context).colorScheme.surface,
+                        child: Icon(CupertinoIcons.music_note,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            size: 16),
                       ),
               ),
             ),
@@ -1391,8 +1401,9 @@ class _FanRow extends StatelessWidget {
                     fontSize: 13, fontWeight: FontWeight.w700),
               ),
             ),
-            const Icon(CupertinoIcons.play_fill,
-                color: inkDim, size: 14),
+            Icon(CupertinoIcons.play_fill,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 14),
           ],
         ),
       ),

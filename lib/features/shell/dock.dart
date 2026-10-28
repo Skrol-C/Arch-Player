@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import '../../core/app_prefs.dart';
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
@@ -339,11 +340,13 @@ class NowPlayingDock extends ConsumerWidget {
   /// The pill's exact material, shared verbatim: the goo union paints
   /// with this, so the parked pill reads identical in and out of the
   /// melt. Members opt out of adaptivity (the group owns the one
-  /// verdict); only shapes and layout flow in.
-  static LiquidGlassStyle pillGlassStyle() =>
+  /// verdict); only shapes and layout flow in. `amoled` swaps the
+  /// white veil for the dark one so the lens parts from #000.
+  static LiquidGlassStyle pillGlassStyle({bool amoled = false}) =>
       LiquidGlassTabBar.defaultStyle.copyWith(
-        appearance: ArchGlass.frostAppearance,
-        adaptivity: ArchGlass.adaptive,
+        appearance:
+            amoled ? ArchGlass.amoledFrostAppearance : ArchGlass.frostAppearance,
+        adaptivity: amoled ? ArchGlass.amoledAdaptive : ArchGlass.adaptive,
       );
 
   static double tabLabelSize(BuildContext context) {
@@ -357,6 +360,7 @@ class NowPlayingDock extends ConsumerWidget {
     final miniVisible = ref.watch(miniVisibleProvider);
     final collapsed = ref.watch(pillCollapsedProvider);
     final goo = ref.watch(pillGooProvider);
+    final amoled = ref.watch(appThemeModeProvider) == AppThemeMode.amoled;
     final energy = ref.watch(gooEnergyProvider);
     final pulse = ref.watch(destPulseProvider);
     ref.listen(destinationProvider, (prev, next) {
@@ -443,7 +447,7 @@ class NowPlayingDock extends ConsumerWidget {
                                 ),
                               ) +
                           12.0 * math.sin(t.clamp(0.0, 1.0) * math.pi),
-                      style: NowPlayingDock.pillGlassStyle(),
+                      style: NowPlayingDock.pillGlassStyle(amoled: amoled),
                       child: Stack(
                         children: [
                           Positioned(
@@ -666,6 +670,7 @@ class _FullPillState extends ConsumerState<_FullPill>
         )
         .length;
     final glow = ref.watch(needleGlowProvider);
+    final amoled = ref.watch(appThemeModeProvider) == AppThemeMode.amoled;
     final bar = LiquidGlassTabBar.withImpeller(
       items: [
         for (var i = 0; i < _labels.length; i++)
@@ -677,7 +682,9 @@ class _FullPillState extends ConsumerState<_FullPill>
       margin: EdgeInsets.zero,
       itemStyle: LiquidGlassTabItemStyle(
         selectedColor: archPink,
-        unselectedColor: const Color(0x990B0B0D),
+        // Moryne rule: unselected is white 60% on black, near-black on light.
+        unselectedColor:
+            amoled ? Colors.white.withValues(alpha: 0.6) : const Color(0x990B0B0D),
         iconSize: 22,
         underGlassIconSize: 28,
         labelFontSize: NowPlayingDock.tabLabelSize(context),
@@ -690,10 +697,14 @@ class _FullPillState extends ConsumerState<_FullPill>
         animated: true,
         animationDuration: Duration(milliseconds: 400),
       ),
-      style: NowPlayingDock.pillGlassStyle().copyWith(
+      style: NowPlayingDock.pillGlassStyle(amoled: amoled).copyWith(
         // Blender members can't judge: the group owns the one verdict,
         // a member tint would override it mid-travel.
-        adaptivity: goo ? LiquidGlassAdaptivity.none : ArchGlass.adaptive,
+        adaptivity: goo
+            ? LiquidGlassAdaptivity.none
+            : amoled
+                ? ArchGlass.amoledAdaptive
+                : ArchGlass.adaptive,
       ),
     );
     // Queue badge + landing glow: above the Needle tab
@@ -766,6 +777,7 @@ class _SplitTravel extends ConsumerStatefulWidget {
 class _SplitTravelState extends ConsumerState<_SplitTravel> {
   int? _destIndex;
   bool? _miniVisible;
+  bool? _amoled;
   Widget? _left;
   Widget? _middle;
   Widget? _right;
@@ -773,13 +785,16 @@ class _SplitTravelState extends ConsumerState<_SplitTravel> {
   @override
   Widget build(BuildContext context) {
     final dest = ref.watch(destinationProvider);
+    final amoled = ref.watch(appThemeModeProvider) == AppThemeMode.amoled;
+    final scheme = Theme.of(context).colorScheme;
     // Identical instances across ticks: the element tree below skips
     // updates entirely until destination or visibility actually change.
     // The expand tap reads the provider live so the cached closure
     // never goes stale either.
     if (_left == null ||
         _destIndex != dest.index ||
-        _miniVisible != widget.miniVisible) {
+        _miniVisible != widget.miniVisible ||
+        _amoled != amoled) {
       _left = _Lobe(
         icon: _icons[dest.index],
         color: archPink,
@@ -789,12 +804,17 @@ class _SplitTravelState extends ConsumerState<_SplitTravel> {
       _middle = widget.miniVisible ? const _CompactMini() : null;
       _right = _Lobe(
         icon: CupertinoIcons.search,
-        color: dest == Destination.search ? archPink : ink,
+        color: dest == Destination.search
+            ? archPink
+            : amoled
+                ? scheme.onSurfaceVariant
+                : ink,
         tooltip: 'Search',
         onTap: () => NowPlayingDock._go(ref, context, Destination.search),
       );
       _destIndex = dest.index;
       _miniVisible = widget.miniVisible;
+      _amoled = amoled;
     }
     final t = widget.t;
     if (t < 0.02) return const SizedBox.shrink();
@@ -855,8 +875,10 @@ class _Lobe extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final amoled =
+        Theme.of(context).scaffoldBackgroundColor == amoledBlack;
     return LiquidGlassLens(
-      style: ArchGlass.circle(radius: 26),
+      style: ArchGlass.circle(radius: 26, amoled: amoled),
       child: SizedBox(
         width: 52,
         height: 52,
@@ -884,8 +906,10 @@ class _CompactMini extends ConsumerWidget {
     final playing = ref.watch(playingProvider).value ?? false;
     if (song == null) return const SizedBox.shrink();
     final handler = ref.read(audioHandlerProvider);
+    final scheme = Theme.of(context).colorScheme;
+    final amoled = scheme.surface == amoledBlack;
     return LiquidGlassLens(
-      style: ArchGlass.capsule(radius: 26),
+      style: ArchGlass.capsule(radius: 26, amoled: amoled),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => openPlayer(ref, context),
@@ -909,12 +933,12 @@ class _CompactMini extends ConsumerWidget {
                         )
                       : Container(
                           decoration: BoxDecoration(
-                            color: paperRaised,
+                            color: scheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             CupertinoIcons.music_note,
-                            color: inkDim,
+                            color: scheme.onSurfaceVariant,
                             size: 20,
                           ),
                         ),
@@ -929,7 +953,7 @@ class _CompactMini extends ConsumerWidget {
                     MarqueeText(
                       text: song.title,
                       style: TextStyle(
-                        color: playing ? archPink : ink,
+                        color: playing ? archPink : scheme.onSurface,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
@@ -938,7 +962,8 @@ class _CompactMini extends ConsumerWidget {
                       song.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: inkDim, fontSize: 11),
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 11),
                     ),
                   ],
                 ),
@@ -949,7 +974,7 @@ class _CompactMini extends ConsumerWidget {
                 height: 40,
                 child: IconButton(
                   iconSize: 24,
-                  color: ink,
+                  color: scheme.onSurface,
                   onPressed: () => playGuarded(
                     context,
                     () => playing ? handler.pause() : handler.play(),

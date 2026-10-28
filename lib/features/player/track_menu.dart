@@ -242,7 +242,8 @@ class _MenuShell extends StatelessWidget {
       children: [
         Positioned.fill(
           child: LiquidGlassLens(
-            style: ArchGlass.menuMorphed(morph),
+            style: ArchGlass.menuMorphed(morph,
+                amoled: isAmoledScheme(context)),
             child: SizedBox.expand(),
           ),
         ),

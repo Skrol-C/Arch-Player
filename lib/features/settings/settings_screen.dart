@@ -8,6 +8,7 @@ import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
 import '../../core/glass.dart';
 import '../../core/log.dart';
+import '../../core/theme.dart';
 import '../library/library_providers.dart';
 import '../needle/download_page.dart';
 import '../needle/extensions_page.dart';
@@ -207,7 +208,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         automaticallyImplyLeading: false,
         titleSpacing: 4,
         title: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style:
+              ArchGlass.circle(radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: () => Navigator.of(context).maybePop(),
             icon: Icon(

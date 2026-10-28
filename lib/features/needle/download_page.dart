@@ -22,9 +22,11 @@ class DownloadPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
-          const Text(
+          Text(
             'Quality is picked on every download; pulls file under the Needle folder below.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
           const SizedBox(height: 12),
           ListTile(
@@ -33,7 +35,7 @@ class DownloadPage extends ConsumerWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.folder_rounded, color: archPink),
@@ -46,10 +48,12 @@ class DownloadPage extends ConsumerWidget {
               'Music/$root · Songs · Albums · Playlist',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
-            trailing:
-                const Icon(Icons.chevron_right_rounded, color: inkDim),
+            trailing: Icon(Icons.chevron_right_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             onTap: () async {
               HapticFeedback.selectionClick();
               final controller = TextEditingController(text: root);
@@ -93,7 +97,7 @@ class DownloadPage extends ConsumerWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.folder_rounded, color: archPink),
@@ -106,9 +110,12 @@ class DownloadPage extends ConsumerWidget {
               dir.isEmpty ? 'Default app music folder' : dir,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
-            trailing: const Icon(Icons.chevron_right_rounded, color: inkDim),
+            trailing: Icon(Icons.chevron_right_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             onTap: () async {
               HapticFeedback.selectionClick();
               try {

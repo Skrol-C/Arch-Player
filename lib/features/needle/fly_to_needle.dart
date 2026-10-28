@@ -2,7 +2,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/motion.dart';
-import '../../core/theme.dart';
 
 /// Fly-to-Needle: after a download tap confirms, the cover flies
 /// from the row to the Needle pill, shrinking + fading over
@@ -49,22 +48,29 @@ Future<void> flyToNeedle(
                     ? Container(
                         width: 48,
                         height: 48,
-                        color: paperRaised,
-                        child: const Icon(Icons.music_note_rounded,
-                            color: inkDim),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        child: Icon(Icons.music_note_rounded,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant),
                       )
                     : CachedNetworkImage(
                         imageUrl: art,
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => Container(
+                        errorWidget: (ctx, _, _) => Container(
                           width: 48,
                           height: 48,
-                          color: paperRaised,
-                          child: const Icon(
-                              Icons.music_note_rounded,
-                              color: inkDim),
+                          color: Theme.of(ctx)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          child: Icon(Icons.music_note_rounded,
+                              color: Theme.of(ctx)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
                       ),
               ),

@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/theme.dart';
 import '../needle/catalog_store.dart';
 import '../needle/needle_store.dart';
 import '../shell/dock.dart';
@@ -22,7 +21,7 @@ class CatalogPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -40,12 +39,15 @@ class CatalogPage extends ConsumerWidget {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -85,12 +87,12 @@ class _CatalogPane extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final entries = ref.watch(catalogProvider);
     if (entries.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.fromLTRB(24, 24, 24, 48),
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Nothing filed yet.',
               style: TextStyle(
                 fontFamily: 'ArchSerif',
@@ -99,10 +101,12 @@ class _CatalogPane extends ConsumerWidget {
                 letterSpacing: -0.5,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
               'Every pull files here with its date, provider and quality — albums and tracks, playlists later.',
-              style: TextStyle(color: inkDim, height: 1.5),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.5),
             ),
           ],
         ),
@@ -176,7 +180,7 @@ class _AlbumCard extends StatelessWidget {
         '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     return Container(
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
       ),
       clipBehavior: Clip.antiAlias,
@@ -192,8 +196,11 @@ class _AlbumCard extends StatelessWidget {
                     ? Container(
                         width: 56,
                         height: 56,
-                        color: paper,
-                        child: const Icon(Icons.album_outlined, color: inkDim),
+                        color: Theme.of(context).colorScheme.surface,
+                        child: Icon(Icons.album_outlined,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant),
                       )
                     : CachedNetworkImage(
                         memCacheWidth: 112,
@@ -204,13 +211,15 @@ class _AlbumCard extends StatelessWidget {
                         width: 56,
                         height: 56,
                         fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => Container(
+                        errorWidget: (ctx, _, _) => Container(
                           width: 56,
                           height: 56,
-                          color: paper,
-                          child: const Icon(
+                          color: Theme.of(ctx).colorScheme.surface,
+                          child: Icon(
                             Icons.album_outlined,
-                            color: inkDim,
+                            color: Theme.of(ctx)
+                                .colorScheme
+                                .onSurfaceVariant,
                           ),
                         ),
                       ),
@@ -228,7 +237,10 @@ class _AlbumCard extends StatelessWidget {
                 '${first.artist}  |  ${tracks.length} tracks  |  $when',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: inkDim, fontSize: 13),
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13),
               ),
             ),
           ),
@@ -250,7 +262,7 @@ class _EntryRow extends StatelessWidget {
     final quality = NeedleQualitiesLabel.of(entry.quality);
     return Container(
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Material(
@@ -263,8 +275,11 @@ class _EntryRow extends StatelessWidget {
                 ? Container(
                     width: 56,
                     height: 56,
-                    color: paper,
-                    child: const Icon(Icons.music_note_rounded, color: inkDim),
+                    color: Theme.of(context).colorScheme.surface,
+                    child: Icon(Icons.music_note_rounded,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant),
                   )
                 : CachedNetworkImage(
                     memCacheWidth: 112,
@@ -275,13 +290,15 @@ class _EntryRow extends StatelessWidget {
                     width: 56,
                     height: 56,
                     fit: BoxFit.cover,
-                    errorWidget: (_, _, _) => Container(
+                    errorWidget: (ctx, _, _) => Container(
                       width: 56,
                       height: 56,
-                      color: paper,
-                      child: const Icon(
+                      color: Theme.of(ctx).colorScheme.surface,
+                      child: Icon(
                         Icons.music_note_rounded,
-                        color: inkDim,
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -301,7 +318,9 @@ class _EntryRow extends StatelessWidget {
             ].where((String s) => s.isNotEmpty).join('  |  '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: inkDim, fontSize: 13),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13),
           ),
         ),
       ),

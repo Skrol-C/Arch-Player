@@ -44,26 +44,29 @@ class PlayerScreen extends ConsumerWidget {
     final song = ref.watch(currentSongProvider).value;
     if (song == null) {
       return Scaffold(
-        backgroundColor: paper,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: SafeArea(
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(CupertinoIcons.music_note, color: inkDim, size: 64),
+                Icon(CupertinoIcons.music_note,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 64),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Nothing playing',
                   style: TextStyle(
-                    color: ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Pick a song from the library',
-                  style: TextStyle(color: inkDim),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 16),
                 TextButton(
@@ -83,16 +86,19 @@ class PlayerScreen extends ConsumerWidget {
       );
     }
     // Adaptive artwork wash: crossfades per track (their 380ms -
-    // calm, not sluggish). Paper fallback, never the accent.
+    // calm, not sluggish). Dark-aware: AMOLED pulls toward #000 so
+    // the page stays black and light text keeps its contrast.
     final palette = ref.watch(playerPaletteProvider).value;
-    final wash = playerWashOf(palette);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final wash = playerWashOf(palette,
+        dark: dark, amoled: isAmoledScheme(context));
     final tones = _lowEndTones(palette);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
       ),
       child: Scaffold(
-        backgroundColor: paper,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: AnimatedContainer(
           duration: Motion.reduced(context)
               ? Duration.zero
@@ -139,14 +145,16 @@ class PlayerScreen extends ConsumerWidget {
 
 /// Low-end gradient tones, borrowed straight from the cover: the
 /// bloom is the palette's vibrant pick, the depth is its wash pulled
-/// most of the way to ink. No accent mixing anywhere — a blue cover
+/// toward the page ink. No accent mixing anywhere — a blue cover
 /// blooms blue. Null palette (nothing playing art yet) falls back to
-/// a neutral ink fade.
+/// a neutral dark fade.
 ({Color bloom, Color depth}) _lowEndTones(ArtPalette? palette) {
-  if (palette == null) return (bloom: Colors.transparent, depth: ink);
+  if (palette == null) {
+    return (bloom: Colors.transparent, depth: Colors.black);
+  }
   return (
     bloom: palette.vibrant,
-    depth: Color.lerp(palette.wash, ink, 0.55)!,
+    depth: Color.lerp(palette.wash, Colors.black, 0.55)!,
   );
 }
 
@@ -342,7 +350,7 @@ class _CompactHeader extends ConsumerWidget {
                   song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: inkDim, fontSize: 13),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
                 ),
               ],
             ),
@@ -490,20 +498,25 @@ class _TopBar extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: inkDim.withValues(alpha: 0.35),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurfaceVariant
+                  .withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           Align(
             alignment: Alignment.centerRight,
             child: LiquidGlassLens(
-              style: ArchGlass.circle(radius: 24),
+              style: ArchGlass.circle(
+                  radius: 24, amoled: isAmoledScheme(context)),
               touch: ArchGlass.lensTouch(),
               child: SizedBox(
                 width: 48,
                 height: 48,
                 child: IconButton(
-                  icon: const Icon(CupertinoIcons.ellipsis, color: ink),
+                  icon: Icon(CupertinoIcons.ellipsis,
+                      color: Theme.of(context).colorScheme.onSurface),
                   iconSize: 26,
                   onPressed: onMore == null
                       ? null
@@ -1083,7 +1096,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(color: inkDim),
+                                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1157,7 +1170,9 @@ class _Transport extends ConsumerWidget {
         children: [
           IconButton(
             iconSize: 26,
-            color: shuffle ? archPink : inkDim,
+            color: shuffle
+                ? archPink
+                : Theme.of(context).colorScheme.onSurfaceVariant,
             tooltip: 'Shuffle',
             onPressed: () {
               HapticFeedback.selectionClick();
@@ -1170,7 +1185,7 @@ class _Transport extends ConsumerWidget {
           ),
           IconButton(
             iconSize: 44,
-            color: ink,
+            color: Theme.of(context).colorScheme.onSurface,
             onPressed: () =>
                 playGuarded(context, () => handler.skipToPrevious()),
             icon: MorphIcon(
@@ -1196,7 +1211,7 @@ class _Transport extends ConsumerWidget {
           ),
           IconButton(
             iconSize: 44,
-            color: ink,
+            color: Theme.of(context).colorScheme.onSurface,
             onPressed: () => playGuarded(context, () => handler.skipToNext()),
             icon: MorphIcon(
               iconKey: 'next',
@@ -1205,7 +1220,9 @@ class _Transport extends ConsumerWidget {
           ),
           IconButton(
             iconSize: 26,
-            color: loop == LoopMode.off ? inkDim : archPink,
+            color: loop == LoopMode.off
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                : archPink,
             tooltip: 'Repeat',
             onPressed: () {
               HapticFeedback.selectionClick();
@@ -1307,7 +1324,9 @@ class _UtilityAction extends StatelessWidget {
       height: 48,
       child: IconButton(
         iconSize: 26,
-        color: selected ? archPink : ink,
+        color: selected
+            ? archPink
+            : Theme.of(context).colorScheme.onSurface,
         tooltip: tooltip,
         onPressed: onTap == null
             ? null
@@ -1360,7 +1379,9 @@ class _QueuePanel extends ConsumerWidget {
                 icon: Icon(
                   CupertinoIcons.infinite,
                   size: 20,
-                  color: automix ? archPink : inkDim,
+                  color: automix
+                      ? archPink
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 tooltip: 'Automix',
                 active: automix,
@@ -1396,7 +1417,9 @@ class _QueuePanel extends ConsumerWidget {
                 icon: Icon(
                   CupertinoIcons.arrow_2_circlepath,
                   size: 20,
-                  color: autoplay ? archPink : inkDim,
+                  color: autoplay
+                      ? archPink
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 tooltip: 'Autoplay',
                 active: autoplay,
@@ -1431,10 +1454,11 @@ class _QueuePanel extends ConsumerWidget {
         ),
         Expanded(
           child: queue.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'Queue is empty - play something.',
-                    style: TextStyle(color: inkDim),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 )
               : ReorderableListView.builder(
@@ -1449,7 +1473,8 @@ class _QueuePanel extends ConsumerWidget {
                   },
                   proxyDecorator: (child, _, _) => Material(
                     elevation: 4,
-                    color: paper,
+                    color:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                     child: child,
                   ),
@@ -1508,7 +1533,9 @@ class _QueuePanel extends ConsumerWidget {
                             fontWeight: current
                                 ? FontWeight.bold
                                 : FontWeight.normal,
-                            color: current ? archPink : ink,
+                            color: current
+                                ? archPink
+                                : Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         subtitle: Row(
@@ -1518,8 +1545,10 @@ class _QueuePanel extends ConsumerWidget {
                                 song.artist,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: inkDim,
+                                style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   fontSize: 13,
                                 ),
                               ),
@@ -1529,11 +1558,13 @@ class _QueuePanel extends ConsumerWidget {
                         ),
                         trailing: ReorderableDragStartListener(
                           index: i,
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
                             child: Icon(
                               CupertinoIcons.line_horizontal_3,
-                              color: inkDim,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                           ),
                         ),
@@ -1617,14 +1648,18 @@ class _PanelModeBtn extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: active ? archPink.withValues(alpha: 0.14) : paperRaised,
+          color: active
+              ? archPink.withValues(alpha: 0.14)
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
           shape: BoxShape.circle,
         ),
         child: Center(
           child: IconTheme(
             data: IconThemeData(
               size: 20,
-              color: active ? archPink : inkDim,
+              color: active
+                  ? archPink
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             child: icon,
           ),
@@ -1717,7 +1752,9 @@ class _SleepOption extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       title: Text(
         _label(d),
-        style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontWeight: FontWeight.w600),
       ),
       trailing: selected
           ? const Icon(CupertinoIcons.checkmark, color: archPink)

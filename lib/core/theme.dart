@@ -134,15 +134,50 @@ double voiceSpacing(String voice) => switch (voice) {
   _ => 0.0,
 };
 
-/// AMOLED tokens: pure-black surfaces so OLED pixels stay off.
-/// Borders and body text separate by tone, never by glow — no
-/// shadows, no translucency. Borderline greys are deliberately
-/// lifted so hairlines survive on true black.
+/// Scheme helpers: pages must read the scheme, never the light consts
+/// directly. `paper`/`ink` are light-mode values — hardcoding them pins
+/// white-on-white in AMOLED while theme-aware text goes light.
+bool isAmoledScheme(BuildContext context) =>
+    Theme.of(context).scaffoldBackgroundColor == amoledBlack;
+
+/// Dark-aware wash: artwork tone pulled toward the page background,
+/// contrast-clamped at 4.5:1 against the page text color. Light pulls
+/// toward paper for ink text; dark pulls toward the scaffold for light
+/// text. Same pull depth either way so the color survives, not rinses.
+Color archWashOf(Color? tone, {required bool dark, required bool amoled}) {
+  final bg = amoled ? amoledBlack : (dark ? night : paper);
+  final fallback =
+      amoled ? amoledRaised : (dark ? nightRaised : paperRaised);
+  final text = amoled ? amoledInk : (dark ? moon : ink);
+  final base = tone ?? fallback;
+  // Dark pages sit closer to the tone (tone-on-black needs less pull
+  // to keep its color than tone-on-white does to stay readable).
+  var pull = dark ? 0.55 : 0.3;
+  var wash = Color.lerp(base, bg, pull)!;
+  while (pull < 1.0 && _washContrast(text, wash) < 4.5) {
+    pull += 0.05;
+    wash = Color.lerp(base, bg, pull)!;
+  }
+  return wash;
+}
+
+double _washContrast(Color a, Color b) {
+  final l1 = a.computeLuminance() + 0.05;
+  final l2 = b.computeLuminance() + 0.05;
+  return l1 > l2 ? l1 / l2 : l2 / l1;
+}
+
+/// AMOLED tokens: pure-black scaffold so OLED pixels stay off.
+/// Moryne mechanism, own palette: the page is #000, every lifted
+/// surface keeps its container tier so it separates from the page.
+/// No shadows on black — depth reads via 1px stroke + tone lift.
 const amoledBlack = Color(0xFF000000);
-const amoledRaised = Color(0xFF0A0A0C);
-const amoledLine = Color(0xFF2A2A2E);
+const amoledRaised = Color(0xFF1C1C1E);
+const amoledHigh = Color(0xFF2C2C2E);
+const amoledHighest = Color(0xFF3A3A3C);
+const amoledLine = Color(0xFF38383A);
 const amoledInk = Color(0xFFF5F5F7);
-const amoledDim = Color(0xFFA1A1A6);
+const amoledDim = Color(0xFF98989F);
 
 ThemeData archTheme() {
   final base = ThemeData.light(useMaterial3: true);
@@ -160,24 +195,77 @@ ThemeData archTheme() {
 }
 
 /// Dark themes: `amoled=false` is the soft raised dark; `amoled=true`
-/// is pure #000 for OLED power saving. Both keep pink-red as the
+/// is pure #000 for OLED power saving (Moryne mechanism: black scaffold,
+/// container tiers kept, surface tint killed). Both keep pink-red as the
 /// single accent and body text at full tone for separation.
 ThemeData archDarkTheme({bool amoled = false}) {
   final base = ThemeData.dark(useMaterial3: true);
   final bg = amoled ? amoledBlack : night;
   final raised = amoled ? amoledRaised : nightRaised;
+  final high = amoled ? amoledHigh : const Color(0xFF2C2C2E);
   final body = amoled ? amoledInk : moon;
   final dim = amoled ? amoledDim : moonDim;
+  final line = amoled ? amoledLine : const Color(0xFF3A3A40);
+  final scheme = ColorScheme.dark(
+    primary: archPink,
+    surface: bg,
+    surfaceContainerLowest: bg,
+    surfaceContainerLow: raised,
+    surfaceContainer: raised,
+    surfaceContainerHigh: high,
+    surfaceContainerHighest: amoled ? amoledHighest : const Color(0xFF3A3A40),
+    onSurface: body,
+    onSurfaceVariant: dim,
+    outline: line,
+    outlineVariant: line,
+    surfaceTint: Colors.transparent,
+  );
+  final text = base.textTheme.apply(bodyColor: body, displayColor: body);
   return base.copyWith(
     scaffoldBackgroundColor: bg,
-    colorScheme: ColorScheme.dark(
-      primary: archPink,
-      surface: bg,
-      surfaceContainerHighest: raised,
-      onSurface: body,
-      onSurfaceVariant: dim,
-      outline: amoled ? amoledLine : const Color(0xFF3A3A40),
+    colorScheme: scheme,
+    textTheme: text,
+    // Moryne mechanism: no tint lift on black, no shadow elevation.
+    // Bar + sheets stay on the container tier so they part from #000.
+    appBarTheme: AppBarTheme(
+      backgroundColor: bg,
+      foregroundColor: body,
+      elevation: 0,
+      scrolledUnderElevation: amoled ? 0 : 3,
+      surfaceTintColor: Colors.transparent,
+      centerTitle: true,
     ),
-    textTheme: base.textTheme.apply(bodyColor: body, displayColor: body),
+    cardTheme: CardThemeData(color: raised, elevation: 0),
+    dividerTheme: DividerThemeData(
+      color: line,
+      thickness: 0.5,
+      space: 0.5,
+    ),
+    listTileTheme: const ListTileThemeData(
+      contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: raised,
+      surfaceTintColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 640),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    dialogTheme: DialogThemeData(backgroundColor: raised, elevation: 0),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: high,
+      contentTextStyle: TextStyle(color: body, fontSize: 15),
+      elevation: 0,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: raised,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+    ),
   );
 }

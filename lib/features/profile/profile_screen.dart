@@ -22,21 +22,25 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final songsAsync = ref.watch(songsProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: scheme.surface,
       appBar: AppBar(
-        backgroundColor: paper,
-        foregroundColor: ink,
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
         titleSpacing: 4,
         title: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style:
+              ArchGlass.circle(radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: () => Navigator.of(context).maybePop(),
-            icon:
-                const Icon(CupertinoIcons.chevron_left, color: ink),
+            icon: Icon(
+              CupertinoIcons.chevron_left,
+              color: scheme.onSurface,
+            ),
           ),
         ),
       ),
@@ -75,6 +79,7 @@ class ProfileScreen extends ConsumerWidget {
 
   Widget _head(BuildContext context, WidgetRef ref) {
     final pic = ref.watch(profilePicProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
@@ -88,7 +93,7 @@ class ProfileScreen extends ConsumerWidget {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    color: paperRaised,
+                    color: scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(36),
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -98,15 +103,15 @@ class ProfileScreen extends ConsumerWidget {
                           width: 72,
                           height: 72,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const Icon(
+                          errorBuilder: (_, _, _) => Icon(
                             CupertinoIcons.person_fill,
-                            color: inkDim,
+                            color: scheme.onSurfaceVariant,
                             size: 34,
                           ),
                         )
-                      : const Icon(
+                      : Icon(
                           CupertinoIcons.person_fill,
-                          color: inkDim,
+                          color: scheme.onSurfaceVariant,
                           size: 34,
                         ),
                 ),
@@ -131,11 +136,11 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Your Library',
                   style: TextStyle(
                     fontFamily: 'ArchSerif',
@@ -146,7 +151,8 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 Text(
                   'Taste, stats, settings',
-                  style: TextStyle(color: inkDim, fontSize: 13),
+                  style: TextStyle(
+                      color: scheme.onSurfaceVariant, fontSize: 13),
                 ),
               ],
             ),
@@ -156,8 +162,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _stats(BuildContext context, WidgetRef ref, List<Song> songs) {
-    final artists = {
+  Widget _stats(BuildContext context, WidgetRef ref, List<Song> songs) {    final artists = {
       for (final s in songs)
         if (s.artist.trim().isNotEmpty &&
             !isUnknownSlot(s.artist))
@@ -169,15 +174,16 @@ class ProfileScreen extends ConsumerWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _stat('${songs.length}', 'Songs'),
-            _stat('${artists.length}', 'Artists'),
+            _stat(context, '${songs.length}', 'Songs'),
+            _stat(context, '${artists.length}', 'Artists'),
             _stat(
+                context,
                 '${songs.where((s) => s.albumId > 0).map((s) => s.albumId).toSet().length}',
                 'Albums'),
           ],
@@ -186,7 +192,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _stat(String value, String label) {
+  Widget _stat(BuildContext context, String value, String label) {
     return Column(
       children: [
         Text(
@@ -199,7 +205,9 @@ class ProfileScreen extends ConsumerWidget {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(color: inkDim, fontSize: 12),
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12),
         ),
       ],
     );
@@ -241,12 +249,13 @@ class ProfileScreen extends ConsumerWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           children: [
-            Icon(icon, color: ink, size: 22),
+            Icon(icon,
+                color: Theme.of(context).colorScheme.onSurface, size: 22),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -259,14 +268,18 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   Text(
                     subtitle,
-                    style:
-                        const TextStyle(color: inkDim, fontSize: 13),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        fontSize: 13),
                   ),
                 ],
               ),
             ),
-            const Icon(CupertinoIcons.chevron_right,
-                color: inkDim, size: 18),
+            Icon(CupertinoIcons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 18),
           ],
         ),
       ),

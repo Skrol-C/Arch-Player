@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
-import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import '../shell/dock.dart';
@@ -87,7 +86,7 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
     final artists = _matchArtists(songs, q);
     final albums = _matchAlbums(songs, q);
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -105,12 +104,15 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -119,17 +121,21 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                           child: SearchBar(
                             controller: _controller,
                             hintText: 'Search library',
-                            backgroundColor: const WidgetStatePropertyAll(
-                              paperRaised,
+                            backgroundColor: WidgetStatePropertyAll(
+                              Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                             ),
                             elevation: const WidgetStatePropertyAll(0),
                             onChanged: _onChanged,
                             trailing: [
                               IconButton(
                                 tooltip: 'Sort',
-                                icon: const Icon(
+                                icon: Icon(
                                   CupertinoIcons.arrow_up_down,
-                                  color: inkDim,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   size: 20,
                                 ),
                                 onPressed: () async {
@@ -166,24 +172,31 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 16)),
                 if (q.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 48),
+                      padding: const EdgeInsets.symmetric(horizontal: 48),
                       child: Text(
                         'Songs, artists and albums on this phone — no providers, no waiting.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: inkDim, height: 1.5),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            height: 1.5),
                       ),
                     ),
                   )
                 else if (ordered.isEmpty && artists.isEmpty && albums.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Center(
                       child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32),
+                        padding: const EdgeInsets.symmetric(vertical: 32),
                         child: Text(
                           'Nothing here matches.',
-                          style: TextStyle(color: inkDim),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
                       ),
                     ),
@@ -231,10 +244,14 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                                       radius: 0,
                                     )
                                   : Container(
-                                      color: paperRaised,
-                                      child: const Icon(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest,
+                                      child: Icon(
                                         CupertinoIcons.person_fill,
-                                        color: inkDim,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
                                       ),
                                     ),
                             ),
@@ -247,11 +264,16 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                           ),
                           subtitle: Text(
                             '${a.count} song${a.count == 1 ? '' : 's'}',
-                            style: const TextStyle(color: inkDim),
+                            style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
                           ),
-                          trailing: const Icon(
+                          trailing: Icon(
                             CupertinoIcons.chevron_right,
-                            color: inkDim,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
                             size: 18,
                           ),
                           onTap: () => ArtistPage.openIfAbsent(context, a.name),
@@ -308,8 +330,10 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                                 Text(
                                   a.album.artist,
                                   maxLines: 1,
-                                  style: const TextStyle(
-                                    color: inkDim,
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                     fontSize: 13,
                                   ),
                                 ),

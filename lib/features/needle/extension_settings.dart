@@ -27,8 +27,10 @@ class ExtensionSettingsPage extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(manifest.description,
-                  style:
-                      const TextStyle(color: inkDim, height: 1.5)),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      height: 1.5)),
             ),
           for (final s in manifest.settings)
             _SettingRow(manifestId: manifest.name, setting: s),
@@ -93,8 +95,10 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
           subtitle: s.description.isEmpty
               ? null
               : Text(s.description,
-                  style: const TextStyle(
-                      color: inkDim, fontSize: 13)),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13)),
           trailing: ArchSwitch(
             value: _value == 'true',
             onChanged: (on) {
@@ -110,9 +114,11 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
               style: const TextStyle(fontWeight: FontWeight.w600)),
           subtitle: Text(
               _value!.isEmpty ? s.options.first : _value!,
-              style: const TextStyle(color: inkDim, fontSize: 13)),
-          trailing:
-              const Icon(Icons.chevron_right_rounded, color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13)),
+          trailing: Icon(Icons.chevron_right_rounded,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
           onTap: () async {
             HapticFeedback.selectionClick();
             final picked = await showDialog<String>(
@@ -128,7 +134,7 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
                           style: TextStyle(
                               color: o == _value
                                   ? archPink
-                                  : ink,
+                                  : Theme.of(context).colorScheme.onSurface,
                               fontWeight: o == _value
                                   ? FontWeight.w700
                                   : FontWeight.w400)),
@@ -150,9 +156,11 @@ class _SettingRowState extends ConsumerState<_SettingRow> {
                       ? 'Tap to set'
                       : s.description)
                   : _value!,
-              style: const TextStyle(color: inkDim, fontSize: 13)),
-          trailing:
-              const Icon(Icons.chevron_right_rounded, color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13)),
+          trailing: Icon(Icons.chevron_right_rounded,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
           onTap: () async {
             HapticFeedback.selectionClick();
             final controller = TextEditingController(text: _value);

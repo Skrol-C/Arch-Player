@@ -279,7 +279,7 @@ class _SongPageState extends ConsumerState<SongPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         centerTitle: true,
         title: const Text(
@@ -294,20 +294,22 @@ class _SongPageState extends ConsumerState<SongPage> {
         leading: IconButton(
           tooltip: 'Back',
           onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.arrow_back_rounded, color: ink),
+          icon: Icon(Icons.arrow_back_rounded,
+              color: Theme.of(context).colorScheme.onSurface),
         ),
         actions: [
           if (_r.owned != null)
             IconButton(
               tooltip: 'Delete track',
               onPressed: () => _delete(context, ref, _r.owned!),
-              icon: const Icon(CupertinoIcons.trash, color: ink),
+              icon: Icon(CupertinoIcons.trash,
+                  color: Theme.of(context).colorScheme.onSurface),
             ),
           IconButton(
             tooltip: 'Options',
             onPressed: () => _openMenu(context, ref),
-            icon:
-                const Icon(Icons.more_horiz_rounded, color: ink),
+            icon: Icon(Icons.more_horiz_rounded,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
         ],
       ),
@@ -373,7 +375,12 @@ class _Dots extends StatelessWidget {
               height: 7,
               margin: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(
-                color: page == i ? archPink : ink.withValues(alpha: 0.15),
+                color: page == i
+                    ? archPink
+                    : Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -475,7 +482,8 @@ Future<bool?> showCoverSheet(BuildContext context, Song song) {
     builder: (_) => Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: LiquidGlassLens(
-        style: ArchGlass.sheet(radius: 28),
+        style:
+            ArchGlass.sheet(radius: 28, amoled: isAmoledScheme(context)),
         child: _CoverPickerSheet(song: song),
       ),
     ),
@@ -559,9 +567,9 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
             ),
           )
         : cands.isEmpty
-            ? const Text(
+            ? Text(
                 'No covers found anywhere.',
-                style: TextStyle(color: inkDim, fontSize: 14),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
               )
             : Column(
                 mainAxisSize: MainAxisSize.min,
@@ -583,8 +591,11 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
                   if (_status != null) ...[
                     const SizedBox(height: 8),
                     Text(_status!,
-                        style: const TextStyle(
-                            color: inkDim, fontSize: 13)),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 13)),
                   ],
                   if (_applying) ...[
                     const SizedBox(height: 8),
@@ -606,7 +617,10 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: ink.withValues(alpha: 0.15),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -681,25 +695,31 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
             width: double.infinity,
             child: failed
                 ? Container(
-                    color: paperRaised,
-                    child: const Icon(Icons.album_outlined,
-                        color: inkDim, size: 48),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: Icon(Icons.album_outlined,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        size: 48),
                   )
                 : CachedNetworkImage(
                     imageUrl: cand.url,
                     memCacheWidth: 800,
                     fit: BoxFit.cover,
                     placeholder: (_, _) => Container(
-                      color: paperRaised,
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       child: const Center(
                         child: CircularProgressIndicator(
                             color: archPink, strokeWidth: 2),
                       ),
                     ),
                     errorWidget: (_, _, _) => Container(
-                      color: paperRaised,
-                      child: const Icon(Icons.album_outlined,
-                          color: inkDim, size: 48),
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: Icon(Icons.album_outlined,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                          size: 48),
                     ),
                   ),
           ),
@@ -722,14 +742,19 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
               _chip('${info.width} × ${info.height}'),
               _chip(formatArtBytes(info.bytes)),
             ] else if (failed)
-              const Text("couldn't load",
-                  style: TextStyle(color: inkDim, fontSize: 12))
+              Text("couldn't load",
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12))
             else
-              const SizedBox(
+              SizedBox(
                 height: 12,
                 width: 12,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: inkDim),
+                    strokeWidth: 2,
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
@@ -775,22 +800,28 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
                   placeholder: (_, _) => Container(
                     width: 84,
                     height: 84,
-                    color: paperRaised,
-                    child: const Center(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: Center(
                       child: SizedBox(
                         height: 14,
                         width: 14,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: inkDim),
+                            strokeWidth: 2,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant),
                       ),
                     ),
                   ),
                   errorWidget: (_, _, _) => Container(
                     width: 84,
                     height: 84,
-                    color: paperRaised,
-                    child: const Icon(Icons.album_outlined,
-                        color: inkDim, size: 28),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: Icon(Icons.album_outlined,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        size: 28),
                   ),
                 ),
               ),
@@ -806,7 +837,9 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: selected ? ink : inkDim,
+                  color: selected
+                      ? Theme.of(context).colorScheme.onSurface
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -817,16 +850,17 @@ class _CoverPickerDialogState extends ConsumerState<_CoverPickerSheet> {
   }
 
   Widget _chip(String text, {bool hot = false}) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: hot ? archPink : paperRaised,
+        color: hot ? archPink : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         text,
         style: TextStyle(
-          color: hot ? Colors.white : inkDim,
+          color: hot ? Colors.white : scheme.onSurfaceVariant,
           fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
@@ -926,7 +960,7 @@ class _Hero extends ConsumerWidget {
           width: 320,
           height: 320,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _artFallback(),
+          errorBuilder: (ctx, _, _) => _artFallback(ctx),
         ),
       );
     } else if (owned != null && owned.albumId > 0) {
@@ -948,11 +982,11 @@ class _Hero extends ConsumerWidget {
           width: 320,
           height: 320,
           fit: BoxFit.cover,
-          errorWidget: (_, _, _) => _artFallback(),
+          errorWidget: (ctx, _, _) => _artFallback(ctx),
         ),
       );
     } else {
-      art = _artFallback();
+      art = _artFallback(context);
     }
     Album? ownedAlbum;
     if (owned != null) {
@@ -1017,7 +1051,7 @@ class _Hero extends ConsumerWidget {
                   padding: const EdgeInsets.only(
                       left: 4, right: 16, top: 4, bottom: 4),
                   decoration: BoxDecoration(
-                    color: paperRaised,
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -1073,11 +1107,11 @@ class _Hero extends ConsumerWidget {
                                   width: 44,
                                   height: 44,
                                   fit: BoxFit.cover,
-                                  errorWidget: (_, _, _) =>
-                                      _miniArtFallback(),
+                                  errorWidget: (ctx, _, _) =>
+                                      _miniArtFallback(ctx),
                                 ),
                               )
-                            : _miniArtFallback(),
+                            : _miniArtFallback(context),
                   ),
                   const SizedBox(width: 10),
                   Flexible(
@@ -1086,7 +1120,11 @@ class _Hero extends ConsumerWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: oa == null ? inkDim : archPink,
+                        color: oa == null
+                            ? Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant
+                            : archPink,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1125,26 +1163,28 @@ class _Hero extends ConsumerWidget {
     );
   }
 
-  static Widget _artFallback() => Container(
+  Widget _artFallback(BuildContext context) => Container(
         width: 320,
         height: 320,
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(32),
         ),
-        child:
-            const Icon(CupertinoIcons.music_note, color: inkDim, size: 112),
+        child: Icon(CupertinoIcons.music_note,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 112),
       );
 
-  static Widget _miniArtFallback() => Container(
+  Widget _miniArtFallback(BuildContext context) => Container(
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
         ),
-        child:
-            const Icon(CupertinoIcons.music_note, color: inkDim, size: 22),
+        child: Icon(CupertinoIcons.music_note,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 22),
       );
 }
 
@@ -1201,8 +1241,8 @@ class _MakerPic extends ConsumerWidget {
     Widget fallback() => Container(
           width: size,
           height: size,
-          decoration: const BoxDecoration(
-            color: paper,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             shape: BoxShape.circle,
           ),
           alignment: Alignment.center,
@@ -1242,16 +1282,17 @@ class _ExplicitMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        border: Border.all(color: inkDim, width: 1.4),
+        border: Border.all(color: scheme.onSurfaceVariant, width: 1.4),
         borderRadius: BorderRadius.circular(5),
       ),
-      child: const Text(
+      child: Text(
         'EXPLICIT',
         style: TextStyle(
-          color: inkDim,
+          color: scheme.onSurfaceVariant,
           fontSize: 10,
           fontWeight: FontWeight.w800,
           letterSpacing: 1.2,
@@ -1443,14 +1484,16 @@ class _ControlsState extends ConsumerState<_Controls> {
               SharePlus.instance.share(ShareParams(text: text));
             }
           },
-          icon: const Icon(Icons.share_outlined, color: ink),
+          icon: Icon(Icons.share_outlined,
+              color: Theme.of(context).colorScheme.onSurface),
         ),
         const SizedBox(width: 4),
         IconButton(
           tooltip: 'Artist',
           onPressed: () =>
               ArtistPage.openIfAbsent(context, primaryArtist(r.artist)),
-          icon: const Icon(Icons.person_outline_rounded, color: ink),
+          icon: Icon(Icons.person_outline_rounded,
+              color: Theme.of(context).colorScheme.onSurface),
         ),
       ],
     );
@@ -1510,20 +1553,20 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
               ),
             ),
           ),
-          error: (_, _) => const Text(
+          error: (_, _) => Text(
             'Makers unavailable right now.',
-            style: TextStyle(color: inkDim, fontSize: 14),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
           ),
           data: (credits) {
             if (credits.isEmpty) {
-              return const Text(
+              return Text(
                 'No makers known for this one yet.',
-                style: TextStyle(color: inkDim, fontSize: 14),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
               );
             }
             return Container(
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(18),
               ),
               clipBehavior: Clip.antiAlias,
@@ -1532,12 +1575,15 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                   for (var i = 0; i < credits.length; i++) ...[
                     _creditRow(credits[i], r),
                     if (i < credits.length - 1)
-                      const Divider(
+                      Divider(
                         height: 1,
                         thickness: 1,
                         indent: 68,
                         endIndent: 16,
-                        color: Color(0x140B0B0D),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.08),
                       ),
                   ],
                 ],
@@ -1577,7 +1623,7 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                 : '${c.role}  |  ${matches.length} in your library',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: inkDim, fontSize: 13),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
           ),
           trailing: matches.isEmpty
               ? null
@@ -1585,7 +1631,7 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                   open
                       ? Icons.expand_less_rounded
                       : Icons.expand_more_rounded,
-                  color: inkDim,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
           onTap: matches.isEmpty
               ? null
@@ -1615,7 +1661,7 @@ class _MakersPageState extends ConsumerState<_MakersPage> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
-                    const TextStyle(color: inkDim, fontSize: 12),
+                    TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
               ),
               trailing: const Icon(Icons.play_arrow_rounded,
                   color: archPink),
@@ -1678,28 +1724,28 @@ class _LyricsCard extends ConsumerWidget {
               ),
             ),
           ),
-          error: (_, _) => const Text(
+          error: (_, _) => Text(
             'Lyrics unavailable right now.',
-            style: TextStyle(color: inkDim, fontSize: 14),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
           ),
           data: (doc) {
             if (doc.instrumental && !doc.hasSynced && !doc.hasPlain) {
-              return const Text(
+              return Text(
                 'Instrumental - no words to show.',
-                style: TextStyle(color: inkDim, fontSize: 14),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
               );
             }
             final preview = _preview(doc.syncedLrc, doc.plain);
             if (preview.isEmpty) {
-              return const Text(
+              return Text(
                 'No lyrics for this track yet.',
-                style: TextStyle(color: inkDim, fontSize: 14),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
               );
             }
             return Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(18),
               ),
               padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
@@ -1708,8 +1754,10 @@ class _LyricsCard extends ConsumerWidget {
                 children: [
                   Text(
                     preview,
-                    style: const TextStyle(
-                        color: ink, fontSize: 16, height: 1.7),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 16,
+                        height: 1.7),
                   ),
                   Align(
                     alignment: Alignment.centerRight,
@@ -1724,12 +1772,15 @@ class _LyricsCard extends ConsumerWidget {
                               ),
                             ),
                           )
-                        : const Padding(
-                            padding: EdgeInsets.only(bottom: 8),
+                        : Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               'Pull it to follow along in the player.',
                               style: TextStyle(
-                                  color: inkDim, fontSize: 12),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  fontSize: 12),
                             ),
                           ),
                   ),
@@ -1877,7 +1928,7 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            color: paperRaised,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(18),
           ),
           padding:
@@ -1960,7 +2011,11 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
                     showMusical
                         ? CupertinoIcons.eye_fill
                         : CupertinoIcons.eye_slash_fill,
-                    color: showMusical ? archPink : inkDim,
+                    color: showMusical
+                        ? archPink
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
                     size: 20,
                   ),
                 ),
@@ -1983,8 +2038,8 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
                     ].join('  ·  '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: ink,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                     ),
@@ -2015,17 +2070,18 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
                 const SizedBox(width: 8),
                 Text(
                   '${tagRows.length}',
-                  style: const TextStyle(color: inkDim, fontSize: 14),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
                 ),
                 const Spacer(),
                 AnimatedRotation(
                   turns: _tagsOpen ? 0.5 : 0,
                   duration: reduce ? Duration.zero : Motion.stateChange,
                   curve: Motion.arrival,
-                  child: const Icon(
+                  child: Icon(
                     CupertinoIcons.chevron_down,
                     size: 18,
-                    color: inkDim,
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -2041,7 +2097,7 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
             secondChild: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(18),
               ),
               padding:
@@ -2076,7 +2132,7 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
     return (bpm - r).abs() < 0.05 ? '${r.toInt()}' : bpm.toStringAsFixed(1);
   }
 
-  static Widget _factRow(String k, String v) {
+  Widget _factRow(String k, String v) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -2086,7 +2142,7 @@ class _MetaCardState extends ConsumerState<_MetaCard> {
             width: 96,
             child: Text(
               k,
-              style: const TextStyle(color: inkDim, fontSize: 14),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
             ),
           ),
           const SizedBox(width: 12),
@@ -2108,10 +2164,11 @@ class _FactDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(
+    return Divider(
       height: 1,
       thickness: 1,
-      color: Color(0x140B0B0D),
+      color:
+          Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
     );
   }
 }

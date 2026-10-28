@@ -21,33 +21,39 @@ class NeedleTeaser extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Music, gotten inside the app. Sources plug in as providers - no second app needed.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: paperRaised,
+              color:
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'How it will work',
                   style: TextStyle(
                     color: archPink,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
                   'Search a source, pick quality up to lossless, queue it, '
                   'and find it tagged in your library. One built-in provider '
                   'proves the system; the community adds the rest.',
-                  style: TextStyle(color: inkDim, height: 1.5),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      height: 1.5),
                 ),
               ],
             ),

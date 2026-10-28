@@ -139,14 +139,14 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
       },
       child: TweenAnimationBuilder<Color?>(
       tween: ColorTween(
-        begin: _washOf(null),
-        end: _washTarget ?? _washOf(null),
+        begin: _washOf(context, null),
+        end: _washTarget ?? _washOf(context, null),
       ),
       duration: Motion.reduced(context)
           ? Duration.zero
           : const Duration(milliseconds: 400),
       builder: (context, wash, _) {
-        final page = wash ?? _washOf(null);
+        final page = wash ?? _washOf(context, null);
         // Clearance follows the docked unit so content never slides
         // under it - same rule as the library. Select mode owns the
         // bottom edge: the sheet replaces the pill.
@@ -427,10 +427,11 @@ class _HeroState extends State<_Hero> {
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style: ArchGlass.circle(radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: widget.onBack,
-            icon: const Icon(Icons.arrow_back, color: ink),
+            icon: Icon(Icons.arrow_back,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ),
@@ -475,7 +476,7 @@ class _HeroState extends State<_Hero> {
                           widget.imageUrl != null &&
                           _reportedUrl != widget.imageUrl) {
                         _reportedUrl = widget.imageUrl;
-                        final toneWash = _washOf(snap.data?.wash);
+                        final toneWash = _washOf(context, snap.data?.wash);
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           widget.onWash?.call(toneWash);
                         });
@@ -510,8 +511,8 @@ class _HeroState extends State<_Hero> {
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ink,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
@@ -596,9 +597,10 @@ class _HeroState extends State<_Hero> {
       builder: (context, snap) {
         final palette = snap.data;
         final hasPhoto = widget.imageUrl != null;
+        final scheme = Theme.of(context).colorScheme;
         var color = Colors.white;
         if (!hasPhoto) {
-          color = ink;
+          color = scheme.onSurface;
         } else if (palette != null) {
           final vibrant = palette.vibrant;
           final close =
@@ -637,15 +639,17 @@ class _HeroState extends State<_Hero> {
         imageUrl: widget.imageUrl!,
         fit: BoxFit.cover,
         memCacheWidth: 800,
-        errorWidget: (_, _, _) => Container(color: paperRaised),
+        errorWidget: (_, _, _) => Container(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest),
       );
     }
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: RadialGradient(
-          center: Alignment(0.5, 0.3),
+          center: const Alignment(0.5, 0.3),
           radius: 1.1,
-          colors: [Color(0xFFFFD9DC), paperRaised],
+          colors: [const Color(0xFFFFD9DC), scheme.surfaceContainerHighest],
         ),
       ),
       child: Center(
@@ -816,28 +820,12 @@ Song? ownedTopTrack(List<Song> local, String title) {
 String _normTopTitle(String t) =>
     t.toLowerCase().replaceAll(RegExp(r'\s*\(.*?\)\s*'), '').trim();
 
-/// Page wash: the artist's own tone pulled most of the way to paper.
-/// Light enough for ink text, tinted enough for full-bleed. Null tone =
-/// the pre-load default, near-white like today.
-Color _washOf(Color? tone) {
-  final base = tone ?? paperRaised;
-  // Uniform darker page: sit much closer to the artist's own color-
-  var pull = 0.3;
-  var wash = Color.lerp(base, paper, pull)!;
-  // -but never darker than ink stays readable on. Walk back toward
-  // paper until contrast passes 4.5:1 - deep reds go properly dark,
-  // pale photos stop exactly where ink survives.
-  while (pull < 1.0 && _contrast(ink, wash) < 4.5) {
-    pull += 0.05;
-    wash = Color.lerp(base, paper, pull)!;
-  }
-  return wash;
-}
-
-double _contrast(Color a, Color b) {
-  final l1 = a.computeLuminance() + 0.05;
-  final l2 = b.computeLuminance() + 0.05;
-  return l1 > l2 ? l1 / l2 : l2 / l1;
+/// Page wash: the artist's own tone pulled toward the page background,
+/// contrast-clamped at 4.5:1 against page text. Dark-aware: AMOLED pulls
+/// toward #000 for light text, light toward paper for ink.
+Color _washOf(BuildContext context, Color? tone) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return archWashOf(tone, dark: dark, amoled: isAmoledScheme(context));
 }
 
 /// Discography hub labels shared by the featured card and the fan row.
@@ -1000,9 +988,10 @@ class _FeaturedRelease extends ConsumerWidget {
           cacheKey: '$badge|${badge == null ? '' : paletteKey}',
           load: paletteLoad,
           builder: (context, pal) {
-            var bg = paperRaised;
+            final scheme = Theme.of(context).colorScheme;
+            var bg = scheme.surfaceContainerHighest;
             if (pal != null) {
-              bg = Color.lerp(paperRaised, pal.vibrant, 0.10)!;
+              bg = Color.lerp(scheme.surfaceContainerHighest, pal.vibrant, 0.10)!;
             }
             return Container(
               padding: const EdgeInsets.all(12),
@@ -1025,8 +1014,8 @@ class _FeaturedRelease extends ConsumerWidget {
                                 yearText,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: inkDim,
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
                                   fontSize: 13,
                                 ),
                               ),
@@ -1043,8 +1032,8 @@ class _FeaturedRelease extends ConsumerWidget {
                           title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ink,
+                          style: TextStyle(
+                            color: scheme.onSurface,
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1052,7 +1041,8 @@ class _FeaturedRelease extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded, color: inkDim),
+                  Icon(Icons.chevron_right_rounded,
+                      color: scheme.onSurfaceVariant),
                 ],
               ),
             );
@@ -1120,18 +1110,18 @@ class _SectionTitle extends StatelessWidget {
         children: [
           Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
-              color: ink,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           if (count != null) ...[
             const SizedBox(width: 8),
             Text(
               '$count',
-              style: const TextStyle(
-                color: inkDim,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
@@ -1207,9 +1197,12 @@ class _CollaboratorFace extends ConsumerWidget {
               height: 64,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 border: Border.all(
-                  color: ink.withValues(alpha: 0.08),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.08),
                 ),
               ),
               child: ClipOval(
@@ -1247,8 +1240,8 @@ class _CollaboratorFace extends ConsumerWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: ink,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
                 height: 1.2,
@@ -1305,7 +1298,10 @@ class _ExpandableBioState extends State<_ExpandableBio> {
             widget.text,
             maxLines: _open ? null : 4,
             overflow: _open ? null : TextOverflow.ellipsis,
-            style: const TextStyle(color: ink, fontSize: 15, height: 1.6),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 15,
+                height: 1.6),
           ),
         ),
         TextButton(
@@ -1460,7 +1456,10 @@ class _PopularState extends ConsumerState<_Popular> {
                         decoration: BoxDecoration(
                           color: i == _page
                               ? archPink
-                              : inkDim.withValues(alpha: 0.3),
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant
+                                  .withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(3),
                         ),
                       ),
@@ -1686,6 +1685,7 @@ class _TopRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final sel = selected;
     final hasFile = owned != null;
+    final scheme = Theme.of(context).colorScheme;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       onTap: sel == null
@@ -1717,15 +1717,17 @@ class _TopRow extends StatelessWidget {
                         errorWidget: (_, _, _) => Container(
                           width: 52,
                           height: 52,
-                          color: paperRaised,
-                          child: const Icon(Icons.music_note, color: inkDim),
+                          color: scheme.surfaceContainerHighest,
+                          child: Icon(Icons.music_note,
+                              color: scheme.onSurfaceVariant),
                         ),
                       )
                     : Container(
                         width: 52,
                         height: 52,
-                        color: paperRaised,
-                        child: const Icon(Icons.music_note, color: inkDim),
+                        color: scheme.surfaceContainerHighest,
+                        child: Icon(Icons.music_note,
+                            color: scheme.onSurfaceVariant),
                       ),
               ),
       ),
@@ -1733,7 +1735,7 @@ class _TopRow extends StatelessWidget {
         track.title,
         maxLines: 1,
         style: TextStyle(
-          color: isCurrent ? archPink : ink,
+          color: isCurrent ? archPink : scheme.onSurface,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1760,7 +1762,7 @@ class _TopRow extends StatelessWidget {
             child: Text(
               track.albumTitle,
               maxLines: 1,
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(color: scheme.onSurfaceVariant),
             ),
           ),
         ],
@@ -1791,20 +1793,21 @@ class _TopRow extends StatelessWidget {
           else if (track.duration.inSeconds > 0)
             Text(
               fmtDuration(track.duration),
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(color: scheme.onSurfaceVariant),
             ),
           if (onDownload != null && sel == null)
             IconButton(
-              icon: const Icon(
+              icon: Icon(
                 CupertinoIcons.cloud_download,
-                color: inkDim,
+                color: scheme.onSurfaceVariant,
               ),
               onPressed: onDownload,
             ),
           if (sel == null)
             Builder(
               builder: (btnContext) => IconButton(
-                icon: const Icon(Icons.more_horiz_rounded, color: inkDim),
+                icon: Icon(Icons.more_horiz_rounded,
+                    color: scheme.onSurfaceVariant),
                 onPressed: () => onOverflow(btnContext),
               ),
             ),
@@ -2072,13 +2075,19 @@ class _FanStackState extends State<_FanStack>
                       Text(
                         widget.label,
                         style: TextStyle(
-                          color: widget.open ? archPink : ink,
+                          color: widget.open
+                              ? archPink
+                              : Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       Text(
                         '${widget.items.length}',
-                        style: const TextStyle(color: inkDim, fontSize: 11),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 11),
                       ),
                     ],
                   ),

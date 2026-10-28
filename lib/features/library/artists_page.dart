@@ -67,7 +67,7 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
   Widget build(BuildContext context) {
     final artists = ref.watch(artistsProvider);
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -85,12 +85,15 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -114,14 +117,17 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                             // so it deforms through scroll drags and fights
                             // the CustomScrollView this header rides in.
                             child: LiquidGlassLens(
-                              style: ArchGlass.trigger(),
-                              child: const SizedBox(
+                              style: ArchGlass.trigger(
+                                  amoled: isAmoledScheme(buttonContext)),
+                              child: SizedBox(
                                 width: 44,
                                 height: 44,
                                 child: Center(
                                   child: Icon(
                                     CupertinoIcons.ellipsis,
-                                    color: ink,
+                                    color: Theme.of(buttonContext)
+                                        .colorScheme
+                                        .onSurface,
                                     size: 20,
                                   ),
                                 ),
@@ -151,13 +157,16 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                         ),
                       );
                     if (ordered.isEmpty) {
-                      return const SliverToBoxAdapter(
+                      return SliverToBoxAdapter(
                         child: Center(
                           child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
+                            padding: const EdgeInsets.symmetric(vertical: 32),
                             child: Text(
                               'No artists match.',
-                              style: TextStyle(color: inkDim),
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant),
                             ),
                           ),
                         ),
@@ -243,10 +252,14 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                             radius: 20,
                           )
                         : Container(
-                            color: paperRaised,
-                            child: const Icon(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            child: Icon(
                               CupertinoIcons.person_fill,
-                              color: inkDim,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               size: 42,
                             ),
                           ),
@@ -271,7 +284,9 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
           Text(
             '${entry.songs.length} songs',
             maxLines: 1,
-            style: const TextStyle(color: inkDim, fontSize: 12),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12),
           ),
         ],
       ),
@@ -307,10 +322,14 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                         radius: 0,
                       )
                     : Container(
-                        color: paperRaised,
-                        child: const Icon(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        child: Icon(
                           CupertinoIcons.person_fill,
-                          color: inkDim,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
                         ),
                       ),
               ),
@@ -343,13 +362,19 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                   ),
                   Text(
                     '${entry.songs.length} songs',
-                    style: const TextStyle(color: inkDim, fontSize: 12),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        fontSize: 12),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(CupertinoIcons.chevron_right, color: inkDim, size: 16),
+            Icon(CupertinoIcons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 16),
           ],
         ),
       ),
@@ -393,9 +418,13 @@ class _ArtistFanSheet extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
-        color: paper,
+        color: Theme.of(context).colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: ink.withValues(alpha: 0.08)),
+        border: Border.all(
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.08)),
       ),
       child: FutureBuilder<List<Song>>(
         future: _recentSongs(ref, artist),
@@ -414,7 +443,10 @@ class _ArtistFanSheet extends ConsumerWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: ink.withValues(alpha: 0.15),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -433,10 +465,14 @@ class _ArtistFanSheet extends ConsumerWidget {
                               radius: 0,
                             )
                           : Container(
-                              color: paperRaised,
-                              child: const Icon(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              child: Icon(
                                 CupertinoIcons.person_fill,
-                                color: inkDim,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                               ),
                             ),
                     ),
@@ -456,9 +492,13 @@ class _ArtistFanSheet extends ConsumerWidget {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const Text(
+                        Text(
                           'Fan deck',
-                          style: TextStyle(color: inkDim, fontSize: 13),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 13),
                         ),
                       ],
                     ),
@@ -487,11 +527,14 @@ class _ArtistFanSheet extends ConsumerWidget {
                   ),
                 )
               else if (songs.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Text(
                     'No recent songs found.',
-                    style: TextStyle(color: inkDim),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant),
                   ),
                 )
               else

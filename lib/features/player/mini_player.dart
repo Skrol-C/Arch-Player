@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import '../../core/app_prefs.dart';
 import '../../core/glass.dart';
 import '../../core/log.dart';
 import '../../core/motion.dart';
@@ -27,6 +28,8 @@ class MiniPlayer extends ConsumerWidget {
     final goo = ref.watch(pillGooProvider);
     if (song == null) return const SizedBox.shrink();
     final handler = ref.read(audioHandlerProvider);
+    final amoled = ref.watch(appThemeModeProvider) == AppThemeMode.amoled;
+    final scheme = Theme.of(context).colorScheme;
     return Dismissible(
       key: ValueKey('mini-${song.id}'),
       direction: DismissDirection.horizontal,
@@ -39,8 +42,9 @@ class MiniPlayer extends ConsumerWidget {
         style: goo
             ? ArchGlass.capsule(
                 radius: 34,
+                amoled: amoled,
               ).copyWith(adaptivity: LiquidGlassAdaptivity.none)
-            : ArchGlass.capsule(radius: 34),
+            : ArchGlass.capsule(radius: 34, amoled: amoled),
         touch: ArchGlass.lensTouch(),
         child: GestureDetector(
           onTap: () => openPlayer(ref, context),
@@ -76,7 +80,7 @@ class MiniPlayer extends ConsumerWidget {
                             MarqueeText(
                               text: song.title,
                               style: TextStyle(
-                                color: playing ? archPink : ink,
+                                color: playing ? archPink : scheme.onSurface,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -84,8 +88,8 @@ class MiniPlayer extends ConsumerWidget {
                               song.artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: inkDim,
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
                                 fontSize: 12,
                               ),
                             ),
@@ -162,15 +166,17 @@ class _GlassCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final amoled =
+        Theme.of(context).scaffoldBackgroundColor == amoledBlack;
     return LiquidGlassLens(
-      style: ArchGlass.circle(radius: 28),
+      style: ArchGlass.circle(radius: 28, amoled: amoled),
       touch: ArchGlass.lensTouch(),
       child: SizedBox(
         width: 48,
         height: 48,
         child: IconButton(
           iconSize: 26,
-          color: ink,
+          color: Theme.of(context).colorScheme.onSurface,
           onPressed: onTap,
           icon: icon,
         ),

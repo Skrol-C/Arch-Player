@@ -158,14 +158,20 @@ class _NeedleSearchPageState extends ConsumerState<NeedleSearchPage> {
                     onSubmitted: (_) => _search(),
                     decoration: InputDecoration(
                       hintText: 'Search songs to pull',
-                      prefixIcon: const Icon(Icons.search_rounded, color: inkDim),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant),
                       filled: true,
-                      fillColor: paperRaised,
+                      fillColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
@@ -194,7 +200,10 @@ class _NeedleSearchPageState extends ConsumerState<NeedleSearchPage> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'via $_via',
-                  style: const TextStyle(color: inkDim, fontSize: 12),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12),
                 ),
               ),
             ),
@@ -214,7 +223,9 @@ class _NeedleSearchPageState extends ConsumerState<NeedleSearchPage> {
           child: Text(
             _error!,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
         ),
       );
@@ -230,9 +241,11 @@ class _NeedleSearchPageState extends ConsumerState<NeedleSearchPage> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Music, gotten inside the app. Search above, pull a track, find it in your library.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
           if (downloaders.isEmpty) ...[
             const SizedBox(height: 16),
@@ -355,7 +368,7 @@ class _HitRowState extends ConsumerState<_HitRow> {
         : '';
     return Container(
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
       ),
       child: ListTile(
@@ -366,19 +379,25 @@ class _HitRowState extends ConsumerState<_HitRow> {
               ? Container(
                   width: 48,
                   height: 48,
-                  color: paper,
-                  child: const Icon(Icons.music_note_rounded, color: inkDim),
+                  color: Theme.of(context).colorScheme.surface,
+                  child: Icon(Icons.music_note_rounded,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                 )
               : CachedNetworkImage(
                   imageUrl: hit.art,
                   width: 48,
                   height: 48,
                   fit: BoxFit.cover,
-                  errorWidget: (_, _, _) => Container(
+                  errorWidget: (ctx, _, _) => Container(
                     width: 48,
                     height: 48,
-                    color: paper,
-                    child: const Icon(Icons.music_note_rounded, color: inkDim),
+                    color: Theme.of(ctx).colorScheme.surface,
+                    child: Icon(Icons.music_note_rounded,
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurfaceVariant),
                   ),
                 ),
         ),
@@ -392,7 +411,9 @@ class _HitRowState extends ConsumerState<_HitRow> {
           [hit.artists, dur].where((s) => s.isNotEmpty).join('  ·  '),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: inkDim, fontSize: 12),
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12),
         ),
         trailing: _trailing(),
         onTap: _error != null ? _pull : null,
@@ -416,7 +437,8 @@ class _HitRowState extends ConsumerState<_HitRow> {
     }
     return IconButton(
       onPressed: _pull,
-      icon: const Icon(Icons.cloud_download_outlined, color: ink),
+      icon: Icon(Icons.cloud_download_outlined,
+          color: Theme.of(context).colorScheme.onSurface),
     );
   }
 }

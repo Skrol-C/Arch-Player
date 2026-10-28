@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
@@ -20,6 +21,7 @@ class LibraryActionPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -27,18 +29,20 @@ class LibraryActionPill extends StatelessWidget {
         height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: paperRaised,
+          color: scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(28),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: enabled ? archPink : inkDim, size: 20),
+            Icon(icon,
+                color: enabled ? archPink : scheme.onSurfaceVariant,
+                size: 20),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                color: enabled ? archPink : inkDim,
+                color: enabled ? archPink : scheme.onSurfaceVariant,
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -69,11 +73,12 @@ class LibraryCornerCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
@@ -91,7 +96,8 @@ class LibraryCornerCluster extends StatelessWidget {
               child: Icon(leftIcon, color: leftColor, size: 20),
             ),
           ),
-          Container(width: 1, height: 18, color: ink.withValues(alpha: 0.08)),
+          Container(
+              width: 1, height: 18, color: scheme.onSurface.withValues(alpha: 0.08)),
           Builder(
             builder: (buttonContext) => GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -99,10 +105,11 @@ class LibraryCornerCluster extends StatelessWidget {
                 HapticFeedback.selectionClick();
                 onMenu(buttonContext);
               },
-              child: const SizedBox(
+              child: SizedBox(
                 width: 48,
                 height: 44,
-                child: Icon(CupertinoIcons.ellipsis, color: ink, size: 20),
+                child: Icon(CupertinoIcons.ellipsis,
+                    color: scheme.onSurface, size: 20),
               ),
             ),
           ),

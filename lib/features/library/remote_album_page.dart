@@ -157,14 +157,22 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
     final bottomClear = collapsed ? 120.0 : (mini ? 200.0 : 140.0);
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(
-        begin: ArtTone.pageWashOf(null),
-        end: _washTarget ?? ArtTone.pageWashOf(null),
+        begin: ArtTone.pageWashOf(null,
+            dark: Theme.of(context).brightness == Brightness.dark,
+            amoled: isAmoledScheme(context)),
+        end: _washTarget ??
+            ArtTone.pageWashOf(null,
+                dark: Theme.of(context).brightness == Brightness.dark,
+                amoled: isAmoledScheme(context)),
       ),
       duration: Motion.reduced(context)
           ? Duration.zero
           : const Duration(milliseconds: 400),
       builder: (context, wash, _) {
-        final page = wash ?? ArtTone.pageWashOf(null);
+        final page = wash ??
+            ArtTone.pageWashOf(null,
+                dark: Theme.of(context).brightness == Brightness.dark,
+                amoled: isAmoledScheme(context));
         return Scaffold(
           backgroundColor: page,
           body: DockScrollReporter(
@@ -294,8 +302,10 @@ class _RemoteError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-                CupertinoIcons.music_note_2, color: inkDim, size: 48),
+            Icon(
+                CupertinoIcons.music_note_2,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 48),
             const SizedBox(height: 12),
             Text(
               name,
@@ -307,7 +317,8 @@ class _RemoteError extends StatelessWidget {
             Text(
               detail ?? 'This album would not open right now.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             Row(
@@ -315,9 +326,12 @@ class _RemoteError extends StatelessWidget {
               children: [
                 TextButton(
                   onPressed: onBack,
-                  child: const Text('Go back',
+                  child: Text('Go back',
                       style: TextStyle(
-                          color: inkDim, fontWeight: FontWeight.w600)),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                          fontWeight: FontWeight.w600)),
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
@@ -377,8 +391,11 @@ class _RemoteBody extends ConsumerWidget {
     final topPad = MediaQuery.paddingOf(context).top;
 
     if (cover.isNotEmpty) {
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      final amoled = isAmoledScheme(context);
       ArtTone.paletteOf(cover).then((pal) {
-        if (pal != null) onWash(ArtTone.pageWashOf(pal.wash));
+        if (pal == null || !context.mounted) return;
+        onWash(ArtTone.pageWashOf(pal.wash, dark: dark, amoled: amoled));
       });
     }
 
@@ -411,10 +428,12 @@ class _RemoteBody extends ConsumerWidget {
           leading: Padding(
             padding: const EdgeInsets.all(8),
             child: LiquidGlassLens(
-              style: ArchGlass.circle(radius: 24),
+              style: ArchGlass.circle(
+                  radius: 24, amoled: isAmoledScheme(context)),
               child: IconButton(
                 onPressed: onBack,
-                icon: const Icon(Icons.arrow_back, color: ink),
+                icon: Icon(Icons.arrow_back,
+                    color: Theme.of(context).colorScheme.onSurface),
               ),
             ),
           ),
@@ -422,13 +441,15 @@ class _RemoteBody extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(8),
               child: LiquidGlassLens(
-                style: ArchGlass.capsule(radius: 24),
+                style: ArchGlass.capsule(
+                    radius: 24, amoled: isAmoledScheme(context)),
                 child: IconButton(
                   onPressed: () {
                     SharePlus.instance.share(
                         ShareParams(text: '$title - $artistName'));
                   },
-                  icon: const Icon(CupertinoIcons.square_arrow_up, color: ink),
+                  icon: Icon(CupertinoIcons.square_arrow_up,
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
               ),
             ),
@@ -474,11 +495,16 @@ class _RemoteBody extends ConsumerWidget {
                                 width: 220,
                                 height: 220,
                                 decoration: BoxDecoration(
-                                  color: paperRaised,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: const Icon(Icons.album_outlined,
-                                    color: inkDim, size: 72),
+                                child: Icon(Icons.album_outlined,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    size: 72),
                               ),
                             const SizedBox(height: 14),
                             Padding(
@@ -494,7 +520,7 @@ class _RemoteBody extends ConsumerWidget {
                                   fontSize: 24,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: voiceSpacing(voice),
-                                  color: ink,
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
                             ),
@@ -522,8 +548,11 @@ class _RemoteBody extends ConsumerWidget {
                                   if (year.isNotEmpty) year,
                                   '${tracks.length} track${tracks.length == 1 ? '' : 's'}',
                                 ].join(' \u00b7 '),
-                                style: const TextStyle(
-                                    color: inkDim, fontSize: 13),
+                                style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize: 13),
                               ),
                             ],
                             if (label.trim().isNotEmpty) ...[
@@ -567,8 +596,8 @@ class _RemoteBody extends ConsumerWidget {
                           textAlign: TextAlign.center,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ink,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                           ),
@@ -619,10 +648,13 @@ class _RemoteBody extends ConsumerWidget {
                     onPull: () => onPull(t),
                   ),
                   if (i < tracks.length - 1)
-                    const Divider(
+                    Divider(
                       height: 1,
                       thickness: 1,
-                      color: Color(0x140B0B0D),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.08),
                     ),
                 ],
               ),
@@ -749,13 +781,16 @@ class _ControlsHeader extends SliverPersistentHeaderDelegate {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border:
-                    Border.all(color: ink.withValues(alpha: 0.08)),
+                border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.08)),
               ),
-              child: const Icon(
-                  CupertinoIcons.cloud_download, color: ink, size: 24),
+              child: Icon(CupertinoIcons.cloud_download,
+                  color: Theme.of(context).colorScheme.onSurface, size: 24),
             ),
           ),
         ],
@@ -795,8 +830,8 @@ class _RemoteTrackRow extends StatelessWidget {
         child: Text(
           '${track.rank}',
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: inkDim,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
@@ -809,8 +844,8 @@ class _RemoteTrackRow extends StatelessWidget {
               track.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: ink,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -825,11 +860,11 @@ class _RemoteTrackRow extends StatelessWidget {
               ),
             )
           else
-            const Padding(
-              padding: EdgeInsets.only(left: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
               child: Icon(
                 CupertinoIcons.exclamationmark_triangle,
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 size: 15,
               ),
             ),
@@ -837,11 +872,13 @@ class _RemoteTrackRow extends StatelessWidget {
       ),
       subtitle: owned
           ? null
-          : const Text(
+          : Text(
               'Not on this device - tap to preview',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -849,11 +886,13 @@ class _RemoteTrackRow extends StatelessWidget {
           if (track.durationSecs > 0)
             Text(
               fmtDuration(Duration(seconds: track.durationSecs)),
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           if (!owned && !loading)
             IconButton(
-              icon: const Icon(CupertinoIcons.cloud_download, color: inkDim),
+              icon: Icon(CupertinoIcons.cloud_download,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
               onPressed: onPull,
             ),
           if (loading)
@@ -867,7 +906,9 @@ class _RemoteTrackRow extends StatelessWidget {
             ),
           Builder(
             builder: (btnContext) => IconButton(
-              icon: const Icon(CupertinoIcons.ellipsis, color: inkDim),
+              icon: Icon(CupertinoIcons.ellipsis,
+                  color:
+                      Theme.of(btnContext).colorScheme.onSurfaceVariant),
               onPressed: () => onMore(btnContext),
             ),
           ),

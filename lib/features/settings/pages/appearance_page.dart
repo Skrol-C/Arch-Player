@@ -48,7 +48,7 @@ class AppearancePage extends ConsumerWidget {
             child: Text(
               mode == AppThemeMode.amoled
                   ? 'AMOLED paints true black so OLED pixels stay off. '
-                        'Borders and text separate by tone — no glow, no haze.'
+                        'Cards sit on #1C1C1E with 0.5px hairlines — no glow, no haze.'
                   : mode == AppThemeMode.dark
                   ? 'Dark keeps the soft raised surfaces for dim rooms.'
                   : mode == AppThemeMode.light
@@ -151,8 +151,8 @@ class _ThemeRow extends ConsumerWidget {
   }
 }
 
-/// Live preview: a miniature song row + switch rendered under the
-/// candidate theme, so the choice is visual, not a name.
+/// Live preview: a miniature song row + switch + pill rendered under
+/// the candidate theme, so the choice is visual, not a name.
 class _PreviewCard extends StatelessWidget {
   final AppThemeMode mode;
 
@@ -258,11 +258,47 @@ class _PreviewCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  // Pill swatch: the floating unit must part from the page.
+                  // On AMOLED the page is #000 and the pill sits on the
+                  // container tier with white-60% unselected tabs.
+                  _PillSwatch(scheme: scheme),
                 ],
               ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Pill swatch: 4-tab miniature proving the floating unit parts from
+/// the page. First tab selected pink, rest unselected at 60%.
+class _PillSwatch extends StatelessWidget {
+  final ColorScheme scheme;
+  const _PillSwatch({required this.scheme});
+
+  @override
+  Widget build(BuildContext context) {
+    final unselected = scheme.surface == amoledBlack
+        ? Colors.white.withValues(alpha: 0.6)
+        : scheme.onSurfaceVariant;
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          const Icon(Icons.home_rounded, color: archPink, size: 20),
+          Icon(Icons.library_music_rounded, color: unselected, size: 20),
+          Icon(Icons.search_rounded, color: unselected, size: 20),
+          Icon(Icons.download_rounded, color: unselected, size: 20),
+        ],
       ),
     );
   }

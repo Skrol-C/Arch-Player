@@ -24,9 +24,11 @@ class ExtensionsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
-          const Text(
+          Text(
             'Providers plug in here: search, downloads, lyrics. Each runs sandboxed with only the permissions it declares.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
           const SizedBox(height: 16),
           const _SectionHead('Installed'),
@@ -42,9 +44,12 @@ class ExtensionsPage extends ConsumerWidget {
                   last: i == installed.length - 1),
           const SizedBox(height: 8),
           const _SectionHead('Provider priority'),
-          const Text(
+          Text(
             'Top of the list answers first; failures fall through to the next. Reorder with the arrows.',
-            style: TextStyle(color: inkDim, height: 1.5, fontSize: 13),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5,
+                fontSize: 13),
           ),
         ],
       ),
@@ -62,8 +67,8 @@ class _SectionHead extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
       child: Text(
         text.toUpperCase(),
-        style: const TextStyle(
-          color: inkDim,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.6,
@@ -82,10 +87,14 @@ class _EmptyNote extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(text, style: const TextStyle(color: inkDim, height: 1.5)),
+      child: Text(
+          text,
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              height: 1.5)),
     );
   }
 }
@@ -101,7 +110,7 @@ class _ExtensionRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: paperRaised,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
@@ -140,8 +149,10 @@ class _ExtensionRow extends ConsumerWidget {
                 ),
                 IconButton(
                   tooltip: 'Move up',
-                  icon: const Icon(Icons.arrow_upward_rounded,
-                      color: inkDim),
+                  icon: Icon(Icons.arrow_upward_rounded,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                   onPressed: first
                       ? null
                       : () => ref
@@ -151,8 +162,10 @@ class _ExtensionRow extends ConsumerWidget {
                 ),
                 IconButton(
                   tooltip: 'Move down',
-                  icon: const Icon(Icons.arrow_downward_rounded,
-                      color: inkDim),
+                  icon: Icon(Icons.arrow_downward_rounded,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                   onPressed: last
                       ? null
                       : () => ref
@@ -162,8 +175,10 @@ class _ExtensionRow extends ConsumerWidget {
                 ),
                 IconButton(
                   tooltip: 'Uninstall',
-                  icon: const Icon(Icons.delete_outline_rounded,
-                      color: inkDim),
+                  icon: Icon(Icons.delete_outline_rounded,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                   onPressed: () =>
                       _confirmUninstall(context, ref, info),
                 ),

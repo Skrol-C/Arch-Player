@@ -42,7 +42,8 @@ Future<void> changePlaylistCover(
     builder: (sheetContext) => Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: LiquidGlassLens(
-        style: ArchGlass.sheet(radius: 28),
+        style: ArchGlass.sheet(
+            radius: 28, amoled: isAmoledScheme(sheetContext)),
         child: SafeArea(
           top: false,
           child: Padding(
@@ -216,7 +217,8 @@ Future<void> _pickFromSongs(
     builder: (sheetContext) => Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: LiquidGlassLens(
-        style: ArchGlass.sheet(radius: 28),
+        style: ArchGlass.sheet(
+            radius: 28, amoled: isAmoledScheme(sheetContext)),
         child: SafeArea(
           top: false,
           child: Padding(

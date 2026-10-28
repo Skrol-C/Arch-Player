@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
-import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import '../player/track_menu.dart' show MenuAction;
@@ -126,7 +125,7 @@ class _AlbumsPageState extends ConsumerState<AlbumsPage> {
         ? 120.0
         : (ref.watch(miniVisibleProvider) ? 200.0 : 140.0);
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -144,12 +143,15 @@ class _AlbumsPageState extends ConsumerState<AlbumsPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -167,7 +169,8 @@ class _AlbumsPageState extends ConsumerState<AlbumsPage> {
                         ),
                         LibraryCornerCluster(
                           leftIcon: CupertinoIcons.line_horizontal_3_decrease,
-                          leftColor: ink,
+                          leftColor:
+                              Theme.of(context).colorScheme.onSurface,
                           onLeft: _pickSort,
                           onMenu: _openViewMenu,
                         ),
@@ -214,13 +217,16 @@ class _AlbumsPageState extends ConsumerState<AlbumsPage> {
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 14)),
                 if (albums.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Center(
                       child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32),
+                        padding: const EdgeInsets.symmetric(vertical: 32),
                         child: Text(
                           'No albums match.',
-                          style: TextStyle(color: inkDim),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
                       ),
                     ),

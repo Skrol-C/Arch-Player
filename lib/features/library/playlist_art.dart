@@ -58,10 +58,13 @@ abstract final class PlaylistArt {
   }
 
   /// Full-bleed page color for the detail hero: the gradient's
-  /// midpoint pulled toward paper so ink always reads. Same
+  /// midpoint pulled toward the page so text always reads. Same
   /// contrast-clamp discipline as artist/album washes.
-  static Color washFor(List<Color> stops) {
-    if (stops.isEmpty) return ArtTone.pageWashOf(null);
+  static Color washFor(List<Color> stops,
+      {bool dark = false, bool amoled = false}) {
+    if (stops.isEmpty) {
+      return ArtTone.pageWashOf(null, dark: dark, amoled: amoled);
+    }
     var r = 0.0, g = 0.0, b = 0.0;
     for (final c in stops) {
       r += c.r;
@@ -74,7 +77,7 @@ abstract final class PlaylistArt {
       green: g / stops.length,
       blue: b / stops.length,
     );
-    return ArtTone.pageWashOf(mid);
+    return ArtTone.pageWashOf(mid, dark: dark, amoled: amoled);
   }
 
   /// Ink or white for text sitting ON the gradient tile itself.

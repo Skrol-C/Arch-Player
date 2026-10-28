@@ -172,16 +172,20 @@ class _LibraryCollapsingSearchState
                                 horizontal: 14,
                               ),
                               decoration: BoxDecoration(
-                                color: paperRaised,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(
                                   _peekHeight / 2,
                                 ),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     CupertinoIcons.search,
-                                    color: inkDim,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                     size: 16,
                                   ),
                                   const SizedBox(width: 8),
@@ -190,15 +194,19 @@ class _LibraryCollapsingSearchState
                                       widget.hint,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: inkDim,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
                                         fontSize: 14,
                                       ),
                                     ),
                                   ),
-                                  const Icon(
+                                  Icon(
                                     CupertinoIcons.arrow_up,
-                                    color: inkDim,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                     size: 14,
                                   ),
                                 ],
@@ -251,7 +259,8 @@ class _LibrarySearchFieldState extends State<LibrarySearchField> {
     return SearchBar(
       hintText: widget.hint,
       focusNode: widget.focusNode,
-      backgroundColor: const WidgetStatePropertyAll(paperRaised),
+      backgroundColor: WidgetStatePropertyAll(
+          Theme.of(context).colorScheme.surfaceContainerHighest),
       elevation: const WidgetStatePropertyAll(0),
       onChanged: (q) {
         _debounce?.cancel();
@@ -281,9 +290,13 @@ Future<T?> showLibrarySort<T>({
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: paper,
+          color: Theme.of(context).colorScheme.surfaceContainer,
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: ink.withValues(alpha: 0.08)),
+          border: Border.all(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.08)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -293,7 +306,10 @@ Future<T?> showLibrarySort<T>({
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: ink.withValues(alpha: 0.15),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -339,16 +355,16 @@ class LibrarySortRow extends StatelessWidget {
           children: [
             Text(
               'Sort: $current',
-              style: const TextStyle(
-                color: inkDim,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(
+            Icon(
               CupertinoIcons.chevron_up_chevron_down,
-              color: inkDim,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               size: 16,
             ),
           ],

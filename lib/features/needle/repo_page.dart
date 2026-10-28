@@ -21,9 +21,11 @@ class RepoPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
-          const Text(
+          Text(
             'Registries of Needle extensions. The community registry ships preloaded; add more to reach other providers. Tap one to browse and install.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
           const SizedBox(height: 12),
           for (var i = 0; i < repos.length; i++)
@@ -107,7 +109,7 @@ class _RepoRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: paperRaised,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
@@ -140,8 +142,9 @@ class _RepoRow extends ConsumerWidget {
             ),
             if (!isDefault)
               IconButton(
-                icon: const Icon(Icons.delete_outline_rounded,
-                    color: inkDim),
+                icon: Icon(Icons.delete_outline_rounded,
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant),
                 onPressed: () async {
                   HapticFeedback.selectionClick();
                   await ref

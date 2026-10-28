@@ -141,7 +141,7 @@ class _SongsPageState extends ConsumerState<SongsPage> {
         if (!didPop && selecting) _sel.exit();
       },
       child: Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           DockScrollReporter(
@@ -161,14 +161,17 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
                             child: Icon(
                               selecting
                                   ? CupertinoIcons.xmark
                                   : CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -204,7 +207,8 @@ class _SongsPageState extends ConsumerState<SongsPage> {
                         else
                           LibraryCornerCluster(
                             leftIcon: CupertinoIcons.line_horizontal_3_decrease,
-                            leftColor: ink,
+                            leftColor:
+                                Theme.of(context).colorScheme.onSurface,
                             onLeft: _pickSort,
                             onMenu: _openViewMenu,
                           ),
@@ -336,11 +340,14 @@ class _SongList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (songs.isEmpty) {
-      return const SliverToBoxAdapter(
+      return SliverToBoxAdapter(
         child: Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Text('No songs match.', style: TextStyle(color: inkDim)),
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Text('No songs match.',
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant)),
           ),
         ),
       );
@@ -388,11 +395,14 @@ class _SongGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (songs.isEmpty) {
-      return const SliverToBoxAdapter(
+      return SliverToBoxAdapter(
         child: Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Text('No songs match.', style: TextStyle(color: inkDim)),
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Text('No songs match.',
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant)),
           ),
         ),
       );
@@ -491,15 +501,22 @@ class _SongGrid extends ConsumerWidget {
                                 width: 36,
                                 height: 36,
                                 decoration: BoxDecoration(
-                                  color: paperRaised,
+                                  color: Theme.of(btnContext)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: ink.withValues(alpha: 0.08),
+                                    color: Theme.of(btnContext)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.08),
                                   ),
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   CupertinoIcons.ellipsis,
-                                  color: inkDim,
+                                  color: Theme.of(btnContext)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   size: 18,
                                 ),
                               ),
@@ -515,7 +532,9 @@ class _SongGrid extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: selected ? archPink : ink,
+                    color: selected
+                        ? archPink
+                        : Theme.of(context).colorScheme.onSurface,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
@@ -524,7 +543,10 @@ class _SongGrid extends ConsumerWidget {
                   song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: inkDim, fontSize: 12),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12),
                 ),
               ],
             ),

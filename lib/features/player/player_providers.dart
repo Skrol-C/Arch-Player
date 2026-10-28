@@ -443,25 +443,11 @@ final playerPaletteProvider = FutureProvider<ArtPalette?>((ref) {
   );
 });
 
-/// Adaptive light wash for the player canvas: the artwork's muted
-/// tone pulled toward paper, contrast-clamped so ink always reads.
-/// Pull sits low on purpose — the colour should survive, not rinse
-/// out — and the clamp loop still lifts light art until ink passes.
-/// Brightness is a parameter, not an assumption - dark mode later
-/// flips this mapping, nothing else.
-Color playerWashOf(ArtPalette? palette) {
-  final base = palette?.wash ?? paperRaised;
-  var pull = 0.35;
-  var wash = Color.lerp(base, paper, pull)!;
-  while (pull < 1.0 && _inkContrast(wash) < 4.5) {
-    pull += 0.05;
-    wash = Color.lerp(base, paper, pull)!;
-  }
-  return wash;
-}
-
-double _inkContrast(Color wash) {
-  final l1 = ink.computeLuminance() + 0.05;
-  final l2 = wash.computeLuminance() + 0.05;
-  return l1 > l2 ? l1 / l2 : l2 / l1;
+/// Adaptive wash for the player canvas: the artwork's muted tone pulled
+/// toward the page, contrast-clamped so page text always reads.
+/// Light pulls toward paper for ink text; dark/amoled pulls toward the
+/// scaffold for light text. Brightness is a parameter, not an
+/// assumption - dark mode flips this mapping, nothing else.
+Color playerWashOf(ArtPalette? palette, {bool dark = false, bool amoled = false}) {
+  return archWashOf(palette?.wash, dark: dark, amoled: amoled);
 }

@@ -151,7 +151,8 @@ class _LibraryBody extends ConsumerWidget {
                       ),
                     );
                   },
-                  icon: const Icon(Icons.search_rounded, color: ink),
+                  icon: Icon(Icons.search_rounded,
+                      color: Theme.of(context).colorScheme.onSurface),
                   tooltip: 'Search library',
                 ),
               ],
@@ -388,7 +389,9 @@ class _RecentGrid extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: selected ? archPink : ink,
+                    color: selected
+                        ? archPink
+                        : Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -396,7 +399,10 @@ class _RecentGrid extends ConsumerWidget {
                   song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: inkDim, fontSize: 13),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13),
                 ),
               ],
             ),
@@ -445,24 +451,30 @@ class _IndexRow extends StatelessWidget {
                 ),
                 Text(
                   '$count',
-                  style: const TextStyle(color: inkDim, fontSize: 14),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 14),
                 ),
                 const SizedBox(width: 4),
-                const Icon(
+                Icon(
                   CupertinoIcons.chevron_right,
-                  color: inkDim,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   size: 18,
                 ),
               ],
             ),
           ),
         ),
-        const Divider(
+        Divider(
           height: 1,
           thickness: 1,
           indent: 78,
           endIndent: 20,
-          color: Color(0x140B0B0D),
+          color: Theme.of(context)
+              .colorScheme
+              .onSurface
+              .withValues(alpha: 0.08),
         ),
       ],
     );

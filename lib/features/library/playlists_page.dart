@@ -55,7 +55,7 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
     final collapsed = ref.watch(pillCollapsedProvider);
     final bottomClear = collapsed ? 120.0 : 200.0;
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: DockScrollReporter(
         child: Stack(
           fit: StackFit.expand,
@@ -74,18 +74,22 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(22),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               CupertinoIcons.chevron_left,
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
                         const Spacer(),
                         LiquidGlassLens(
-                          style: ArchGlass.capsule(radius: 24),
+                          style: ArchGlass.capsule(
+                              radius: 24, amoled: isAmoledScheme(context)),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -102,7 +106,10 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                                     );
                                   }
                                 },
-                                icon: const Icon(Icons.add_rounded, color: ink),
+                                icon: Icon(Icons.add_rounded,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface),
                                 tooltip: 'New playlist',
                               ),
                               IconButton(
@@ -116,7 +123,9 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                                   _recentFirst
                                       ? CupertinoIcons.sort_down
                                       : CupertinoIcons.textformat_abc,
-                                  color: ink,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
                                 ),
                                 tooltip: 'Sort',
                               ),
@@ -204,7 +213,8 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
       builder: (_) => Padding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         child: LiquidGlassLens(
-          style: ArchGlass.sheet(radius: 28),
+          style:
+              ArchGlass.sheet(radius: 28, amoled: isAmoledScheme(context)),
           child: SafeArea(
             top: false,
             child: Padding(
@@ -218,7 +228,10 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: ink.withValues(alpha: 0.15),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -237,7 +250,11 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
                     p.hasCustomArt
                         ? 'Change or remove the cover'
                         : 'Gallery or a song cover',
-                    style: const TextStyle(color: inkDim, fontSize: 13),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        fontSize: 13),
                   ),
                   onTap: () => Navigator.of(context).pop('cover'),
                 ),
@@ -245,9 +262,9 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
             CascadeIn(
               delayMs: 30,
               child: ListTile(
-                leading: const Icon(
+                leading: Icon(
                   CupertinoIcons.person_badge_plus,
-                  color: ink,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 title: const Text('Add songs'),
                 onTap: () => Navigator.of(context).pop('add'),
@@ -257,9 +274,9 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
               CascadeIn(
                 delayMs: 60,
                 child: ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.drive_file_rename_outline,
-                    color: ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                   title: const Text('Rename'),
                   onTap: () => Navigator.of(context).pop('rename'),
@@ -268,9 +285,9 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
               CascadeIn(
                 delayMs: 90,
                 child: ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.delete_outline_rounded,
-                    color: ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                   title: const Text('Delete playlist'),
                   onTap: () => Navigator.of(context).pop('delete'),
@@ -280,9 +297,9 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
             CascadeIn(
               delayMs: p.isSystem ? 60 : 120,
               child: ListTile(
-                leading: const Icon(
+                leading: Icon(
                   Icons.open_in_new_rounded,
-                  color: ink,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 title: const Text('Open'),
                 onTap: () => Navigator.of(context).pop('open'),
@@ -391,7 +408,9 @@ class _PlaylistCard extends StatelessWidget {
             child: playlist.isSystem
                 ? Container(
                     decoration: BoxDecoration(
-                      color: paperRaised,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Center(
@@ -415,8 +434,8 @@ class _PlaylistCard extends StatelessWidget {
                   playlist.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: ink,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -433,7 +452,10 @@ class _PlaylistCard extends StatelessWidget {
                 ),
             ],
           ),
-          Text(sub, style: const TextStyle(color: inkDim, fontSize: 13)),
+          Text(sub,
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13)),
         ],
       ),
     );
@@ -470,10 +492,11 @@ class _PlaylistsEmpty extends StatelessWidget {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Build your first mix from any song menu.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: inkDim),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),

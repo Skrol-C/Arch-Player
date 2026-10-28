@@ -49,7 +49,8 @@ class AlbumArt extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Container(color: paperRaised),
+          Container(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest),
           FutureBuilder(
             future: ArtCache.of(
               albumId,
@@ -163,7 +164,8 @@ class _DiscIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(Icons.music_note, color: inkDim);
+    return Icon(Icons.music_note,
+        color: Theme.of(context).colorScheme.onSurfaceVariant);
   }
 }
 
@@ -188,8 +190,8 @@ class ReleaseCover extends StatelessWidget {
     final direct = release.artUrl;
     final mbid = release.rgMbid;
     final Widget body = (direct != null)
-        ? _art(direct)
-        : (mbid != null ? _CaaCover(mbid: mbid) : _fallback());
+        ? _art(context, direct)
+        : (mbid != null ? _CaaCover(mbid: mbid) : _fallback(context));
     final framed = Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
@@ -237,18 +239,18 @@ class ReleaseCover extends StatelessWidget {
     return SizedBox(width: size, height: size, child: framed);
   }
 
-  Widget _art(String url) {
+  Widget _art(BuildContext context, String url) {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       memCacheWidth: 600,
-      errorWidget: (_, _, _) => _fallback(),
+      errorWidget: (_, _, _) => _fallback(context),
     );
   }
 
-  Widget _fallback() {
+  Widget _fallback(BuildContext context) {
     return Container(
-      color: paperRaised,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Center(
         child: Text(
           release.title.isEmpty ? '?' : release.title[0].toUpperCase(),
@@ -272,8 +274,11 @@ class _CaaCover extends ConsumerWidget {
     final url = ref.watch(releaseCoverProvider(mbid)).value;
     if (url == null) {
       return Container(
-        color: paperRaised,
-        child: const Center(child: Icon(Icons.album, color: inkDim, size: 40)),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Center(
+            child: Icon(Icons.album,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 40)),
       );
     }
     return CachedNetworkImage(
@@ -281,8 +286,11 @@ class _CaaCover extends ConsumerWidget {
       fit: BoxFit.cover,
       memCacheWidth: 600,
       errorWidget: (_, _, _) => Container(
-        color: paperRaised,
-        child: const Center(child: Icon(Icons.album, color: inkDim, size: 40)),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Center(
+            child: Icon(Icons.album,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 40)),
       ),
     );
   }
@@ -360,13 +368,17 @@ class SongRow extends StatelessWidget {
       title: Text(
         song.title,
         maxLines: 1,
-        style: TextStyle(color: isCurrent ? archPink : ink),
+        style: TextStyle(
+            color: isCurrent
+                ? archPink
+                : Theme.of(context).colorScheme.onSurface),
       ),
       subtitle: containedIn == null || containedIn!.isEmpty
           ? Text(
               song.artist,
               maxLines: 1,
-              style: const TextStyle(color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             )
           : Row(
               children: [
@@ -375,7 +387,10 @@ class SongRow extends StatelessWidget {
                     song.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: inkDim),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -389,7 +404,8 @@ class SongRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             fmtDuration(song.duration),
-            style: const TextStyle(color: inkDim),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           if (onMore != null || onMoreAt != null)
             Builder(
@@ -403,10 +419,14 @@ class SongRow extends StatelessWidget {
                     onMore!();
                   }
                 },
-                child: const SizedBox(
+                child: SizedBox(
                   width: 40,
                   height: 52,
-                  child: Icon(CupertinoIcons.ellipsis, color: inkDim, size: 18),
+                  child: Icon(CupertinoIcons.ellipsis,
+                      color: Theme.of(btnContext)
+                          .colorScheme
+                          .onSurfaceVariant,
+                      size: 18),
                 ),
               ),
             ),
@@ -430,7 +450,12 @@ class CheckDot extends StatelessWidget {
           shape: BoxShape.circle,
           color: checked ? archPink : Colors.transparent,
           border: Border.all(
-            color: checked ? archPink : inkDim.withValues(alpha: 0.5),
+            color: checked
+                ? archPink
+                : Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.5),
             width: 2,
           ),
         ),

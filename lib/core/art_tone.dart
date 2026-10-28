@@ -98,31 +98,43 @@ abstract final class ArtTone {
     }
   }
 
-  /// Page wash: a tone pulled most of the way to paper. Light
-  /// enough for ink text, tinted enough for full-bleed. Null tone =
-  /// the pre-load default, near-white. Contrast-clamped: deep reds
-  /// go properly dark, pale art stops where ink survives. One
-  /// mapping shared by artist and album pages - no drift.
-  static Color pageWashOf(Color? tone) {
-    // paper/ink live here to keep this class dependency-free of
-    // the app theme; values mirror theme.dart.
+  /// Page wash: a tone pulled toward the page background,
+  /// contrast-clamped at 4.5:1 against page text. Light pulls toward
+  /// paper for ink text; dark pulls toward the scaffold for light
+  /// text. One mapping shared by artist, album, gallery and playlist
+  /// pages - no drift. `dark`/`amoled` come from the calling page's
+  /// Theme; default (light) preserves every existing call site.
+  static Color pageWashOf(Color? tone, {bool dark = false, bool amoled = false}) {
+    // Values mirror theme.dart (this class stays dependency-free of
+    // the app theme by design).
     const paper = Color(0xFFFFFFFF);
     const ink = Color(0xFF0B0B0D);
     const raised = Color(0xFFF6F6F8);
-    final base = tone ?? raised;
+    const night = Color(0xFF1B1B1E);
+    const nightRaised = Color(0xFF26262B);
+    const moon = Color(0xFFF5F5F7);
+    const amoledBlack = Color(0xFF000000);
+    const amoledRaised = Color(0xFF1C1C1E);
+    const amoledInk = Color(0xFFF5F5F7);
+    final bg = amoled ? amoledBlack : (dark ? night : paper);
+    final fallback =
+        amoled ? amoledRaised : (dark ? nightRaised : raised);
+    final text = amoled ? amoledInk : (dark ? moon : ink);
+    final base = tone ?? fallback;
     // A whisper of the cover tone, not a seat inside it: dim text
-    // stays legible with headroom on every backdrop.
-    var pull = 0.6;
-    var wash = Color.lerp(base, paper, pull)!;
+    // stays legible with headroom on every backdrop. Dark pages sit
+    // closer to the tone (tone-on-black needs less pull).
+    var pull = dark ? 0.7 : 0.6;
+    var wash = Color.lerp(base, bg, pull)!;
     double contrast(Color a, Color b) {
       final l1 = a.computeLuminance() + 0.05;
       final l2 = b.computeLuminance() + 0.05;
       return l1 > l2 ? l1 / l2 : l2 / l1;
     }
 
-    while (pull < 1.0 && contrast(ink, wash) < 4.5) {
+    while (pull < 1.0 && contrast(text, wash) < 4.5) {
       pull += 0.05;
-      wash = Color.lerp(base, paper, pull)!;
+      wash = Color.lerp(base, bg, pull)!;
     }
     return wash;
   }

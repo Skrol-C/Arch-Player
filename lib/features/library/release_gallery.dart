@@ -93,16 +93,20 @@ class _ReleaseGalleryState extends ConsumerState<ReleaseGallery> {
     final bottomClear = collapsed
         ? 120.0
         : (mini ? 200.0 : 140.0);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final amoled = isAmoledScheme(context);
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(
-        begin: ArtTone.pageWashOf(null),
-        end: _washTarget ?? ArtTone.pageWashOf(null),
+        begin: ArtTone.pageWashOf(null, dark: dark, amoled: amoled),
+        end: _washTarget ??
+            ArtTone.pageWashOf(null, dark: dark, amoled: amoled),
       ),
       duration: Motion.reduced(context)
           ? Duration.zero
           : const Duration(milliseconds: 400),
       builder: (context, wash, _) {
-        final page = wash ?? ArtTone.pageWashOf(null);
+        final page = wash ??
+            ArtTone.pageWashOf(null, dark: dark, amoled: amoled);
         return Scaffold(
           backgroundColor: page,
           body: DockScrollReporter(
@@ -178,8 +182,13 @@ class _ReleaseGalleryState extends ConsumerState<ReleaseGallery> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color:
-                                            isOwned ? ink : inkDim,
+                                        color: isOwned
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -188,8 +197,10 @@ class _ReleaseGalleryState extends ConsumerState<ReleaseGallery> {
                                         children: [
                                           Text(
                                             '${r.year}',
-                                            style: const TextStyle(
-                                                color: inkDim,
+                                            style: TextStyle(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
                                                 fontSize: 12),
                                           ),
                                           if (r.type == 'single' || r.type == 'ep') ...[
@@ -251,13 +262,14 @@ class _GalleryHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final topPad = MediaQuery.paddingOf(context).top;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final amoled = isAmoledScheme(context);
     if (items.isNotEmpty) {
       ArtTone.paletteOf(items.first.artUrl).then((pal) {
-        if (pal != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            onWash?.call(ArtTone.pageWashOf(pal.wash));
-          });
-        }
+        if (pal == null) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onWash?.call(ArtTone.pageWashOf(pal.wash, dark: dark, amoled: amoled));
+        });
       });
     }
     return SliverAppBar(
@@ -271,10 +283,12 @@ class _GalleryHero extends StatelessWidget {
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style: ArchGlass.circle(
+              radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: onBack,
-            icon: const Icon(Icons.arrow_back, color: ink),
+            icon: Icon(Icons.arrow_back,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ),
@@ -341,8 +355,11 @@ class _GalleryHero extends StatelessWidget {
                         ),
                         Text(
                           '$count release${count == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                              color: inkDim, fontSize: 13),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 13),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -356,15 +373,22 @@ class _GalleryHero extends StatelessWidget {
                                   width: 52,
                                   height: 52,
                                   decoration: BoxDecoration(
-                                    color: paperRaised,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: ink.withValues(alpha: 0.08),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.08),
                                     ),
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                     CupertinoIcons.shuffle_medium,
-                                    color: ink,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface,
                                     size: 24,
                                   ),
                                 ),

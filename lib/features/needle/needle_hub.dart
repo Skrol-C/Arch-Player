@@ -55,8 +55,8 @@ class _QueuePane extends ConsumerWidget {
     if (jobs.isEmpty) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
-        children: const [
-          FocalEntrance(
+        children: [
+          const FocalEntrance(
             child: Text(
               'Nothing queued.',
               style: TextStyle(
@@ -67,10 +67,12 @@ class _QueuePane extends ConsumerWidget {
               ),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Pull a track from Search or a song page and it lands here with live progress.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
         ],
       );
@@ -109,7 +111,7 @@ class _JobRow extends ConsumerWidget {
     };
     return Container(
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
       ),
       // Own transparent Material (invisible-splash exceptions).
@@ -123,9 +125,12 @@ class _JobRow extends ConsumerWidget {
               ? Container(
                   width: 56,
                   height: 56,
-                  color: paper,
-                  child: const Icon(
-                      Icons.music_note_rounded, color: inkDim),
+                  color: Theme.of(context).colorScheme.surface,
+                  child: Icon(
+                      Icons.music_note_rounded,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant),
                 )
               : CachedNetworkImage(
             memCacheWidth: 112,
@@ -136,12 +141,15 @@ class _JobRow extends ConsumerWidget {
                   width: 56,
                   height: 56,
                   fit: BoxFit.cover,
-                  errorWidget: (_, _, _) => Container(
+                  errorWidget: (ctx, _, _) => Container(
                     width: 56,
                     height: 56,
-                    color: paper,
-                    child: const Icon(
-                        Icons.music_note_rounded, color: inkDim),
+                    color: Theme.of(ctx).colorScheme.surface,
+                    child: Icon(
+                        Icons.music_note_rounded,
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurfaceVariant),
                   ),
                 ),
         ),
@@ -161,7 +169,9 @@ class _JobRow extends ConsumerWidget {
                   .join('  |  '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
             const SizedBox(height: 6),
             if (job.state == QueueState.active) ...[
@@ -170,7 +180,10 @@ class _JobRow extends ConsumerWidget {
                 child: LinearProgressIndicator(
                   value: job.progress > 0 ? job.progress : null,
                   minHeight: 5,
-                  backgroundColor: ink.withValues(alpha: 0.08),
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.08),
                   valueColor: const AlwaysStoppedAnimation(archPink),
                 ),
               ),
@@ -181,7 +194,7 @@ class _JobRow extends ConsumerWidget {
               style: TextStyle(
                 color: job.state == QueueState.failed
                     ? archPink
-                    : inkDim,
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -255,7 +268,8 @@ class _JobRow extends ConsumerWidget {
         return IconButton(
           tooltip: 'Cancel',
           onPressed: () => queue.cancel(job.id),
-          icon: const Icon(Icons.close_rounded, color: inkDim),
+          icon: Icon(Icons.close_rounded,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
         );
       case QueueState.queued:
         return Row(
@@ -264,14 +278,14 @@ class _JobRow extends ConsumerWidget {
             IconButton(
               tooltip: 'Pause',
               onPressed: () => queue.setPaused(job.id, true),
-              icon:
-                  const Icon(Icons.pause_rounded, color: inkDim),
+              icon: Icon(Icons.pause_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             IconButton(
               tooltip: 'Remove',
               onPressed: () => queue.cancel(job.id),
-              icon:
-                  const Icon(Icons.close_rounded, color: inkDim),
+              icon: Icon(Icons.close_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         );
@@ -282,14 +296,13 @@ class _JobRow extends ConsumerWidget {
             IconButton(
               tooltip: 'Resume',
               onPressed: () => queue.setPaused(job.id, false),
-              icon:
-                  const Icon(Icons.play_arrow_rounded, color: archPink),
+              icon: const Icon(Icons.play_arrow_rounded, color: archPink),
             ),
             IconButton(
               tooltip: 'Remove',
               onPressed: () => queue.cancel(job.id),
-              icon:
-                  const Icon(Icons.close_rounded, color: inkDim),
+              icon: Icon(Icons.close_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         );

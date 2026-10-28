@@ -69,7 +69,8 @@ Future<bool> showDownloadSheet(
     builder: (_) => Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       child: LiquidGlassLens(
-        style: ArchGlass.sheet(radius: 28),
+        style:
+            ArchGlass.sheet(radius: 28, amoled: isAmoledScheme(context)),
         child: _Sheet(
           title: title,
           artist: artist,
@@ -240,7 +241,10 @@ class _SheetState extends State<_Sheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: ink.withValues(alpha: 0.15),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -254,22 +258,31 @@ class _SheetState extends State<_Sheet> {
                       ? Container(
                           width: 56,
                           height: 56,
-                          color: paperRaised,
-                          child: const Icon(Icons.music_note_rounded,
-                              color: inkDim),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surface
+                              .withValues(alpha: 0.12),
+                          child: Icon(Icons.music_note_rounded,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         )
                       : CachedNetworkImage(
                           imageUrl: widget.art,
                           width: 56,
                           height: 56,
                           fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => Container(
+                          errorWidget: (ctx, _, _) => Container(
                             width: 56,
                             height: 56,
-                            color: paperRaised,
-                            child: const Icon(
-                                Icons.music_note_rounded,
-                                color: inkDim),
+                            color: Theme.of(ctx)
+                                .colorScheme
+                                .surface
+                                .withValues(alpha: 0.12),
+                            child: Icon(Icons.music_note_rounded,
+                                color: Theme.of(ctx)
+                                    .colorScheme
+                                    .onSurfaceVariant),
                           ),
                         ),
                 ),
@@ -290,8 +303,11 @@ class _SheetState extends State<_Sheet> {
                         widget.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: inkDim, fontSize: 13),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 13),
                       ),
                     ],
                   ),
@@ -388,7 +404,10 @@ class _ProviderPill extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? Colors.transparent
-                : ink.withValues(alpha: 0.15),
+                : Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.15),
           ),
         ),
         child: Row(
@@ -407,7 +426,9 @@ class _ProviderPill extends StatelessWidget {
                     ? '?'
                     : displayName.substring(0, 1).toUpperCase(),
                 style: TextStyle(
-                  color: selected ? Colors.white : ink,
+                  color: selected
+                      ? Colors.white
+                      : Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.w800,
                   fontSize: 14,
                 ),
@@ -417,7 +438,9 @@ class _ProviderPill extends StatelessWidget {
             Text(
               displayName,
               style: TextStyle(
-                color: selected ? Colors.white : ink,
+                color: selected
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w700,
                 fontSize: 13,
               ),
@@ -446,11 +469,14 @@ class _QualityRow extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (showDivider)
-          const Divider(
+          Divider(
             height: 0.5,
             indent: 62,
             endIndent: 16,
-            color: Color(0x140B0B0D),
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.08),
           ),
         GestureDetector(
           onTap: () {
@@ -469,12 +495,17 @@ class _QualityRow extends StatelessWidget {
                       ? Image.asset(asset,
                           width: 30,
                           height: 30,
-                          errorBuilder: (_, _, _) => const Icon(
+                          errorBuilder: (_, _, _) => Icon(
                               Icons.music_note_outlined,
-                              color: inkDim,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               size: 22))
-                      : const Icon(Icons.music_note_outlined,
-                          color: inkDim, size: 22),
+                      : Icon(Icons.music_note_outlined,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                          size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -483,26 +514,32 @@ class _QualityRow extends StatelessWidget {
                     children: [
                       Text(
                         quality.label,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
-                          color: ink,
+                          color:
+                              Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       if (quality.description.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
                           quality.description,
-                          style: const TextStyle(
-                              color: inkDim, fontSize: 12),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 12),
                         ),
                       ],
                     ],
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Icon(Icons.chevron_right_rounded,
-                    size: 18, color: inkDim),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18,
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant),
               ],
             ),
           ),

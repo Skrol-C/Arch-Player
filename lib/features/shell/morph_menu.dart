@@ -271,7 +271,8 @@ class _MorphPageState extends State<_MorphPage> {
                     child: Align(
                       alignment: aMenu,
                       child: LiquidGlassLens(
-                        style: ArchGlass.menuMorph(),
+                        style: ArchGlass.menuMorph(
+                            amoled: isAmoledScheme(context)),
                         child: _MorphRows(items: widget.items),
                       ),
                     ),
@@ -286,7 +287,8 @@ class _MorphPageState extends State<_MorphPage> {
                       alignment: alignment,
                       motion: _morphMotion(),
                       smoothness: 36,
-                      style: ArchGlass.menuMorph(),
+                      style: ArchGlass.menuMorph(
+                          amoled: isAmoledScheme(context)),
                       child: open
                           ? _MorphRows(
                               key: const ValueKey('menu'),

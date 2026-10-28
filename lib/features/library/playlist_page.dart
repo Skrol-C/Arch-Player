@@ -263,7 +263,7 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: DockScrollReporter(
         child: Stack(
           children: [
@@ -279,10 +279,10 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                   );
                 }
                 if (snap.hasError) {
-                  return _error(snap.error.toString());
+                  return _error(context, snap.error.toString());
                 }
                 final tracks = snap.data ?? [];
-                if (tracks.isEmpty) return _empty();
+                if (tracks.isEmpty) return _empty(context);
                 return _body(context, tracks);
               },
             ),
@@ -293,7 +293,7 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
     );
   }
 
-  Widget _error(String detail) {
+  Widget _error(BuildContext context, String detail) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -311,7 +311,9 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
             const SizedBox(height: 12),
             FilledButton(
@@ -324,14 +326,16 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
     );
   }
 
-  Widget _empty() {
+  Widget _empty(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 48),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(CupertinoIcons.music_note_2, color: inkDim, size: 48),
+            Icon(CupertinoIcons.music_note_2,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 48),
             const SizedBox(height: 12),
             Text(
               widget.name,
@@ -340,9 +344,10 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'No playable tracks found.',
-              style: TextStyle(color: inkDim),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             TextButton(
@@ -378,12 +383,14 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: paperRaised,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(22),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         CupertinoIcons.chevron_left,
-                        color: ink,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -400,11 +407,11 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                     height: 200,
                     memCacheWidth: 400,
                     fit: BoxFit.cover,
-                    errorWidget: (_, _, _) => _artFallback(),
+                    errorWidget: (ctx, _, _) => _artFallback(ctx),
                   ),
                 )
               else
-                _artFallback(),
+                _artFallback(context),
               const SizedBox(height: 14),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -425,7 +432,10 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
               Text(
                 '${widget.providerName} · ${tracks.length} track${tracks.length == 1 ? '' : 's'}'
                 '${ownedCount > 0 ? ' · $ownedCount yours' : ''}',
-                style: const TextStyle(color: inkDim, fontSize: 13),
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13),
               ),
               const SizedBox(height: 16),
               if (widget.kind == 'album') _albumMeta(context),
@@ -471,13 +481,19 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                       width: 52,
                       height: 52,
                       decoration: BoxDecoration(
-                        color: paperRaised,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         shape: BoxShape.circle,
-                        border: Border.all(color: ink.withValues(alpha: 0.08)),
+                        border: Border.all(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.08)),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         CupertinoIcons.arrow_down_to_line,
-                        color: ink,
+                        color: Theme.of(context).colorScheme.onSurface,
                         size: 24,
                       ),
                     ),
@@ -521,21 +537,26 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                         height: 52,
                         memCacheWidth: 104,
                         fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => _thumbFallback(),
+                        errorWidget: (ctx, _, _) => _thumbFallback(ctx),
                       ),
                     )
-                  : _thumbFallback(),
+                  : _thumbFallback(context),
               title: Text(t.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text(
                 t.artists.isEmpty ? 'Unknown artist' : t.artists,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: inkDim),
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               trailing: t.durationMs > 0
                   ? Text(
                       fmtDuration(Duration(milliseconds: t.durationMs)),
-                      style: const TextStyle(color: inkDim),
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant),
                     )
                   : null,
               onTap: () {
@@ -598,10 +619,11 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
             spacing: 6,
             runSpacing: 6,
             children: [
-              if (_year.isNotEmpty) _metaChip(_year),
+              if (_year.isNotEmpty) _metaChip(context, _year),
               if (_genre.trim().isNotEmpty)
-                _metaChip(_genre.trim().toUpperCase()),
-              if (_label.trim().isNotEmpty) _metaChip(_label.trim()),
+                _metaChip(context, _genre.trim().toUpperCase()),
+              if (_label.trim().isNotEmpty)
+                _metaChip(context, _label.trim()),
             ],
           ),
         ],
@@ -609,17 +631,21 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
     );
   }
 
-  Widget _metaChip(String text) {
+  Widget _metaChip(BuildContext context, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ink.withValues(alpha: 0.16)),
+        border: Border.all(
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.16)),
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          color: inkDim,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
@@ -627,27 +653,29 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
     );
   }
 
-  Widget _artFallback() {
+  Widget _artFallback(BuildContext context) {
     return Container(
       width: 200,
       height: 200,
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
       ),
-      child: const Icon(CupertinoIcons.music_note, color: inkDim, size: 64),
+      child: Icon(CupertinoIcons.music_note,
+          color: Theme.of(context).colorScheme.onSurfaceVariant, size: 64),
     );
   }
 
-  Widget _thumbFallback() {
+  Widget _thumbFallback(BuildContext context) {
     return Container(
       width: 52,
       height: 52,
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: const Icon(CupertinoIcons.music_note, color: inkDim, size: 24),
+      child: Icon(CupertinoIcons.music_note,
+          color: Theme.of(context).colorScheme.onSurfaceVariant, size: 24),
     );
   }
 }

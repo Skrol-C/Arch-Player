@@ -84,13 +84,15 @@ class _EBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
-        border: Border.all(color: inkDim, width: 1.2),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            width: 1.2),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: const Text(
+      child: Text(
         'E',
         style: TextStyle(
-          color: inkDim,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 10,
           fontWeight: FontWeight.w800,
           height: 1.2,
@@ -565,7 +567,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                 child: Text(
                   'via $_via',
-                  style: const TextStyle(color: inkDim, fontSize: 12),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12),
                 ),
               ),
             if (_notice != null)
@@ -573,7 +578,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                 child: Text(
                   _notice!,
-                  style: const TextStyle(color: inkDim, fontSize: 12),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12),
                 ),
               ),
             Expanded(child: _body(downloaders)),
@@ -599,7 +607,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
         itemCount: SearchFilter.values.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
+        itemBuilder: (context, i) {
           final f = SearchFilter.values[i];
           final on = sel == f;
           return GestureDetector(
@@ -612,18 +620,26 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: on ? archPink : paperRaised,
+                color: on
+                    ? archPink
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icons[f], size: 16, color: on ? Colors.white : ink),
+                  Icon(icons[f],
+                      size: 16,
+                      color: on
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.onSurface),
                   const SizedBox(width: 6),
                   Text(
                     f.label,
                     style: TextStyle(
-                      color: on ? Colors.white : ink,
+                      color: on
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
                     ),
@@ -648,7 +664,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           child: Text(
             _error!,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
         ),
       );
@@ -656,8 +674,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     if (_hits.isEmpty && _direct == null) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
-        children: const [
-          FocalEntrance(
+        children: [
+          const FocalEntrance(
             child: Text(
               'Find it, pull it.',
               style: TextStyle(
@@ -668,10 +686,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               ),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Search songs, artists, albums, playlists - or paste a link from any installed provider and it resolves here.',
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
         ],
       );
@@ -681,13 +701,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         groups.fold<int>(0, (n, g) => n + g.hits.length) +
             (_direct != null ? 1 : 0);
     if (totalRows == 0) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Text(
             'Nothing in this group. Try another pill.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: inkDim, height: 1.5),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5),
           ),
         ),
       );
@@ -772,28 +794,32 @@ class _SearchBarState extends ConsumerState<_SearchBar> {
     final hasText = widget.controller.text.isNotEmpty;
     return AnimatedContainer(
       duration: Motion.stateChange,
+      // Fixed height + clip: the field, picker and trailing can never
+      // paint past the rounded bar, whatever the text scale.
+      height: 56,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: paperRaised.withValues(alpha: 0.85),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(
-          color: _focused ? archPink : ink.withValues(alpha: 0.08),
+          color: _focused
+              ? archPink
+              : Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.08),
           width: _focused ? 1.5 : 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: ink.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _ProviderPicker(onPick: widget.onPick),
           Expanded(
             child: TextField(
               controller: widget.controller,
               focusNode: _focus,
+              maxLines: 1,
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => widget.onSubmit(),
               decoration: const InputDecoration(
@@ -820,7 +846,8 @@ class _SearchBarState extends ConsumerState<_SearchBar> {
                 HapticFeedback.selectionClick();
                 widget.onClear();
               },
-              icon: const Icon(Icons.cancel_rounded, color: inkDim),
+              icon: Icon(Icons.cancel_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
         ],
       ),
@@ -853,7 +880,7 @@ class _ProviderPicker extends ConsumerWidget {
       offset: const Offset(0, 52),
       shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: paper,
+      color: Theme.of(context).colorScheme.surfaceContainer,
       onSelected: (id) {
         ref.read(searchProviderIdProvider.notifier).set(id);
         onPick();
@@ -905,12 +932,12 @@ class _ProviderPicker extends ConsumerWidget {
                     displayName: current.displayName,
                     size: 32),
               ),
-            const Positioned(
+            Positioned(
               right: 2,
               bottom: 2,
               child: Icon(
                 Icons.arrow_drop_down_rounded,
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 size: 14,
               ),
             ),
@@ -1010,7 +1037,9 @@ class _DirectCard extends StatelessWidget {
     return FutureBuilder<ArtPalette?>(
       future: ArtTone.paletteOf(art.isEmpty ? null : art),
       builder: (context, snap) {
-        final wash = ArtTone.pageWashOf(snap.data?.wash);
+        final wash = ArtTone.pageWashOf(snap.data?.wash,
+            dark: Theme.of(context).brightness == Brightness.dark,
+            amoled: isAmoledScheme(context));
         return Container(
           decoration: BoxDecoration(
             color: wash,
@@ -1025,9 +1054,13 @@ class _DirectCard extends StatelessWidget {
                     ? Container(
                         width: 72,
                         height: 72,
-                        color: paperRaised,
-                        child: const Icon(
-                            Icons.music_note_rounded, color: inkDim),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        child: Icon(Icons.music_note_rounded,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant),
                       )
                     : CachedNetworkImage(
                         imageUrl: art,
@@ -1040,12 +1073,16 @@ class _DirectCard extends StatelessWidget {
                         memCacheHeight: 144,
                         maxWidthDiskCache: 256,
                         maxHeightDiskCache: 256,
-                        errorWidget: (_, _, _) => Container(
+                        errorWidget: (ctx, _, _) => Container(
                           width: 72,
                           height: 72,
-                          color: paperRaised,
-                          child: const Icon(
-                              Icons.music_note_rounded, color: inkDim),
+                          color: Theme.of(ctx)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          child: Icon(Icons.music_note_rounded,
+                              color: Theme.of(ctx)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
                       ),
               ),
@@ -1066,8 +1103,11 @@ class _DirectCard extends StatelessWidget {
                         subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style:
-                            const TextStyle(color: inkDim, fontSize: 13),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 13),
                       ),
                     if (via.isNotEmpty)
                       Row(
@@ -1113,7 +1153,7 @@ class _GroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: paperRaised,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
       ),
       clipBehavior: Clip.antiAlias,
@@ -1126,12 +1166,15 @@ class _GroupCard extends StatelessWidget {
               key: ValueKey('$groupKey:${hits[i].providerId}:${hits[i].id}:${hits[i].kind}'),
             ),
             if (i < hits.length - 1)
-              const Divider(
+              Divider(
                 height: 1,
                 thickness: 1,
                 indent: 88,
                 endIndent: 16,
-                color: Color(0x140B0B0D),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.08),
               ),
           ],
         ],
@@ -1302,9 +1345,10 @@ class _RowState extends ConsumerState<_Row> {
         ? Container(
             width: 64,
             height: 64,
-            color: paper,
-            child: const Icon(Icons.music_note_rounded,
-                color: inkDim, size: 28),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Icon(Icons.music_note_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 28),
           )
         : CachedNetworkImage(
             imageUrl: hit.art,
@@ -1315,12 +1359,14 @@ class _RowState extends ConsumerState<_Row> {
             memCacheHeight: 128,
             maxWidthDiskCache: 256,
             maxHeightDiskCache: 256,
-            errorWidget: (_, _, _) => Container(
+            errorWidget: (ctx, _, _) => Container(
               width: 64,
               height: 64,
-              color: paper,
-              child: const Icon(Icons.music_note_rounded,
-                  color: inkDim, size: 28),
+              color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+              child: Icon(Icons.music_note_rounded,
+                  color:
+                      Theme.of(ctx).colorScheme.onSurfaceVariant,
+                  size: 28),
             ),
           );
     // Every row answers its tap: artists open, albums expand,
@@ -1352,7 +1398,9 @@ class _RowState extends ConsumerState<_Row> {
               [hit.artists, tag].where((s) => s.isNotEmpty).join('  |  '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1363,8 +1411,10 @@ class _RowState extends ConsumerState<_Row> {
                   const SizedBox(width: 8),
                 ],
                 if (previewable) ...[
-                  const Icon(Icons.play_circle_outline_rounded,
-                      color: inkDim, size: 20),
+                  Icon(Icons.play_circle_outline_rounded,
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: 20),
                   const SizedBox(width: 8),
                 ],
                 if (hit.releaseType.isNotEmpty) ...[
@@ -1414,9 +1464,10 @@ class _RowState extends ConsumerState<_Row> {
     return Builder(
       builder: (btnContext) => GestureDetector(
         onTap: () => _openMenu(btnContext),
-        child: const Padding(
-          padding: EdgeInsets.all(8),
-          child: Icon(Icons.more_horiz_rounded, color: ink),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(Icons.more_horiz_rounded,
+              color: Theme.of(btnContext).colorScheme.onSurfaceVariant),
         ),
       ),
     );
@@ -1655,17 +1706,23 @@ class _CollectionTracksState extends ConsumerState<_CollectionTracks> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(msg,
-                  style:
-                      const TextStyle(color: inkDim, fontSize: 13)),
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13)),
             ),
           );
         }
         final tracks = snap.data ?? [];
         if (tracks.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
+          return Padding(
+            padding: const EdgeInsets.all(16),
             child: Text('No tracks listed.',
-                style: TextStyle(color: inkDim, fontSize: 13)),
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant,
+                    fontSize: 13)),
           );
         }
         return Column(
@@ -1704,7 +1761,9 @@ class _SubRow extends ConsumerWidget {
         [hit.artists, dur].where((s) => s.isNotEmpty).join('  |  '),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: inkDim, fontSize: 12),
+        style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 12),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1796,8 +1855,8 @@ class _SubPullState extends ConsumerState<_SubPull> {
     }
     return IconButton(
       onPressed: _pull,
-      icon: const Icon(Icons.cloud_download_outlined,
-          color: ink, size: 20),
+      icon: Icon(Icons.cloud_download_outlined,
+          color: Theme.of(context).colorScheme.onSurface, size: 20),
     );
   }
 }

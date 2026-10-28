@@ -108,7 +108,8 @@ class _SelectionSheetState extends ConsumerState<SelectionSheet> {
         final songs = selectedOrdered(widget.controller, widget.ordered());
         final multi = songs.length > 1;
         return LiquidGlassLens(
-          style: ArchGlass.sheet(radius: 28),
+          style:
+              ArchGlass.sheet(radius: 28, amoled: isAmoledScheme(context)),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(

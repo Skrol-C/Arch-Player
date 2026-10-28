@@ -306,7 +306,9 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.album_outlined, color: inkDim, size: 64),
+              Icon(Icons.album_outlined,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: 64),
               const SizedBox(height: 12),
               Text(
                 album.title,
@@ -318,9 +320,11 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'No songs found for this album.',
-                style: TextStyle(color: inkDim),
+                style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 16),
               TextButton(
@@ -455,14 +459,22 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
       },
       child: TweenAnimationBuilder<Color?>(
         tween: ColorTween(
-          begin: ArtTone.pageWashOf(null),
-          end: _washTarget ?? ArtTone.pageWashOf(null),
+          begin: ArtTone.pageWashOf(null,
+              dark: Theme.of(context).brightness == Brightness.dark,
+              amoled: isAmoledScheme(context)),
+          end: _washTarget ??
+              ArtTone.pageWashOf(null,
+                  dark: Theme.of(context).brightness == Brightness.dark,
+                  amoled: isAmoledScheme(context)),
         ),
         duration: Motion.reduced(context)
             ? Duration.zero
             : const Duration(milliseconds: 400),
         builder: (context, wash, _) {
-          final page = wash ?? ArtTone.pageWashOf(null);
+          final page = wash ??
+              ArtTone.pageWashOf(null,
+                  dark: Theme.of(context).brightness == Brightness.dark,
+                  amoled: isAmoledScheme(context));
           return Scaffold(
             backgroundColor: page,
             body: DockScrollReporter(
@@ -774,10 +786,12 @@ class _AlbumBar extends ConsumerWidget {
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: LiquidGlassLens(
-          style: ArchGlass.circle(radius: 24),
+          style:
+              ArchGlass.circle(radius: 24, amoled: isAmoledScheme(context)),
           child: IconButton(
             onPressed: onBack,
-            icon: const Icon(Icons.arrow_back, color: ink),
+            icon: Icon(Icons.arrow_back,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ),
@@ -785,7 +799,8 @@ class _AlbumBar extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.all(8),
           child: LiquidGlassLens(
-            style: ArchGlass.capsule(radius: 24),
+            style:
+                ArchGlass.capsule(radius: 24, amoled: isAmoledScheme(context)),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -797,17 +812,17 @@ class _AlbumBar extends ConsumerWidget {
                       ),
                     );
                   },
-                  icon: const Icon(
+                  icon: Icon(
                     CupertinoIcons.square_arrow_up,
-                    color: ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 Builder(
                   builder: (btnContext) => IconButton(
                     onPressed: () => onMore(btnContext),
-                    icon: const Icon(
+                    icon: Icon(
                       CupertinoIcons.ellipsis,
-                      color: ink,
+                      color: Theme.of(btnContext).colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -859,7 +874,8 @@ class _AlbumBar extends ConsumerWidget {
                               fontSize: 26,
                               fontWeight: FontWeight.w800,
                               letterSpacing: voiceSpacing(voice),
-                              color: ink,
+                              color:
+                                  Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -882,8 +898,10 @@ class _AlbumBar extends ConsumerWidget {
                           const SizedBox(height: 2),
                           Text(
                             chips.join(' \u00b7 '),
-                            style: const TextStyle(
-                              color: inkDim,
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               fontSize: 13,
                             ),
                           ),
@@ -905,8 +923,8 @@ class _AlbumBar extends ConsumerWidget {
                           textAlign: TextAlign.center,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ink,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                           ),
@@ -915,8 +933,10 @@ class _AlbumBar extends ConsumerWidget {
                           album.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: inkDim,
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
                             fontSize: 12,
                           ),
                         ),
@@ -1016,7 +1036,9 @@ class _HiResArtState extends ConsumerState<_HiResArt> {
   Widget build(BuildContext context) {
     final embedded = ref.watch(albumPaletteProvider(widget.albumId)).value;
     if (embedded != null && !_remoteLanded) {
-      _report(ArtTone.pageWashOf(embedded.wash));
+      _report(ArtTone.pageWashOf(embedded.wash,
+          dark: Theme.of(context).brightness == Brightness.dark,
+          amoled: isAmoledScheme(context)));
     }
     return SizedBox(
       width: 240,
@@ -1037,7 +1059,9 @@ class _HiResArtState extends ConsumerState<_HiResArt> {
                   }
                   if (!_remoteLanded) {
                     _remoteLanded = true;
-                    _report(ArtTone.pageWashOf(pal.data!.wash));
+                    _report(ArtTone.pageWashOf(pal.data!.wash,
+                        dark: Theme.of(context).brightness == Brightness.dark,
+                        amoled: isAmoledScheme(context)));
                   }
                   return CachedNetworkImage(
                     imageUrl: widget.url!,
@@ -1097,13 +1121,17 @@ class _ControlsHeader extends SliverPersistentHeaderDelegate {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border: Border.all(color: ink.withValues(alpha: 0.08)),
+                border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.08)),
               ),
-              child: const Icon(
+              child: Icon(
                 CupertinoIcons.shuffle_medium,
-                color: ink,
+                color: Theme.of(context).colorScheme.onSurface,
                 size: 24,
               ),
             ),
@@ -1152,11 +1180,16 @@ class _ControlsHeader extends SliverPersistentHeaderDelegate {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: paperRaised,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border: Border.all(color: ink.withValues(alpha: 0.08)),
+                border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.08)),
               ),
-              child: const Icon(Icons.add_rounded, color: ink, size: 24),
+              child: Icon(Icons.add_rounded,
+                  color: Theme.of(context).colorScheme.onSurface, size: 24),
             ),
           ),
         ],
@@ -1199,7 +1232,10 @@ class _BlurbState extends State<_Blurb> {
               widget.text,
               maxLines: _open ? null : 2,
               overflow: _open ? null : TextOverflow.ellipsis,
-              style: const TextStyle(color: ink, fontSize: 15, height: 1.5),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 15,
+                  height: 1.5),
             ),
           ),
           GestureDetector(
@@ -1211,8 +1247,8 @@ class _BlurbState extends State<_Blurb> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
                 _open ? 'LESS' : 'MORE',
-                style: const TextStyle(
-                  color: inkDim,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1274,8 +1310,8 @@ class _AlbumTrackRow extends ConsumerWidget {
             : Text(
                 '${track.position}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: inkDim,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1292,29 +1328,34 @@ class _AlbumTrackRow extends ConsumerWidget {
                 color: isCurrent
                     ? archPink
                     : dimmed
-                    ? ink.withValues(alpha: 0.55)
-                    : ink,
+                    ? Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.55)
+                    : Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
           ),
           if (dimmed)
-            const Padding(
-              padding: EdgeInsets.only(left: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
               child: Icon(
                 CupertinoIcons.exclamationmark_triangle,
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 size: 15,
               ),
             ),
         ],
       ),
       subtitle: dimmed
-          ? const Text(
+          ? Text(
               'Not on this device - tap to preview',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13),
             )
           : null,
       trailing: Row(
@@ -1332,7 +1373,9 @@ class _AlbumTrackRow extends ConsumerWidget {
           else if (sel == null && (song != null || onMore != null))
             Builder(
               builder: (btnContext) => IconButton(
-                icon: const Icon(CupertinoIcons.ellipsis, color: inkDim),
+                icon: Icon(CupertinoIcons.ellipsis,
+                    color:
+                        Theme.of(btnContext).colorScheme.onSurfaceVariant),
                 onPressed: () {
                   if (song != null) {
                     showSongMenu(ref, btnContext, song);
@@ -1396,10 +1439,10 @@ class _Credits extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
               ],
-              const Text(
+              Text(
                 'Arch Core Audio',
                 style: TextStyle(
-                  color: ink,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1408,20 +1451,20 @@ class _Credits extends StatelessWidget {
           ),
           if (dateLine.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(dateLine, style: _dim),
+            Text(dateLine, style: _dim(context)),
           ],
           const SizedBox(height: 6),
-          Text(countLine, style: _dim),
+          Text(countLine, style: _dim(context)),
           if (copyright != null) ...[
             const SizedBox(height: 6),
-            Text(copyright!, style: _dim),
+            Text(copyright!, style: _dim(context)),
           ],
           if (label.isNotEmpty) ...[
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'RECORD LABEL',
               style: TextStyle(
-                color: inkDim,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
@@ -1436,17 +1479,18 @@ class _Credits extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
-                      style: const TextStyle(
-                        color: ink,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                   if (onLabel != null)
-                    const Icon(
+                    Icon(
                       CupertinoIcons.chevron_right,
-                      color: inkDim,
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
                       size: 18,
                     ),
                 ],
@@ -1458,7 +1502,10 @@ class _Credits extends StatelessWidget {
     );
   }
 
-  static const _dim = TextStyle(color: inkDim, fontSize: 14, height: 1.5);
+  static TextStyle _dim(BuildContext context) => TextStyle(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      fontSize: 14,
+      height: 1.5);
 }
 
 String _dateLine(String iso, int year) {
