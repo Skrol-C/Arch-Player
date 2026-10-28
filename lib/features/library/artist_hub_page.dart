@@ -12,6 +12,7 @@ import '../player/track_menu.dart' show MenuAction, showTrackMenu;
 import '../shell/dock.dart';
 import 'album_card.dart';
 import 'artist_page.dart';
+import 'artist_portrait.dart';
 import 'library_controls.dart';
 import 'library_providers.dart';
 import 'song_row.dart';
@@ -185,25 +186,12 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
                       child: SizedBox(
                         width: 104,
                         height: 104,
-                        child: rep != null
-                            ? FileArtImage(
-                                path: rep.path,
-                                albumId: rep.albumId,
-                                size: 240,
-                                radius: 0,
-                              )
-                            : Container(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest,
-                                child: Icon(
-                                  CupertinoIcons.person_fill,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                  size: 44,
-                                ),
-                              ),
+                        child: ArtistPortrait(
+                          name: widget.artistName,
+                          song: rep,
+                          size: 104,
+                          fill: true,
+                        ),
                       ),
                     ),
                   ),

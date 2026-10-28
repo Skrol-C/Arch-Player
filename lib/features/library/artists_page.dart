@@ -13,6 +13,7 @@ import '../player/track_menu.dart' show MenuAction;
 import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'artist_hub_page.dart';
+import 'artist_portrait.dart';
 import 'data/history_store.dart';
 import 'library_chrome.dart';
 import 'library_providers.dart';
@@ -244,25 +245,12 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
                 Positioned.fill(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    child: rep.path.isNotEmpty
-                        ? FileArtImage(
-                            path: rep.path,
-                            albumId: rep.albumId,
-                            size: 360,
-                            radius: 20,
-                          )
-                        : Container(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerHighest,
-                            child: Icon(
-                              CupertinoIcons.person_fill,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                              size: 42,
-                            ),
-                          ),
+                    child: ArtistPortrait(
+                      name: entry.name,
+                      song: rep,
+                      size: 360,
+                      fill: true,
+                    ),
                   ),
                 ),
                 if (isFollowed)
@@ -314,24 +302,12 @@ class _ArtistsPageState extends ConsumerState<ArtistsPage> {
               child: SizedBox(
                 width: 44,
                 height: 44,
-                child: rep.path.isNotEmpty
-                    ? FileArtImage(
-                        path: rep.path,
-                        albumId: rep.albumId,
-                        size: 120,
-                        radius: 0,
-                      )
-                    : Container(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                        child: Icon(
-                          CupertinoIcons.person_fill,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant,
-                        ),
-                      ),
+                child: ArtistPortrait(
+                  name: entry.name,
+                  song: rep,
+                  size: 44,
+                  fill: true,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -457,24 +433,12 @@ class _ArtistFanSheet extends ConsumerWidget {
                     child: SizedBox(
                       width: 56,
                       height: 56,
-                      child: (rep != null && rep.path.isNotEmpty)
-                          ? FileArtImage(
-                              path: rep.path,
-                              albumId: rep.albumId,
-                              size: 112,
-                              radius: 0,
-                            )
-                          : Container(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                              child: Icon(
-                                CupertinoIcons.person_fill,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                            ),
+                      child: ArtistPortrait(
+                        name: artist,
+                        song: rep,
+                        size: 56,
+                        fill: true,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),

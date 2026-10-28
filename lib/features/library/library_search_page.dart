@@ -11,6 +11,7 @@ import '../player/player_providers.dart';
 import '../shell/dock.dart';
 import 'album_page.dart';
 import 'artist_page.dart';
+import 'artist_portrait.dart';
 import 'library_chrome.dart';
 import 'library_providers.dart';
 import 'song_row.dart';
@@ -236,24 +237,12 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                             child: SizedBox(
                               width: 52,
                               height: 52,
-                              child: a.cover.path.isNotEmpty
-                                  ? FileArtImage(
-                                      path: a.cover.path,
-                                      albumId: a.cover.albumId,
-                                      size: 104,
-                                      radius: 0,
-                                    )
-                                  : Container(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerHighest,
-                                      child: Icon(
-                                        CupertinoIcons.person_fill,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
-                                      ),
-                                    ),
+                              child: ArtistPortrait(
+                                name: a.name,
+                                song: a.cover,
+                                size: 52,
+                                fill: true,
+                              ),
                             ),
                           ),
                           title: Text(

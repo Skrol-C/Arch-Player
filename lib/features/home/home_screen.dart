@@ -12,6 +12,7 @@ import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/album_page.dart';
 import '../library/artist_page.dart';
+import '../library/artist_portrait.dart';
 import '../library/library_providers.dart';
 import '../library/playlist_page.dart';
 import '../library/song_row.dart';
@@ -926,33 +927,14 @@ class _PortraitCard extends StatelessWidget {
   }
 
   Widget _portraitArt(BuildContext context, FeedItem item, double size) {
-    if (item.song != null && item.song!.path.isNotEmpty) {
-      return FileArtImage(
-        path: item.song!.path,
-        albumId: item.song!.albumId,
-        size: size * 2,
-        radius: 0,
-      );
-    }
-    if (item.coverUrl.isNotEmpty) {
-      return CachedNetworkImage(
-        imageUrl: item.coverUrl,
-        width: size,
-        height: size,
-        memCacheWidth: 280,
-        fit: BoxFit.cover,
-        errorWidget: (ctx, _, _) => Container(
-          color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
-          child: Icon(CupertinoIcons.music_note,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              size: 44),
-        ),
-      );
-    }
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Icon(CupertinoIcons.music_note,
-          color: Theme.of(context).colorScheme.onSurfaceVariant, size: 44),
+    // One face per person: a collaborator must never wear the main
+    // artist's album cover (four names on one track used to all show
+    // the same art here). Identity is the rail's own name, untouched.
+    return ArtistPortrait(
+      name: item.name,
+      song: item.song,
+      size: size,
+      fill: true,
     );
   }
 }
@@ -1166,23 +1148,12 @@ class _ArtistsRailState extends ConsumerState<_ArtistsRail>
                         child: SizedBox(
                           width: 112,
                           height: 112,
-                          child: item.song != null &&
-                                  item.song!.path.isNotEmpty
-                              ? FileArtImage(
-                                  path: item.song!.path,
-                                  albumId: item.song!.albumId,
-                                  size: 224,
-                                  radius: 0,
-                                )
-                              : Container(
-                                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                  child: Icon(
-                                      CupertinoIcons.music_note,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                      size: 40),
-                                ),
+                          child: ArtistPortrait(
+                            name: item.name,
+                            song: item.song,
+                            size: 112,
+                            fill: true,
+                          ),
                         ),
                       ),
                       _WashTint(
