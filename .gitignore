@@ -53,7 +53,8 @@ skills-lock.json
 # README is the exception: it is the public front door.
 AGENTS.md
 PRODUCT.md
-docs/
+docs/*
+!docs/screenshots/
 
 # Display fonts: local-only assets (~6.8MB of binaries). The repo keeps
 # the voice list (lib/core/theme.dart) and the pubspec wiring; the faces
