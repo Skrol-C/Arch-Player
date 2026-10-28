@@ -56,11 +56,9 @@ PRODUCT.md
 docs/*
 !docs/screenshots/
 
-# Display fonts: local-only assets (~6.8MB of binaries). The repo keeps
-# the voice list (lib/core/theme.dart) and the pubspec wiring; the faces
-# and their licences live on disk only. A fresh clone cannot build until
-# the fonts are restored.
-fonts/
+# Display fonts: committed (all OFL/Apache, licences in fonts/). The repo keeps
+# the voice list (lib/core/theme.dart) and the pubspec wiring; CI builds
+# need the faces present, so they ship with the tree (~7.4MB).
 
 # Local secrets (never committed)
 lib/core/secrets.local.dart
