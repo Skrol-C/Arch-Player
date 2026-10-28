@@ -1,26 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/log.dart';
 import '../changelog_store.dart';
+import '../update_service.dart';
+import '../widgets/commit_row.dart';
 import '../widgets/setting_bits.dart';
+import '../widgets/update_dialog.dart';
 import 'changelog_page.dart';
 
-/// Updater: visual shell only. Checks the bundled changelog against
-/// the installed version and renders current/latest/notes. No
-/// download or install wiring yet. That slice is parked, not faked:
-/// the buttons describe exactly what they do today.
-class UpdaterPage extends StatefulWidget {
+/// Updates: version on top, check button, latest bundled changes.
+/// The check hits GitHub releases when the repo is public; until
+/// then it honestly says it could not reach it. A found update
+/// opens the glass dialog, which owns download + install.
+class UpdaterPage extends ConsumerStatefulWidget {
   const UpdaterPage({super.key});
 
   @override
-  State<UpdaterPage> createState() => _UpdaterPageState();
+  ConsumerState<UpdaterPage> createState() => _UpdaterPageState();
 }
 
-class _UpdaterPageState extends State<UpdaterPage> {
+class _UpdaterPageState extends ConsumerState<UpdaterPage> {
   bool _checking = false;
   bool _checked = false;
+  bool _reachable = true;
   String _version = '';
   List<ChangelogEntry> _entries = const [];
 
@@ -36,7 +40,8 @@ class _UpdaterPageState extends State<UpdaterPage> {
       final entries = await loadChangelog();
       if (mounted) {
         setState(() {
-          _version = '${info.version}+${info.buildNumber}';
+          _version =
+              '${info.version}+${info.buildNumber}';
           _entries = entries;
         });
       }
@@ -46,20 +51,21 @@ class _UpdaterPageState extends State<UpdaterPage> {
   }
 
   Future<void> _check() async {
-    HapticFeedback.selectionClick();
+    if (_checking) return;
     setState(() {
       _checking = true;
+      _checked = false;
     });
-    ArchLog.i('updater', 'check requested (offline shell)');
-    // The shell compares against the bundled changelog. The newest
-    // entry IS this build. A beat for honesty: local read, no spinner
-    // theatre beyond the frame it takes.
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-    if (mounted) {
-      setState(() {
-        _checking = false;
-        _checked = true;
-      });
+    ArchLog.i('updater', 'manual check requested');
+    final result = await checkForUpdateDetailed(manual: true);
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _checked = true;
+      _reachable = result.reached;
+    });
+    if (result.update != null) {
+      await showUpdateDialog(context, info: result.update!);
     }
   }
 
@@ -74,7 +80,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
           Material(
-            color: scheme.surfaceContainerHighest,
+            color: scheme.surfaceContainer,
             borderRadius: BorderRadius.circular(20),
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -87,7 +93,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
                         width: 52,
                         height: 52,
                         decoration: BoxDecoration(
-                          color: scheme.surface,
+                          color: scheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: _checking
@@ -120,9 +126,13 @@ class _UpdaterPageState extends State<UpdaterPage> {
                               ),
                             ),
                             Text(
-                              _checked
-                                  ? 'You’re up to date'
-                                  : 'Check for the newest build',
+                              _checking
+                                  ? 'Checking…'
+                                  : _checked
+                                      ? (_reachable
+                                          ? 'You are up to date'
+                                          : 'Could not reach GitHub')
+                                      : 'Check for the newest build',
                               style: TextStyle(
                                 color: scheme.onSurfaceVariant,
                                 fontSize: 13,
@@ -161,11 +171,10 @@ class _UpdaterPageState extends State<UpdaterPage> {
                 )
               else ...[
                 for (final e in _entries.take(5))
-                  SettingRow(
-                    icon: Icons.history_rounded,
-                    title: e.message,
-                    subtitle:
-                        '${e.short} · ${e.author} · ${e.date}',
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16),
+                    child: CommitRow(entry: e),
                   ),
                 SettingRow(
                   icon: Icons.list_rounded,
@@ -180,8 +189,8 @@ class _UpdaterPageState extends State<UpdaterPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
             child: Text(
-              'Automatic downloads and installs are not wired yet. '
-              'This screen checks and shows notes only.',
+              'Updates download from GitHub releases and install on '
+              'this device, no store needed.',
               style: TextStyle(
                 color: scheme.onSurfaceVariant,
                 fontSize: 13,

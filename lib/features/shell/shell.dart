@@ -15,6 +15,7 @@ import '../search/search_page.dart';
 import '../player/player_providers.dart';
 import '../player/player_screen.dart';
 import 'dock.dart';
+import 'update_gate.dart';
 
 /// App shell: destination content + the shared dock. Scroll intent is
 /// reported up for the pill collapse driver.
@@ -70,6 +71,7 @@ class Shell extends ConsumerWidget {
             if (playerOpen && !ref.watch(playerRouteOpenProvider))
               const PlayerScreen(),
             const _GlassWarmer(),
+            const UpdateGate(),
           ],
         ),
       ),
