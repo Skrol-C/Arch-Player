@@ -10,7 +10,7 @@ import '../../../core/log.dart';
 import '../widgets/setting_bits.dart';
 
 /// Cache: real numbers, real clearing. Image memory cache via the
-/// framework, artwork files under app storage, and the log file —
+/// framework, artwork files under app storage, and the log file.
 /// each row shows its size and frees it on tap.
 class CachePage extends ConsumerStatefulWidget {
   const CachePage({super.key});
@@ -131,7 +131,7 @@ class _CachePageState extends ConsumerState<CachePage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
                 child: Text(
-                  'Clearing artwork re-fetches it on demand — '
+                  'Clearing artwork re-fetches it on demand. '
                   'nothing you own is ever deleted, only re-derived copies.',
                   style: TextStyle(
                     color: Theme.of(

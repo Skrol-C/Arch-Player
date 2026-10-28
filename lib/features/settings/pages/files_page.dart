@@ -9,9 +9,9 @@ import '../../needle/needle_store.dart';
 import '../widgets/setting_bits.dart';
 
 /// Files: every storage location in one place. Music folders use the
-/// system folder picker (SAF on Android — the only honest way to get
+/// system folder picker (SAF on Android, the only honest way to get
 /// a readable tree), Needle and download dirs reuse the engine's own
-/// persisted prefs. Add, remove, exclude — all wired, all live.
+/// persisted prefs. Add, remove, exclude. All wired, all live.
 class FilesPage extends ConsumerWidget {
   const FilesPage({super.key});
 
@@ -47,7 +47,7 @@ class FilesPage extends ConsumerWidget {
               SettingRow(
                 icon: Icons.create_new_folder_rounded,
                 title: 'Add folder',
-                subtitle: 'System picker — you choose, we remember',
+                subtitle: 'System picker, you choose, we remember',
                 onTap: () => _addFolder(context, ref),
               ),
             ],
@@ -78,7 +78,7 @@ class FilesPage extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
             child: Text(
-              'Folders are picked through the system — Arch never '
+              'Folders are picked through the system. Arch never '
               'guesses paths. Excluding a folder hides its tracks '
               'without forgetting the choice.',
               style: TextStyle(
@@ -210,7 +210,7 @@ class _FolderRow extends ConsumerWidget {
       ),
       subtitle: Text(
         excluded
-            ? 'Excluded — hidden from the library'
+            ? 'Excluded, hidden from the library'
             : '$count tracks',
         maxLines: 2,
         style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),

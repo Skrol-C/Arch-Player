@@ -8,9 +8,9 @@ import '../../player/player_providers.dart';
 import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
 
-/// Appearance: theme choice with a live preview card. The preview
-/// renders the candidate theme inline — what you see is what the
-/// whole app becomes on tap. Persisted, hot-swaps instantly.
+/// Appearance: pick a theme by tapping its phone. Each phone is a
+/// stylized home screen rendered under that theme, so what you tap
+/// is what the whole app becomes. Persisted, hot-swaps instantly.
 class AppearancePage extends ConsumerWidget {
   const AppearancePage({super.key});
 
@@ -19,43 +19,48 @@ class AppearancePage extends ConsumerWidget {
     ArchLog.i('nav', 'appearance open');
     final mode = ref.watch(appThemeModeProvider);
     final goo = ref.watch(pillGooProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Appearance')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
         children: [
-          SettingGroup(
-            title: 'Theme',
-            children: [
-              for (final m in AppThemeMode.values)
-                _ThemeRow(mode: m, selected: m == mode),
-            ],
-          ),
-          const SizedBox(height: 8),
           Text(
-            'Preview',
+            'THEME',
             style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
               fontSize: 12,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.6,
             ),
           ),
           const SizedBox(height: 8),
-          _PreviewCard(mode: mode),
+          GridView.count(
+            crossAxisCount: 2,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 0.62,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              for (final m in AppThemeMode.values)
+                _PhoneOption(mode: m, selected: m == mode),
+            ],
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
             child: Text(
-              mode == AppThemeMode.amoled
-                  ? 'AMOLED paints true black so OLED pixels stay off. '
-                        'Cards sit on #1C1C1E with 0.5px hairlines — no glow, no haze.'
-                  : mode == AppThemeMode.dark
-                  ? 'Dark keeps the soft raised surfaces for dim rooms.'
-                  : mode == AppThemeMode.light
-                  ? 'Light is the classic Arch white day-mode.'
-                  : 'Follows the system setting.',
+              switch (mode) {
+                AppThemeMode.amoled =>
+                  'AMOLED paints true black so OLED pixels stay off. '
+                      'Cards sit on raised tiers with hairline strokes.',
+                AppThemeMode.dark =>
+                  'Dark keeps the soft raised surfaces for dim rooms.',
+                AppThemeMode.light => 'Light is the classic Arch white.',
+                AppThemeMode.system => 'Follows the system setting.',
+              },
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: scheme.onSurfaceVariant,
                 fontSize: 13,
                 height: 1.5,
               ),
@@ -68,8 +73,8 @@ class AppearancePage extends ConsumerWidget {
                 icon: Icons.water_drop_rounded,
                 title: 'Melted pill',
                 subtitle: goo
-                    ? 'On - mini melts into the pill'
-                    : 'Off - classic fall, lighter on GPU',
+                    ? 'On, mini melts into the pill'
+                    : 'Off, classic fall, lighter on GPU',
                 trailing: ArchSwitch(
                   value: goo,
                   // Persisted inside the notifier itself.
@@ -87,79 +92,16 @@ class AppearancePage extends ConsumerWidget {
   }
 }
 
-class _ThemeRow extends ConsumerWidget {
+/// One tappable phone: the theme name plus a miniature home screen
+/// rendered under the candidate theme. The preview is the button.
+class _PhoneOption extends ConsumerWidget {
   final AppThemeMode mode;
   final bool selected;
 
-  const _ThemeRow({required this.mode, required this.selected});
+  const _PhoneOption({required this.mode, required this.selected});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: switch (mode) {
-            AppThemeMode.light => paperRaised,
-            AppThemeMode.amoled => amoledBlack,
-            AppThemeMode.dark => night,
-            AppThemeMode.system => scheme.surfaceContainerHighest,
-          },
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: scheme.outline.withValues(alpha: 0.4),
-          ),
-        ),
-        child: Icon(
-          switch (mode) {
-            AppThemeMode.light => Icons.light_mode_rounded,
-            AppThemeMode.dark => Icons.dark_mode_rounded,
-            AppThemeMode.amoled => Icons.contrast_rounded,
-            AppThemeMode.system => Icons.settings_suggest_rounded,
-          },
-          color: selected ? archPink : scheme.onSurfaceVariant,
-        ),
-      ),
-      title: Text(
-        switch (mode) {
-          AppThemeMode.system => 'System',
-          AppThemeMode.light => 'Light',
-          AppThemeMode.dark => 'Dark',
-          AppThemeMode.amoled => 'AMOLED',
-        },
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        switch (mode) {
-          AppThemeMode.system => 'Follow the phone',
-          AppThemeMode.light => 'Classic Arch white',
-          AppThemeMode.dark => 'Soft raised dark',
-          AppThemeMode.amoled => 'True black, OLED saver',
-        },
-        style: TextStyle(
-          color: scheme.onSurfaceVariant,
-          fontSize: 13,
-        ),
-      ),
-      trailing: selected
-          ? const Icon(Icons.check_circle_rounded, color: archPink)
-          : null,
-      onTap: () => ref.read(appThemeModeProvider.notifier).set(mode),
-    );
-  }
-}
-
-/// Live preview: a miniature song row + switch + pill rendered under
-/// the candidate theme, so the choice is visual, not a name.
-class _PreviewCard extends StatelessWidget {
-  final AppThemeMode mode;
-
-  const _PreviewCard({required this.mode});
-
-  @override
-  Widget build(BuildContext context) {
     final preview = switch (mode) {
       AppThemeMode.light => archTheme(),
       AppThemeMode.dark => archDarkTheme(),
@@ -169,136 +111,217 @@ class _PreviewCard extends StatelessWidget {
             ? archDarkTheme()
             : archTheme(),
     };
-    return Theme(
-      data: preview,
-      child: Builder(
-        builder: (context) {
-          final scheme = Theme.of(context).colorScheme;
-          return Material(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(20),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final label = switch (mode) {
+      AppThemeMode.system => 'System',
+      AppThemeMode.light => 'Light',
+      AppThemeMode.dark => 'Dark',
+      AppThemeMode.amoled => 'AMOLED',
+    };
+    return GestureDetector(
+      onTap: () => ref.read(appThemeModeProvider.notifier).set(mode),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: selected
+                      ? archPink
+                      : Theme.of(context)
+                          .colorScheme
+                          .outline
+                          .withValues(alpha: 0.4),
+                  width: selected ? 2.5 : 1,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [archPink, archPinkDim],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.music_note_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Midnight Static',
-                              style: TextStyle(
-                                color: scheme.onSurface,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              'Neon Coastline',
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        Icons.play_circle_fill_rounded,
+                  Theme(data: preview, child: const _MiniHome()),
+                  if (selected)
+                    const Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Icon(
+                        Icons.check_circle_rounded,
                         color: archPink,
-                        size: 32,
+                        size: 24,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Background playback',
-                        style: TextStyle(
-                          color: scheme.onSurface,
-                          fontSize: 14,
-                        ),
-                      ),
-                      Container(
-                        width: 44,
-                        height: 26,
-                        decoration: BoxDecoration(
-                          color: archPink,
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 3),
-                        child: Container(
-                          width: 20,
-                          height: 20,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  // Pill swatch: the floating unit must part from the page.
-                  // On AMOLED the page is #000 and the pill sits on the
-                  // container tier with white-60% unselected tabs.
-                  _PillSwatch(scheme: scheme),
+                    ),
                 ],
               ),
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected
+                    ? archPink
+                    : Theme.of(context).colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Pill swatch: 4-tab miniature proving the floating unit parts from
-/// the page. First tab selected pink, rest unselected at 60%.
-class _PillSwatch extends StatelessWidget {
-  final ColorScheme scheme;
-  const _PillSwatch({required this.scheme});
+/// Stylized home screen, theme-agnostic: greeting, a search field,
+/// three art tiles, a mini player row, and the pill. Reads every
+/// color from the ambient scheme so each phone shows its own theme.
+class _MiniHome extends StatelessWidget {
+  const _MiniHome();
 
   @override
   Widget build(BuildContext context) {
-    final unselected = scheme.surface == amoledBlack
-        ? Colors.white.withValues(alpha: 0.6)
-        : scheme.onSurfaceVariant;
-    return Container(
-      height: 52,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: scheme.outline.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          const Icon(Icons.home_rounded, color: archPink, size: 20),
-          Icon(Icons.library_music_rounded, color: unselected, size: 20),
-          Icon(Icons.search_rounded, color: unselected, size: 20),
-          Icon(Icons.download_rounded, color: unselected, size: 20),
-        ],
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Good evening',
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 26,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(13),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                for (var i = 0; i < 3; i++)
+                  Expanded(
+                    child: Container(
+                      height: 64,
+                      margin: EdgeInsets.only(right: i < 2 ? 6 : 0),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            archPink.withValues(alpha: 0.85 - i * 0.2),
+                            archPinkDim.withValues(alpha: 0.9 - i * 0.15),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: scheme.outline.withValues(alpha: 0.35),
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: archPink.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: scheme.onSurface,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          height: 6,
+                          width: 54,
+                          decoration: BoxDecoration(
+                            color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.play_arrow_rounded,
+                    color: archPink,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Container(
+              height: 44,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: scheme.outline.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  const Icon(
+                    Icons.home_rounded,
+                    color: archPink,
+                    size: 17,
+                  ),
+                  Icon(
+                    Icons.library_music_rounded,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    size: 17,
+                  ),
+                  Icon(
+                    Icons.search_rounded,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    size: 17,
+                  ),
+                  Icon(
+                    Icons.download_rounded,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                    size: 17,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

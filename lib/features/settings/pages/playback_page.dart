@@ -8,7 +8,7 @@ import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
 
 /// Playback: the automix home. Master switch plus the queue
-/// behaviours the engine actually reads — every toggle here flips
+/// behaviours the engine actually reads. Every toggle here flips
 /// real persisted state, no decor.
 class PlaybackPage extends ConsumerWidget {
   const PlaybackPage({super.key});
@@ -32,8 +32,8 @@ class PlaybackPage extends ConsumerWidget {
                 icon: Icons.tune_rounded,
                 title: 'Automix',
                 subtitle: automix
-                    ? 'On — harmonic flow between tracks'
-                    : 'Off — tracks play as queued',
+                    ? 'On, harmonic flow between tracks'
+                    : 'Off, tracks play as queued',
                 value: automix,
                 onChanged: (_) =>
                     ref.read(autoMixProvider.notifier).toggle(),
@@ -47,8 +47,8 @@ class PlaybackPage extends ConsumerWidget {
                 icon: Icons.shuffle_rounded,
                 title: 'Shuffle',
                 subtitle: shuffle
-                    ? 'On — queue plays shuffled'
-                    : 'Off — queue plays in order',
+                    ? 'On, queue plays shuffled'
+                    : 'Off, queue plays in order',
                 value: shuffle,
                 onChanged: (_) =>
                     ref.read(shuffleProvider.notifier).toggle(),
@@ -57,8 +57,8 @@ class PlaybackPage extends ConsumerWidget {
                 icon: Icons.playlist_play_rounded,
                 title: 'Autoplay',
                 subtitle: autoplay
-                    ? 'On — compatible tracks keep coming'
-                    : 'Off — stops when the queue ends',
+                    ? 'On, compatible tracks keep coming'
+                    : 'Off, stops when the queue ends',
                 value: autoplay,
                 onChanged: (_) =>
                     ref.read(autoPlayProvider.notifier).toggle(),
@@ -110,7 +110,7 @@ class PlaybackPage extends ConsumerWidget {
             child: Text(
               'Automix hands off between harmonically compatible '
               'tracks with a beat-matched bridge. One tap off, '
-              'always — the switch never disagrees with the engine.',
+              'always. The switch never disagrees with the engine.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 13,

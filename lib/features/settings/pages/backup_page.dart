@@ -15,7 +15,7 @@ import '../widgets/setting_bits.dart';
 
 /// Backup: playlists out and back in as one JSON document. Export
 /// shares a file; import reads one back through the system picker.
-/// Song links are by id, pending tracks by title+artist — a restore
+/// Song links are by id, pending tracks by title+artist. A restore
 /// on a fresh scan re-links what it can and keeps the rest pending.
 class BackupPage extends ConsumerWidget {
   const BackupPage({super.key});
@@ -50,7 +50,7 @@ class BackupPage extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
             child: Text(
-              'Exports carry names, order, and track links — never '
+              'Exports carry names, order, and track links, never '
               'audio files. Keep the file somewhere safe; it is the '
               'whole of your curation.',
               style: TextStyle(

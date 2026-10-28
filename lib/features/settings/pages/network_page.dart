@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/log.dart';
 import '../widgets/setting_bits.dart';
 
-/// Remembered network locations. Persisted, add/remove/validate —
+/// Remembered network locations. Persisted, add/remove/validate.
 /// streaming playback against them lands with the network engine,
 /// and until then this list is the honest saved set, never a fake
 /// connected state.
@@ -80,7 +80,7 @@ class NetworkStoragePage extends ConsumerWidget {
                   SettingRow(
                     icon: Icons.dns_rounded,
                     title: url,
-                    subtitle: 'Remembered — streaming arrives '
+                    subtitle: 'Remembered, streaming arrives '
                         'with the network engine',
                     trailing: IconButton(
                       tooltip: 'Forget',

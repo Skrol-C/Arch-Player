@@ -7,7 +7,7 @@ import '../../library/library_providers.dart';
 import '../widgets/setting_bits.dart';
 
 /// Library: scan state at a glance. Counts come from the live scan,
-/// rescan re-runs it — the button invalidates the same provider the
+/// rescan re-runs it. The button invalidates the same provider the
 /// library screens read, so there is exactly one source of truth.
 class LibraryPage extends ConsumerWidget {
   const LibraryPage({super.key});

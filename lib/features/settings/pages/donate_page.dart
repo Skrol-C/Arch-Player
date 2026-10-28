@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/log.dart';
 import '../widgets/setting_bits.dart';
 
-/// Donate: why money matters and where it goes. No payment wiring —
+/// Donate: why money matters and where it goes. No payment wiring yet.
 /// this screen states the intent and the one channel; when the
 /// funding link lands, it lands here.
 class DonatePage extends StatelessWidget {
@@ -74,13 +74,13 @@ class DonatePage extends StatelessWidget {
               SettingRow(
                 icon: Icons.link_rounded,
                 title: 'Funding link',
-                subtitle: 'Coming soon — this row lights up first',
+                subtitle: 'Coming soon, this row lights up first',
                 onTap: () {
                   HapticFeedback.selectionClick();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        'Funding link is being set up — thank you '
+                        'Funding link is being set up, thank you '
                         'for wanting to help',
                       ),
                     ),

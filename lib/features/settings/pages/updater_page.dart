@@ -8,7 +8,7 @@ import '../widgets/setting_bits.dart';
 import 'changelog_page.dart';
 
 /// Updater: visual shell only. Checks the bundled changelog against
-/// the installed version and renders current/latest/notes — no
+/// the installed version and renders current/latest/notes. No
 /// download or install wiring yet. That slice is parked, not faked:
 /// the buttons describe exactly what they do today.
 class UpdaterPage extends StatefulWidget {
@@ -51,7 +51,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
       _checking = true;
     });
     ArchLog.i('updater', 'check requested (offline shell)');
-    // The shell compares against the bundled changelog — the newest
+    // The shell compares against the bundled changelog. The newest
     // entry IS this build. A beat for honesty: local read, no spinner
     // theatre beyond the frame it takes.
     await Future<void>.delayed(const Duration(milliseconds: 600));
@@ -180,8 +180,8 @@ class _UpdaterPageState extends State<UpdaterPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
             child: Text(
-              'Automatic downloads and installs are not wired yet — '
-              'this screen checks and shows notes only.',
+              'Automatic downloads and installs are not wired yet. '
+              'This screen checks and shows notes only.',
               style: TextStyle(
                 color: scheme.onSurfaceVariant,
                 fontSize: 13,

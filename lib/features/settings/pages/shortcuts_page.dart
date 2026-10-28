@@ -8,7 +8,7 @@ import '../../player/player_providers.dart';
 import '../widgets/setting_bits.dart';
 
 /// Shortcuts: one-tap actions for the things people reach for mid-day.
-/// Every tile does its job immediately — no configuration screens,
+/// Every tile does its job immediately. No configuration screens,
 /// no dead ends.
 class ShortcutsPage extends ConsumerWidget {
   const ShortcutsPage({super.key});

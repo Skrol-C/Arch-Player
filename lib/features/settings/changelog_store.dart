@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 /// One commit in the bundled changelog: short hash, subject line,
 /// author, and date. Generated at build time by `tool/gen_changelog.dart`
-/// from `git log` — never hand-edited, never fetched at runtime.
+/// from `git log`, never hand-edited, never fetched at runtime.
 class ChangelogEntry {
   final String hash;
   final String message;

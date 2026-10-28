@@ -7,7 +7,7 @@ import '../widgets/setting_bits.dart';
 
 /// App: system-facing grants and identity. Battery exemption keeps
 /// background audio alive on aggressive OEMs; notifications own the
-/// playback controls. Both re-check on return — never naggy.
+/// playback controls. Both re-check on return, never naggy.
 class AppPage extends ConsumerWidget {
   const AppPage({super.key});
 
@@ -77,8 +77,8 @@ class _BatteryRowState extends State<_BatteryRow> {
         exempt == null
             ? 'Checking…'
             : exempt
-            ? 'Unrestricted — survives the background'
-            : 'Restricted — tap to allow background play',
+            ? 'Unrestricted, survives the background'
+            : 'Restricted, tap to allow background play',
         maxLines: 2,
         style: TextStyle(
           color: scheme.onSurfaceVariant,
@@ -105,7 +105,7 @@ class _BatteryRowState extends State<_BatteryRow> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: const Text(
-                  'System screen did not open — allow it manually',
+                  'System screen did not open, allow it manually',
                 ),
                 action: SnackBarAction(
                   label: 'Settings',
@@ -180,8 +180,8 @@ class _NotifRowState extends State<_NotifRow> {
         granted == null
             ? 'Checking…'
             : granted
-            ? 'On — controls appear while playing'
-            : 'Off — tap to enable in settings',
+            ? 'On, controls appear while playing'
+            : 'Off, tap to enable in settings',
         maxLines: 2,
         style: TextStyle(
           color: scheme.onSurfaceVariant,

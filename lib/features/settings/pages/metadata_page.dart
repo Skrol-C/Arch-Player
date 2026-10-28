@@ -7,7 +7,7 @@ import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
 
 /// Metadata: which lane every fact comes from, plus the one display
-/// toggle the song page actually reads. Lanes are informational —
+/// toggle the song page actually reads. Lanes are informational only.
 /// each row names its source so credit is never ambient.
 class MetadataPage extends ConsumerWidget {
   const MetadataPage({super.key});
@@ -45,8 +45,8 @@ class MetadataPage extends ConsumerWidget {
                 ),
                 subtitle: Text(
                   showMusical
-                      ? 'On — BPM and key show on song pages'
-                      : 'Off — harmonic details hidden',
+                      ? 'On, BPM and key show on song pages'
+                      : 'Off, harmonic details hidden',
                   maxLines: 2,
                   style: TextStyle(
                     color: Theme.of(

@@ -1,6 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme.dart';
+import '../setting_icons.dart';
 
 /// Shared settings chrome: group card, nav row, toggle row, and the
 /// loading/error/empty/data states every settings page must render.
@@ -81,7 +83,7 @@ class SettingRow extends StatelessWidget {
               : paper,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(icon, color: archPink),
+        child: Icon(settingIconFor(icon), color: archPink),
       ),
       title: Text(
         title,
@@ -99,7 +101,8 @@ class SettingRow extends StatelessWidget {
           trailing ??
           (actionable
               ? Icon(
-                  Icons.chevron_right_rounded,
+                  CupertinoIcons.forward,
+                  size: 18,
                   color: scheme.onSurfaceVariant,
                 )
               : null),

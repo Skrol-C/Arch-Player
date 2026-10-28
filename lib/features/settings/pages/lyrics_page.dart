@@ -44,8 +44,8 @@ class LyricsPage extends ConsumerWidget {
                 ),
                 subtitle: Text(
                   haptics
-                      ? 'On — a tap as lyric lines turn over'
-                      : 'Off — lines turn silently',
+                      ? 'On, a tap as lyric lines turn over'
+                      : 'Off, lines turn silently',
                   maxLines: 2,
                   style: TextStyle(
                     color: Theme.of(

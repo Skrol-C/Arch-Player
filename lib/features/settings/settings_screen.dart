@@ -30,10 +30,11 @@ import 'pages/metadata_page.dart';
 import 'pages/network_page.dart';
 import 'pages/playback_page.dart';
 import 'pages/shortcuts_page.dart';
+import 'pages/updater_page.dart';
 import 'widgets/setting_bits.dart';
 
 /// Settings hub: five cards, search across every entry, profile
-/// header. Every row lands somewhere real — no teasers, no dead
+/// header. Every row lands somewhere real. No teasers, no dead
 /// ends. Playback houses automix; Logs and Cache are full screens.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -60,84 +61,77 @@ class _Entry {
 
 final _entries = [
   _Entry(
-    card: 'Personal',
-    icon: Icons.extension_rounded,
-    title: 'Extensions',
-    subtitle: 'Providers plug in here — sandboxed',
-    page: ExtensionsPage(),
-  ),
-  _Entry(
-    card: 'Personal',
-    icon: Icons.store_rounded,
-    title: 'Repositories',
-    subtitle: 'Community default preloaded',
-    page: RepoPage(),
-  ),
-  _Entry(
-    card: 'Personal',
-    icon: Icons.volunteer_activism_rounded,
-    title: 'Donate',
-    subtitle: 'Keep Arch independent',
-    page: DonatePage(),
-  ),
-  _Entry(
-    card: 'Personal',
-    icon: Icons.palette_rounded,
-    title: 'Appearance',
-    subtitle: 'Theme + AMOLED + live preview',
-    page: AppearancePage(),
-  ),
-  _Entry(
-    card: 'Collection',
+    card: 'System',
     icon: Icons.library_music_rounded,
     title: 'Library',
     subtitle: 'Scan state, counts, rescan',
     page: LibraryPage(),
   ),
   _Entry(
-    card: 'Collection',
-    icon: Icons.dns_rounded,
-    title: 'Network storage',
-    subtitle: 'Remembered server locations',
-    page: NetworkStoragePage(),
-  ),
-  _Entry(
-    card: 'Collection',
+    card: 'System',
     icon: Icons.hub_rounded,
     title: 'Metadata',
-    subtitle: 'Provider lanes + display',
+    subtitle: 'Provider lanes plus display',
     page: MetadataPage(),
   ),
   _Entry(
-    card: 'Collection',
+    card: 'System',
     icon: Icons.lyrics_rounded,
     title: 'Lyrics',
-    subtitle: 'Resolution order + haptics',
+    subtitle: 'Resolution order plus haptics',
     page: LyricsPage(),
   ),
   _Entry(
-    card: 'Playing',
+    card: 'System',
     icon: Icons.tune_rounded,
     title: 'Playback',
     subtitle: 'Automix, shuffle, repeat, autoplay',
     page: PlaybackPage(),
   ),
   _Entry(
-    card: 'Playing',
+    card: 'Needle',
+    icon: Icons.extension_rounded,
+    title: 'Extensions',
+    subtitle: 'Providers plug in here, sandboxed',
+    page: ExtensionsPage(),
+  ),
+  _Entry(
+    card: 'Needle',
+    icon: Icons.store_rounded,
+    title: 'Repositories',
+    subtitle: 'Community default preloaded',
+    page: RepoPage(),
+  ),
+  _Entry(
+    card: 'Needle',
     icon: Icons.download_rounded,
     title: 'Downloads',
-    subtitle: 'Quality tier and storage folder',
+    subtitle: 'Quality tier plus storage folder',
     page: DownloadPage(),
   ),
   _Entry(
-    card: 'Playing',
+    card: 'Needle',
+    icon: Icons.dns_rounded,
+    title: 'Network storage',
+    subtitle: 'Remembered server locations',
+    page: NetworkStoragePage(),
+  ),
+  _Entry(
+    card: 'Needle',
     icon: Icons.folder_rounded,
     title: 'Files',
-    subtitle: 'Music folders + Needle storage',
+    subtitle: 'Music folders plus Needle storage',
     page: FilesPage(),
   ),
   _Entry(
-    card: 'Playing',
+    card: 'Personalize',
+    icon: Icons.palette_rounded,
+    title: 'Appearance',
+    subtitle: 'Theme plus AMOLED, tap a phone to apply',
+    page: AppearancePage(),
+  ),
+  _Entry(
+    card: 'Personalize',
     icon: Icons.phone_android_rounded,
     title: 'App',
     subtitle: 'Battery, notifications, system',
@@ -154,7 +148,7 @@ final _entries = [
     card: 'Care',
     icon: Icons.cleaning_services_rounded,
     title: 'Cache',
-    subtitle: 'Sizes + clearing, nothing owned lost',
+    subtitle: 'Sizes plus clearing, nothing owned lost',
     page: CachePage(),
   ),
   _Entry(
@@ -166,17 +160,31 @@ final _entries = [
   ),
   _Entry(
     card: 'Care',
+    icon: Icons.volunteer_activism_rounded,
+    title: 'Donate',
+    subtitle: 'Keep Arch independent',
+    page: DonatePage(),
+  ),
+  _Entry(
+    card: 'Care',
     icon: Icons.receipt_long_rounded,
     title: 'Logs',
     subtitle: 'What the app has been doing',
     page: LogScreen(),
   ),
   _Entry(
-    card: 'About',
+    card: 'Care',
     icon: Icons.info_outline_rounded,
     title: 'About',
     subtitle: 'Developer, version, updates, credit',
     page: AboutPage(),
+  ),
+  _Entry(
+    card: 'Care',
+    icon: Icons.system_update_rounded,
+    title: 'Updates',
+    subtitle: 'Newest build plus what changed',
+    page: UpdaterPage(),
   ),
 ];
 
@@ -273,11 +281,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
 List<String> _cardsInOrder(List<_Entry> shown) {
   const order = [
-    'Personal',
-    'Collection',
-    'Playing',
+    'System',
+    'Needle',
+    'Personalize',
     'Care',
-    'About',
   ];
   return [
     for (final c in order)
