@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
-import 'package:ota_update/ota_update.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/glass.dart';
 import '../../../core/log.dart';
 import '../../../core/theme.dart';
+import '../apk_installer.dart';
 import '../changelog_store.dart';
 import '../update_service.dart';
 import 'commit_row.dart';
@@ -93,35 +92,32 @@ class _UpdateSheetState extends State<_UpdateSheet> {
         }
         return;
       }
-      final pkg = await PackageInfo.fromPlatform();
-      await for (final event in OtaUpdate().execute(
+      final apk = await ApkInstaller.download(
         widget.info.apkUrl,
-        destinationFilename: 'arch-player-${widget.info.version}.apk',
-        androidProviderAuthority: '${pkg.packageName}.ota_update_provider',
-      )) {
-        if (!mounted) return;
-        if (event.status == OtaStatus.DOWNLOADING) {
-          final v = double.tryParse(event.value ?? '');
-          setState(() => _progress = v == null ? null : v / 100);
-        } else if (event.status == OtaStatus.INSTALLING) {
-          setState(() => _progress = null);
-        } else if (event.status == OtaStatus.PERMISSION_NOT_GRANTED_ERROR ||
-            event.status == OtaStatus.DOWNLOAD_ERROR ||
-            event.status == OtaStatus.CHECKSUM_ERROR ||
-            event.status == OtaStatus.INTERNAL_ERROR ||
-            event.status == OtaStatus.CANCELED) {
-          setState(() {
-            _busy = false;
-            _error = 'Download failed. Check the connection and retry.';
-          });
-          ArchLog.w('updater', 'ota failed: ${event.status} ${event.value}');
-          return;
-        } else if (event.status == OtaStatus.ALREADY_RUNNING_ERROR) {
-          setState(() => _busy = false);
-          return;
-        }
+        filename: 'arch-player-${widget.info.version}.apk',
+        onProgress: (v) {
+          if (mounted) setState(() => _progress = v);
+        },
+      );
+      if (!mounted) return;
+      if (apk == null) {
+        setState(() {
+          _busy = false;
+          _error = 'Download failed. Check the connection and retry.';
+        });
+        return;
       }
-      if (mounted) setState(() => _busy = false);
+      setState(() => _progress = null);
+      final handedOff = await ApkInstaller.install(apk);
+      if (!mounted) return;
+      if (handedOff) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = 'Could not open the installer. Try again.';
+      });
     } catch (e) {
       ArchLog.w('updater', 'download failed: $e');
       if (mounted) {

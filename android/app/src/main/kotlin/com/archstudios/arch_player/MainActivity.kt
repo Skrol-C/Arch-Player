@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream
 class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     private val channelName = "arch.player/library"
     private val sessionChannelName = "arch.player/session"
+    private val updaterChannelName = "arch.player/updater"
 
     // Latest VIEW intent data (deep links). singleTop delivers
     // re-taps to onNewIntent; Dart pulls via pendingDeepLink
@@ -259,6 +260,17 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                         }
                         result.success(null)
                     }
+                    else -> result.notImplemented()
+                }
+            }
+        // Updater channel: hand the downloaded APK to the system
+        // installer. No plugin: the download rides Dart http with
+        // progress, this fires the VIEW intent through FileProvider.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, updaterChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "installApk" -> installApk(
+                        call.argument<String>("path").orEmpty(), result)
                     else -> result.notImplemented()
                 }
             }
@@ -575,6 +587,31 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                 android.net.Uri.fromFile(dest).toString()
             }
         }.getOrNull()
+    }
+
+    /// Hand a downloaded APK to the system installer via FileProvider.
+    /// False = nothing to hand over or no activity to take it; the
+    /// caller falls back to the release page. Never throws.
+    private fun installApk(path: String, result: MethodChannel.Result) {
+        if (path.isEmpty() || !java.io.File(path).isFile) {
+            result.success(false)
+            return
+        }
+        val ok = runCatching {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "${packageName}.fileProvider", java.io.File(path))
+            val intent = android.content.Intent(
+                android.content.Intent.ACTION_VIEW,
+            ).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+            true
+        }.getOrDefault(false)
+        android.util.Log.d("ArchUpdater", "install intent fired: $ok")
+        result.success(ok)
     }
 
     /** Common music homes that actually exist, for first-run suggestions. */

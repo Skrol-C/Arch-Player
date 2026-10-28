@@ -69,11 +69,11 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON"/>
             </intent-filter>
         </receiver>
-        <!-- APK install handoff for ota_update: the downloaded file is
-             shared with the installer through the plugin's FileProvider. -->
+        <!-- APK install handoff: the downloaded file is shared with
+             the system installer through this FileProvider. -->
         <provider
-            android:name="sk.fourq.otaupdate.OtaUpdateFileProvider"
-            android:authorities="${applicationId}.ota_update_provider"
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileProvider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
