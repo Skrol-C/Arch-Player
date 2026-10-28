@@ -2,8 +2,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../library/library_providers.dart';
+import '../library/song_row.dart' show FileArtImage;
 import 'extension.dart';
 import 'needle_store.dart';
 import 'queue_runner.dart';
@@ -121,18 +124,8 @@ class _JobRow extends ConsumerWidget {
         contentPadding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: job.art.isEmpty
-              ? Container(
-                  width: 56,
-                  height: 56,
-                  color: Theme.of(context).colorScheme.surface,
-                  child: Icon(
-                      Icons.music_note_rounded,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurfaceVariant),
-                )
-              : CachedNetworkImage(
+          child: job.art.isNotEmpty
+              ? CachedNetworkImage(
             memCacheWidth: 112,
             memCacheHeight: 112,
             maxWidthDiskCache: 512,
@@ -141,17 +134,9 @@ class _JobRow extends ConsumerWidget {
                   width: 56,
                   height: 56,
                   fit: BoxFit.cover,
-                  errorWidget: (ctx, _, _) => Container(
-                    width: 56,
-                    height: 56,
-                    color: Theme.of(ctx).colorScheme.surface,
-                    child: Icon(
-                        Icons.music_note_rounded,
-                        color: Theme.of(ctx)
-                            .colorScheme
-                            .onSurfaceVariant),
-                  ),
-                ),
+                  errorWidget: (ctx, _, _) => _fallbackArt(ctx, ref),
+                )
+              : _fallbackArt(context, ref),
         ),
         title: Text(
           job.title,
@@ -204,6 +189,30 @@ class _JobRow extends ConsumerWidget {
         trailing: _trailing(context, ref, queue),
         ),
       ),
+    );
+  }
+
+  /// Queue art fallback: a job enqueued without a URL (album hub whose
+  /// provider returned no art, playlist pending rows) still shows the
+  /// real album cover once a matching file is in the library.
+  Widget _fallbackArt(BuildContext context, WidgetRef ref) {
+    final songs = ref.watch(songsProvider).value ?? const <Song>[];
+    for (final s in songs) {
+      if (normTitle(s.title) != normTitle(job.title)) continue;
+      if (!artistsOverlap(s.artist, job.artist)) continue;
+      return FileArtImage(
+        path: s.path,
+        albumId: s.albumId,
+        size: 56,
+        radius: 12,
+      );
+    }
+    return Container(
+      width: 56,
+      height: 56,
+      color: Theme.of(context).colorScheme.surface,
+      child: Icon(Icons.music_note_rounded,
+          color: Theme.of(context).colorScheme.onSurfaceVariant),
     );
   }
 

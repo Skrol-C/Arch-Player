@@ -236,6 +236,9 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
           title: t.title,
           artist: widget.album.artist,
           album: widget.album.title,
+          // The album's own cover travels with the job, so the Needle
+          // card has the right art instead of a blank note tile.
+          art: cover,
         );
         if (ok && btnContext.mounted) {
           ScaffoldMessenger.of(btnContext).showSnackBar(

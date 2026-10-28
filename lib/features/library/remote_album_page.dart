@@ -62,6 +62,35 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
   Color? _washTarget;
   String? _loadingKey;
 
+  /// Album detail is a two-request network call with no cache. Building
+  /// it inline in `build()` restarted it on EVERY rebuild (wash ticks,
+  /// skeleton pulse, dock providers), so the page flapped
+  /// skeleton -> error -> skeleton until a response happened to win a
+  /// race. One future per (artist, album) instead.
+  Future<DzAlbumDetail?>? _detailFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailFuture = _loadDetail();
+  }
+
+  @override
+  void didUpdateWidget(covariant RemoteAlbumPage old) {
+    super.didUpdateWidget(old);
+    if (old.artistName != widget.artistName ||
+        old.albumTitle != widget.albumTitle) {
+      _detailFuture = _loadDetail();
+    }
+  }
+
+  Future<DzAlbumDetail?> _loadDetail() => ref
+      .read(metadataServiceProvider)
+      .dzAlbumDetailFor(
+        artist: widget.artistName,
+        album: widget.albumTitle,
+      );
+
   Future<void> _preview(BuildContext context, WidgetRef ref, String title,
       String url, String cover, int rank) async {
     if (_loadingKey != null || !mounted) return;
@@ -93,8 +122,8 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
     }
   }
 
-  Future<void> _pullAll(
-      BuildContext context, WidgetRef ref, List<DzAlbumTrack> tracks) async {
+  Future<void> _pullAll(BuildContext context, WidgetRef ref,
+      List<DzAlbumTrack> tracks, String cover) async {
     final songs = ref.read(songsProvider).value ?? [];
     final missing = [
       for (final t in tracks)
@@ -126,7 +155,7 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
         title: t.title,
         artist: t.artist.isEmpty ? widget.artistName : t.artist,
         album: widget.albumTitle,
-        art: '',
+        art: cover,
         isrc: t.isrc,
         providers: downloaders,
         quality: quality,
@@ -180,12 +209,7 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
               fit: StackFit.expand,
               children: [
                 FutureBuilder(
-                  future: ref
-                      .watch(metadataServiceProvider)
-                      .dzAlbumDetailFor(
-                        artist: widget.artistName,
-                        album: widget.albumTitle,
-                      ),
+                  future: _detailFuture,
                   builder: (context, snap) {
                     if (snap.connectionState == ConnectionState.waiting) {
                       return const _RemoteLoading();
@@ -193,7 +217,8 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
                     if (snap.hasError || snap.data == null) {
                       return _RemoteError(
                         name: widget.albumTitle,
-                        onRetry: () => setState(() {}),
+                        onRetry: () =>
+                            setState(() => _detailFuture = _loadDetail()),
                         onBack: () => Navigator.of(context).maybePop(),
                       );
                     }
@@ -202,7 +227,8 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
                       return _RemoteError(
                         name: widget.albumTitle,
                         detail: 'No playable tracks found.',
-                        onRetry: () => setState(() {}),
+                        onRetry: () =>
+                            setState(() => _detailFuture = _loadDetail()),
                         onBack: () => Navigator.of(context).maybePop(),
                       );
                     }
@@ -227,9 +253,10 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
                             ? widget.artistName
                             : t.artist,
                         album: d.title,
+                        art: d.cover,
                         isrc: t.isrc,
                       ),
-                      onPullAll: () => _pullAll(context, ref, d.tracks),
+                      onPullAll: () => _pullAll(context, ref, d.tracks, d.cover),
                       ownedOf: (title) => _ownedMatch(songs, title),
                     );
                   },
