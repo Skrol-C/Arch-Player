@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
@@ -9,6 +10,7 @@ import '../../../core/log.dart';
 import '../../../core/theme.dart';
 import '../apk_installer.dart';
 import '../changelog_store.dart';
+import '../pages/changelog_page.dart';
 import '../update_service.dart';
 import 'commit_row.dart';
 
@@ -212,6 +214,39 @@ class _UpdateBodyState extends State<_UpdateBody> {
           if (_commits != null && _commits!.isNotEmpty) ...[
             const SizedBox(height: 8),
             for (final e in _commits!) CommitRow(entry: e),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ChangelogPage(),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'View full changelog',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      CupertinoIcons.arrow_right,
+                      size: 14,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
           if (_error != null) ...[
             const SizedBox(height: 8),
