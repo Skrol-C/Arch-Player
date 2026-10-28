@@ -65,6 +65,38 @@ jobs:
       - name: Install NDK r27
         run: $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
 
+      - name: Generate secrets.local.dart (empty keys = quiet lanes)
+        env:
+          K_LASTFM: ${{ secrets.LASTFM_API_KEY }}
+          K_FANART: ${{ secrets.FANART_API_KEY }}
+          K_AUDIODB: ${{ secrets.AUDIODB_API_KEY }}
+          K_ACOUSTID: ${{ secrets.ACOUSTID_API_KEY }}
+          K_GSB: ${{ secrets.GETSONGBPM_API_KEY }}
+        run: |
+          cat > lib/core/secrets.local.dart << 'DART_EOF'
+          // Generated in CI from repo secrets. Empty = lane stays quiet.
+          const lastFmApiKey = 'K_LASTFM_PH';
+          const fanartApiKey = 'K_FANART_PH';
+          const audioDbApiKey = 'K_AUDIODB_PH';
+          const acoustIdApiKey = 'K_ACOUSTID_PH';
+          const getSongBpmApiKey = 'K_GSB_PH';
+          DART_EOF
+          python3 - << 'PY_EOF'
+          import os
+          keys = {
+              'K_LASTFM_PH': os.environ.get('K_LASTFM') or 'PASTE_KEY_HERE',
+              'K_FANART_PH': os.environ.get('K_FANART') or 'PASTE_KEY_HERE',
+              'K_AUDIODB_PH': os.environ.get('K_AUDIODB') or 'PASTE_KEY_HERE',
+              'K_ACOUSTID_PH': os.environ.get('K_ACOUSTID') or 'PASTE_KEY_HERE',
+              'K_GSB_PH': os.environ.get('K_GSB') or 'PASTE_KEY_HERE',
+          }
+          p = 'lib/core/secrets.local.dart'
+          s = open(p).read()
+          for ph, v in keys.items():
+              s = s.replace(ph, v)
+          open(p, 'w').write(s)
+          PY_EOF
+
       - name: Decode keystore (release signing)
         if: env.HAS_RELEASE_KEY == 'true'
         env:
