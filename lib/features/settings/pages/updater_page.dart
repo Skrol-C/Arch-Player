@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -48,6 +50,38 @@ class _UpdaterPageState extends ConsumerState<UpdaterPage> {
     } catch (e) {
       ArchLog.w('updater', 'version read failed: $e');
     }
+  }
+
+  Future<void> _preview({required bool forced}) async {
+    HapticFeedback.selectionClick();
+    var current = '1.0.0';
+    try {
+      current = (await PackageInfo.fromPlatform()).version;
+    } catch (_) {}
+    final parts = current.split('.');
+    final bumped = parts.length >= 3
+        ? '${parts[0]}.${parts[1]}.${(int.tryParse(parts[2]) ?? 0) + 1}'
+        : '$current.1';
+    final fake = forced
+        ? '${((int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 1) + 1)}.0.0'
+        : bumped;
+    if (!mounted) return;
+    await showUpdateDialog(
+      context,
+      info: UpdateInfo(
+        current: current,
+        version: fake,
+        tag: 'v$fake',
+        notes: forced
+            ? 'Preview only. Breaking releases install immediately.'
+            : 'Preview only. This is what a real update looks like.',
+        apkUrl: '',
+        pageUrl: 'https://github.com/$updateRepoOwner/$updateRepoName',
+        breaking: forced,
+        forced: forced,
+        skips: forced ? updateMaxSkips : 2,
+      ),
+    );
   }
 
   Future<void> _check() async {
@@ -162,6 +196,24 @@ class _UpdaterPageState extends ConsumerState<UpdaterPage> {
               ),
             ),
           ),
+          if (kDebugMode)
+            SettingGroup(
+              title: 'Preview',
+              children: [
+                SettingRow(
+                  icon: Icons.visibility_rounded,
+                  title: 'Preview update dialog',
+                  subtitle: 'Glass sheet, commits, Later button',
+                  onTap: () => _preview(forced: false),
+                ),
+                SettingRow(
+                  icon: Icons.warning_amber_rounded,
+                  title: 'Preview forced update',
+                  subtitle: 'Breaking style, no Later button',
+                  onTap: () => _preview(forced: true),
+                ),
+              ],
+            ),
           SettingGroup(
             title: 'Latest changes',
             children: [
