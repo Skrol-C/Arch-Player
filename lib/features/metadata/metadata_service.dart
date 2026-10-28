@@ -848,6 +848,87 @@ class MetadataService {
     return dir;
   }
 
+  /// Cache buckets the settings page measures and clears, in bytes.
+  /// Keys: lyrics (offline synced lyrics), analysis (DSP tempo/key
+  /// results), artists (bios, pics, discographies). Missing buckets
+  /// read 0 — nothing here is load-bearing, everything re-derives.
+  Future<Map<String, int>> cacheSizes() async {
+    Future<int> dirSize(Directory dir) async {
+      var total = 0;
+      try {
+        if (!await dir.exists()) return 0;
+        await for (final e in dir.list(recursive: true)) {
+          if (e is File) {
+            try {
+              total += await e.length();
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+      return total;
+    }
+
+    final cache = await getApplicationCacheDirectory();
+    final docs = await getApplicationDocumentsDirectory();
+    var analysis = 0;
+    try {
+      final f = File('${docs.path}/musical.json');
+      if (await f.exists()) analysis = await f.length();
+    } catch (_) {}
+    return {
+      'lyrics': await dirSize(Directory('${cache.path}/lyrics_cache')),
+      'analysis': analysis,
+      'artists': await dirSize(Directory('${cache.path}/artist_meta')),
+    };
+  }
+
+  /// Clear one bucket, returning bytes freed. Analysis also drops the
+  /// in-memory map so a stale read cannot survive the wipe.
+  Future<int> clearCacheBucket(String bucket) async {
+    Future<int> wipeDir(Directory dir) async {
+      var freed = 0;
+      try {
+        if (!await dir.exists()) return 0;
+        await for (final e in dir.list()) {
+          try {
+            if (e is File) {
+              freed += await e.length();
+              await e.delete();
+            } else if (e is Directory) {
+              await e.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return freed;
+    }
+
+    final cache = await getApplicationCacheDirectory();
+    switch (bucket) {
+      case 'lyrics':
+        return wipeDir(Directory('${cache.path}/lyrics_cache'));
+      case 'artists':
+        return wipeDir(Directory('${cache.path}/artist_meta'));
+      case 'analysis':
+        _musicalDisk.clear();
+        try {
+          final f = File(
+            '${(await getApplicationDocumentsDirectory()).path}/musical.json',
+          );
+          var freed = 0;
+          if (await f.exists()) {
+            freed = await f.length();
+            await f.delete();
+          }
+          return freed;
+        } catch (_) {
+          return 0;
+        }
+      default:
+        return 0;
+    }
+  }
+
   Future<LyricDoc?> _readLyricCache(int songId) async {
     try {
       final file = File('${(await _lyricDir()).path}/$songId.json');

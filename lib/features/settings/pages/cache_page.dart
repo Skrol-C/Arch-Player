@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../core/log.dart';
+import '../../metadata/metadata_providers.dart';
 import '../widgets/setting_bits.dart';
 
-/// Cache: real numbers, real clearing. Image memory cache via the
-/// framework, artwork files under app storage, and the log file.
-/// each row shows its size and frees it on tap.
+/// Cache: real numbers, per-bucket clearing, one global sweep.
+/// Image memory clears instantly, artwork and metadata buckets clear
+/// from disk and re-derive on demand. Nothing owned is ever deleted.
 class CachePage extends ConsumerStatefulWidget {
   const CachePage({super.key});
 
@@ -31,13 +31,19 @@ class _CachePageState extends ConsumerState<CachePage> {
   Future<_CacheInfo> _measure() async {
     final img = PaintingBinding.instance.imageCache;
     var artBytes = 0;
-    var logBytes = 0;
+    var lyricBytes = 0;
+    var analysisBytes = 0;
+    var artistBytes = 0;
     try {
       final dir = await getApplicationDocumentsDirectory();
       artBytes += await _dirSize(Directory('${dir.path}/artwork'));
       artBytes += await _dirSize(Directory('${dir.path}/art'));
-      final log = File('${dir.path}/arch.log');
-      if (await log.exists()) logBytes = await log.length();
+      final sizes = await ref
+          .read(metadataServiceProvider)
+          .cacheSizes();
+      lyricBytes = sizes['lyrics'] ?? 0;
+      analysisBytes = sizes['analysis'] ?? 0;
+      artistBytes = sizes['artists'] ?? 0;
     } catch (e) {
       ArchLog.w('settings', 'cache measure failed: $e');
     }
@@ -45,7 +51,9 @@ class _CachePageState extends ConsumerState<CachePage> {
       imageCount: img.liveImageCount + img.currentSize,
       imageBytes: img.currentSizeBytes,
       artBytes: artBytes,
-      logBytes: logBytes,
+      lyricBytes: lyricBytes,
+      analysisBytes: analysisBytes,
+      artistBytes: artistBytes,
     );
   }
 
@@ -66,9 +74,93 @@ class _CachePageState extends ConsumerState<CachePage> {
 
   void _refresh() => setState(() => _info = _measure());
 
+  Future<void> _clearAll() async {
+    HapticFeedback.mediumImpact();
+    PaintingBinding.instance.imageCache
+      ..clear()
+      ..clearLiveImages();
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      for (final name in ['artwork', 'art']) {
+        final d = Directory('${dir.path}/$name');
+        if (await d.exists()) await d.delete(recursive: true);
+      }
+      final svc = ref.read(metadataServiceProvider);
+      await svc.clearCacheBucket('lyrics');
+      await svc.clearCacheBucket('analysis');
+      await svc.clearCacheBucket('artists');
+    } catch (e) {
+      ArchLog.w('settings', 'cache clear-all failed: $e');
+    }
+    ArchLog.i('settings', 'all caches cleared');
+    _refresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All caches cleared')),
+      );
+    }
+  }
+
+  Future<void> _clearImages() async {
+    HapticFeedback.selectionClick();
+    PaintingBinding.instance.imageCache
+      ..clear()
+      ..clearLiveImages();
+    ArchLog.i('settings', 'image cache cleared');
+    _refresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Image cache cleared')),
+      );
+    }
+  }
+
+  Future<void> _clearArt() async {
+    HapticFeedback.selectionClick();
+    var freed = 0;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      for (final name in ['artwork', 'art']) {
+        final d = Directory('${dir.path}/$name');
+        if (await d.exists()) {
+          freed += await _dirSize(d);
+          await d.delete(recursive: true);
+        }
+      }
+      ArchLog.i('settings', 'artwork files cleared (${_mb(freed)})');
+    } catch (e) {
+      ArchLog.w('settings', 'artwork clear failed: $e');
+    }
+    _refresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Artwork cache cleared')),
+      );
+    }
+  }
+
+  Future<void> _clearBucket(String bucket, String label) async {
+    HapticFeedback.selectionClick();
+    try {
+      final freed = await ref
+          .read(metadataServiceProvider)
+          .clearCacheBucket(bucket);
+      ArchLog.i('settings', '$label cache cleared (${_mb(freed)})');
+    } catch (e) {
+      ArchLog.w('settings', '$label clear failed: $e');
+    }
+    _refresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label cache cleared')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ArchLog.i('nav', 'cache settings open');
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Cache')),
       body: FutureBuilder<_CacheInfo>(
@@ -92,47 +184,109 @@ class _CachePageState extends ConsumerState<CachePage> {
             );
           }
           final info = snap.data!;
+          final total =
+              info.imageBytes + info.artBytes + info.lyricBytes +
+              info.analysisBytes +
+              info.artistBytes;
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
             children: [
+              Material(
+                color: scheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _mb(total),
+                              style: TextStyle(
+                                color: scheme.onSurface,
+                                fontSize: 28,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              'across image memory, artwork files, lyrics, analysis and artist metadata',
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 13,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton.filled(
+                        onPressed: _refresh,
+                        tooltip: 'Refresh stats',
+                        style: IconButton.styleFrom(
+                          backgroundColor: scheme.surfaceContainerHighest,
+                          foregroundColor: scheme.onSurface,
+                        ),
+                        icon: const Icon(Icons.refresh_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _clearAll,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFC3C44),
+                  ),
+                  child: const Text('Clear all caches'),
+                ),
+              ),
               SettingGroup(
-                title: 'Storage',
+                title: 'Buckets',
                 children: [
-                  SettingRow(
+                  _BucketRow(
                     icon: Icons.image_rounded,
                     title: 'Image memory',
                     subtitle:
                         '${info.imageCount} live · ${_mb(info.imageBytes)}',
-                    trailing: TextButton(
-                      onPressed: () => _clearImages(info),
-                      child: const Text('Clear'),
-                    ),
+                    onClear: _clearImages,
                   ),
-                  SettingRow(
+                  _BucketRow(
                     icon: Icons.art_track_rounded,
-                    title: 'Artwork files',
+                    title: 'Cover art files',
                     subtitle: _mb(info.artBytes),
-                    trailing: TextButton(
-                      onPressed: () => _clearArt(info),
-                      child: const Text('Clear'),
-                    ),
+                    onClear: _clearArt,
                   ),
-                  SettingRow(
-                    icon: Icons.receipt_long_rounded,
-                    title: 'Log file',
-                    subtitle: _mb(info.logBytes),
-                    trailing: TextButton(
-                      onPressed: _shareLog,
-                      child: const Text('Share'),
-                    ),
+                  _BucketRow(
+                    icon: Icons.lyrics_rounded,
+                    title: 'Lyrics cache',
+                    subtitle: _mb(info.lyricBytes),
+                    onClear: () => _clearBucket('lyrics', 'Lyrics'),
+                  ),
+                  _BucketRow(
+                    icon: Icons.graphic_eq_rounded,
+                    title: 'Audio analysis',
+                    subtitle: _mb(info.analysisBytes),
+                    onClear: () => _clearBucket('analysis', 'Analysis'),
+                  ),
+                  _BucketRow(
+                    icon: Icons.person_rounded,
+                    title: 'Artist metadata',
+                    subtitle: _mb(info.artistBytes),
+                    onClear: () => _clearBucket('artists', 'Artist metadata'),
                   ),
                 ],
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
                 child: Text(
-                  'Clearing artwork re-fetches it on demand. '
-                  'nothing you own is ever deleted, only re-derived copies.',
+                  'Clearing re-fetches on demand. '
+                  'Nothing you own is ever deleted, only re-derived copies.',
                   style: TextStyle(
                     color: Theme.of(
                       context,
@@ -148,58 +302,47 @@ class _CachePageState extends ConsumerState<CachePage> {
       ),
     );
   }
+}
 
-  Future<void> _clearImages(_CacheInfo info) async {
-    HapticFeedback.selectionClick();
-    PaintingBinding.instance.imageCache
-      ..clear()
-      ..clearLiveImages();
-    ArchLog.i('settings', 'image cache cleared');
-    _refresh();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image cache cleared')),
-      );
-    }
-  }
+class _BucketRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onClear;
 
-  Future<void> _clearArt(_CacheInfo info) async {
-    HapticFeedback.selectionClick();
-    var freed = 0;
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      for (final name in ['artwork', 'art']) {
-        final d = Directory('${dir.path}/$name');
-        if (await d.exists()) {
-          freed += await _dirSize(d);
-          await d.delete(recursive: true);
-        }
-      }
-      ArchLog.i('settings', 'artwork files cleared (${_mb(freed)})');
-    } catch (e) {
-      ArchLog.w('settings', 'artwork clear failed: $e');
-    }
-    _refresh();
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Artwork cache cleared')));
-    }
-  }
+  const _BucketRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onClear,
+  });
 
-  Future<void> _shareLog() async {
-    HapticFeedback.selectionClick();
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile('${dir.path}/arch.log')],
-          subject: 'Arch Player log',
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
         ),
-      );
-    } catch (e) {
-      ArchLog.w('settings', 'log share failed: $e');
-    }
+        child: Icon(icon, color: const Color(0xFFFC3C44)),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 13,
+        ),
+      ),
+      trailing: TextButton(onPressed: onClear, child: const Text('Clear')),
+    );
   }
 }
 
@@ -207,13 +350,17 @@ class _CacheInfo {
   final int imageCount;
   final int imageBytes;
   final int artBytes;
-  final int logBytes;
+  final int lyricBytes;
+  final int analysisBytes;
+  final int artistBytes;
 
   const _CacheInfo({
     required this.imageCount,
     required this.imageBytes,
     required this.artBytes,
-    required this.logBytes,
+    required this.lyricBytes,
+    required this.analysisBytes,
+    required this.artistBytes,
   });
 }
 

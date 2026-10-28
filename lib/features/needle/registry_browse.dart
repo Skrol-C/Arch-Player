@@ -120,7 +120,7 @@ class _RegistryBrowsePageState
               final busy = _busy.contains(e.id);
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: Theme.of(context).colorScheme.surfaceContainer,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),

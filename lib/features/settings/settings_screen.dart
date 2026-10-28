@@ -27,7 +27,6 @@ import 'pages/files_page.dart';
 import 'pages/library_page.dart';
 import 'pages/lyrics_page.dart';
 import 'pages/metadata_page.dart';
-import 'pages/network_page.dart';
 import 'pages/playback_page.dart';
 import 'pages/shortcuts_page.dart';
 import 'pages/updater_page.dart';
@@ -106,15 +105,8 @@ final _entries = [
     card: 'Needle',
     icon: Icons.download_rounded,
     title: 'Downloads',
-    subtitle: 'Quality tier plus storage folder',
+    subtitle: 'Where Needle files land',
     page: DownloadPage(),
-  ),
-  _Entry(
-    card: 'Needle',
-    icon: Icons.dns_rounded,
-    title: 'Network storage',
-    subtitle: 'Remembered server locations',
-    page: NetworkStoragePage(),
   ),
   _Entry(
     card: 'Needle',

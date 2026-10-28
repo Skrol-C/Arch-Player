@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/log.dart';
+import '../../../core/theme.dart';
 import '../setting_icons.dart';
 import '../widgets/setting_bits.dart';
 import 'updater_page.dart';
@@ -41,6 +43,29 @@ class _AboutPageState extends State<AboutPage> {
   void initState() {
     super.initState();
     _loadVersion();
+    LicenseRegistry.addLicense(_archLicense);
+  }
+
+  /// Arch's own license entry, so the stock licenses page names the
+  /// app and its terms instead of only listing third-party packages.
+  static Stream<LicenseEntry> _archLicense() async* {
+    yield const LicenseEntryWithLineBreaks(
+      ['Arch Player'],
+      'GNU General Public License v3.0\n'
+      '\n'
+      'Copyright (C) 2026 Skrol-C\n'
+      '\n'
+      'Arch Player is free software: you can redistribute it and/or '
+      'modify it under the terms of the GNU General Public License '
+      'as published by the Free Software Foundation, version 3.\n'
+      '\n'
+      'Arch Player is distributed in the hope that it will be useful, '
+      'but WITHOUT ANY WARRANTY; without even the implied warranty of '
+      'MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the '
+      'GNU General Public License for more details.\n'
+      '\n'
+      'Full text: https://www.gnu.org/licenses/gpl-3.0.html',
+    );
   }
 
   Future<void> _open(String url) async {
@@ -72,18 +97,27 @@ class _AboutPageState extends State<AboutPage> {
                   Container(
                     width: 72,
                     height: 72,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFC3C44),
-                      shape: BoxShape.circle,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: scheme.outline.withValues(alpha: 0.35),
+                      ),
                     ),
-                    alignment: Alignment.center,
-                    child: const Text(
-                      'A',
-                      style: TextStyle(
-                        fontFamily: 'ArchSerif',
-                        color: Colors.white,
-                        fontSize: 40,
-                        fontWeight: FontWeight.w800,
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(
+                      'assets/icon/app_logo.png',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: archPink,
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'A',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
                     ),
                   ),

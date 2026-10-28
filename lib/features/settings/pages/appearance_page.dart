@@ -39,7 +39,9 @@ class AppearancePage extends ConsumerWidget {
             crossAxisCount: 2,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio: 0.62,
+            // Cell holds the phone plus its label below; the label
+            // is what overflowed by ~26px at 0.62.
+            childAspectRatio: 0.55,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             children: [
@@ -213,7 +215,7 @@ class _MiniHome extends StatelessWidget {
                 for (var i = 0; i < 3; i++)
                   Expanded(
                     child: Container(
-                      height: 64,
+                      height: 58,
                       margin: EdgeInsets.only(right: i < 2 ? 6 : 0),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -232,7 +234,7 @@ class _MiniHome extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Container(
-              height: 40,
+              height: 38,
               decoration: BoxDecoration(
                 color: scheme.surfaceContainer,
                 borderRadius: BorderRadius.circular(20),
@@ -286,7 +288,7 @@ class _MiniHome extends StatelessWidget {
             ),
             const Spacer(),
             Container(
-              height: 44,
+              height: 40,
               decoration: BoxDecoration(
                 color: scheme.surfaceContainer,
                 borderRadius: BorderRadius.circular(22),

@@ -186,6 +186,7 @@ ThemeData archTheme() {
     colorScheme: const ColorScheme.light(
       primary: archPink,
       surface: paper,
+      surfaceContainer: paperRaised,
       surfaceContainerHighest: paperRaised,
       onSurface: ink,
       onSurfaceVariant: inkDim,

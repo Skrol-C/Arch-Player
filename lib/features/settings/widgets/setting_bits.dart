@@ -21,9 +21,6 @@ class SettingGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final card = scheme.brightness == Brightness.dark
-        ? scheme.surfaceContainerHighest
-        : paperRaised;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -40,9 +37,23 @@ class SettingGroup extends StatelessWidget {
           ),
         ),
         Material(
-          color: card,
+          color: scheme.surfaceContainer,
           borderRadius: BorderRadius.circular(20),
-          child: Column(children: children),
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 1,
+                    thickness: 1,
+                    indent: 68,
+                    endIndent: 16,
+                    color: scheme.onSurface.withValues(alpha: 0.08),
+                  ),
+                children[i],
+              ],
+            ],
+          ),
         ),
       ],
     );
