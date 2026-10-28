@@ -48,15 +48,25 @@ android {
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
+            } else if (System.getenv("ANDROID_KEYSTORE_PATH") != null) {
+                // CI: secrets arrive as env (see release.yml), no file.
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
             }
         }
     }
 
+    val hasReleaseKey = keystorePropertiesFile.exists() ||
+        System.getenv("ANDROID_KEYSTORE_PATH") != null
+
     buildTypes {
         release {
-            // Shared release key when key.properties exists (CI + local),
-            // otherwise the machine debug key so `flutter run --release` works.
-            signingConfig = if (keystorePropertiesFile.exists()) {
+            // Shared release key when key.properties exists (local) or the
+            // CI env is present, otherwise the machine debug key so
+            // `flutter run --release` works.
+            signingConfig = if (hasReleaseKey) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
