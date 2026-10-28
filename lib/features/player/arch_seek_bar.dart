@@ -1,25 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
-import '../../core/glass.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/song_row.dart' show fmtDuration;
 
-/// House seekbar: explicit left-to-right seeking with the house glass.
+/// House seekbar: a plain hairline with a strict left-to-right pink fill.
 ///
-/// The thumb is the package clear-pill lens
-/// ([LiquidGlassSlider.defaultStyle] - the same clear capsule the
-/// switch thumb in `settings/widgets/arch_switch.dart` wears): it
-/// rests small in the groove and swells under the finger while
-/// dragging. The groove itself is a static glass ribbon
-/// ([ArchGlass.capsule]) with the pink fill living inside it.
+/// The groove is never glass - just a 2px line. The ONLY glass is the
+/// thumb (the package clear-pill lens, [LiquidGlassSlider.defaultStyle]):
+/// it fades/scales in on touch-down and is gone at rest, so the idle
+/// bar is line + fill only.
 ///
 /// One axis only: horizontal drags seek, vertical drags stay with
 /// dismiss (reported through [onDismiss]) - the arena picks one
-/// winner, so the seek never fights a dismiss zone. This replaces
-/// the old bidirectional scrub, where vertical distance geared the
-/// sensitivity down; that coupling is gone.
+/// winner, so the seek never fights a dismiss zone.
 ///
 /// Pure control: no providers, no engine. The caller feeds the live
 /// [positionMs] and commits through [onSeek] (guarded seek entry),
@@ -66,7 +61,7 @@ class _ArchSeekBarState extends State<ArchSeekBar> {
   static const _dismissVelocity = 400.0;
   static const _dismissDistance = 90.0;
 
-  static const _restThumb = Size(34, 22);
+  static const _thumb = Size(40, 26);
 
   bool get _dragging => _dragMs != null;
 
@@ -112,10 +107,10 @@ class _ArchSeekBarState extends State<ArchSeekBar> {
             builder: (context, constraints) {
               final w = constraints.maxWidth;
               // Thumb center rides the fill edge, clamped so the pill
-              // never leaves the groove's ends.
+              // never leaves the line's ends.
               final cx = (frac * w).clamp(
-                _restThumb.width / 2,
-                w - _restThumb.width / 2,
+                _thumb.width / 2,
+                w - _thumb.width / 2,
               );
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -164,56 +159,64 @@ class _ArchSeekBarState extends State<ArchSeekBar> {
                 },
                 onVerticalDragCancel: () => _dy = 0,
                 child: Container(
+                  key: const Key('arch_seek_track'),
                   // Fat touch target, thin visual: sensitivity lives
                   // in the gesture, not in a fat bar.
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   color: Colors.transparent,
                   child: SizedBox(
-                    // Room for the swollen thumb - the swell paints
-                    // outside the groove, never clipped mid-drag.
-                    height: _restThumb.height * 1.5 + 8,
+                    // Room for the thumb pop - it paints above the
+                    // line, never clipped mid-drag.
+                    height: _thumb.height + 8,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Static glass groove, pink living inside.
-                        AnimatedContainer(
-                          duration: anim,
-                          curve: Curves.easeOut,
-                          height: _dragging ? 16 : 10,
-                          child: LiquidGlassLens(
-                            style: ArchGlass.capsule(radius: 8),
-                            child: Container(
-                              alignment: Alignment.center,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(5),
-                                child: Container(
-                                  height: _dragging ? 10 : 5,
-                                  color: Colors.white.withValues(
-                                    alpha: _dragging ? 0.35 : 0.22,
-                                  ),
-                                  child: FractionallySizedBox(
-                                    alignment: Alignment.centerLeft,
-                                    widthFactor: frac,
-                                    child: Container(color: archPink),
-                                  ),
+                        // Plain hairline: pale line, pink fill strictly
+                        // left-to-right from the track start.
+                        Container(
+                          width: double.infinity,
+                          height: 2,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(1),
+                            color: ink.withValues(alpha: 0.12),
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: frac,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(1),
+                                  color: archPink,
                                 ),
                               ),
                             ),
                           ),
                         ),
-                        // Clear pill thumb: same lens as the switch
-                        // thumb, swelling under the finger.
+                        // Glass thumb ONLY while dragging: clear pill
+                        // lens, fading/scaling in on touch-down and
+                        // out on release. Springs pop it (Motion.settle);
+                        // reduced-motion cuts the fade to an appear.
                         Positioned(
-                          left: cx - _restThumb.width / 2,
-                          child: AnimatedScale(
-                            scale: _dragging ? 1.5 : 1.0,
-                            duration: anim,
-                            curve: Motion.settle,
-                            child: LiquidGlassLens(
-                              style: LiquidGlassSlider.defaultStyle,
-                              child: SizedBox(
-                                width: _restThumb.width,
-                                height: _restThumb.height,
+                          left: cx - _thumb.width / 2,
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              key: const Key('arch_seek_thumb_fade'),
+                              duration: anim,
+                              opacity: _dragging ? 1 : 0,
+                              child: AnimatedScale(
+                                key: const Key('arch_seek_thumb_scale'),
+                                scale: _dragging ? 1.0 : 0.5,
+                                duration: anim,
+                                curve: Motion.settle,
+                                child: LiquidGlassLens(
+                                  style:
+                                      LiquidGlassSlider.defaultStyle,
+                                  child: SizedBox(
+                                    width: _thumb.width,
+                                    height: _thumb.height,
+                                  ),
+                                ),
                               ),
                             ),
                           ),

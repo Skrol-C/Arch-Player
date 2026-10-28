@@ -21,7 +21,7 @@ Widget _wrap({
   );
 }
 
-Finder _groove() => find.byType(LiquidGlassLens).first;
+Finder _track() => find.byKey(const Key('arch_seek_track'));
 
 void main() {
   group('ArchSeekBar', () {
@@ -36,7 +36,7 @@ void main() {
       await t.pumpAndSettle();
 
       // Touch lands mid-bar (50% = 90s), then travels right.
-      await t.drag(_groove(), const Offset(100, 0));
+      await t.drag(_track(), const Offset(100, 0));
       await t.pumpAndSettle();
 
       expect(sought, isNotNull);
@@ -54,7 +54,7 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      await t.drag(_groove(), const Offset(-100, 0));
+      await t.drag(_track(), const Offset(-100, 0));
       await t.pumpAndSettle();
 
       expect(sought, isNotNull);
@@ -69,10 +69,10 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      await t.tap(_groove());
+      await t.tap(_track());
       await t.pumpAndSettle();
 
-      // Groove center = exactly half the 180s track.
+      // Track center = exactly half the 180s track.
       expect(sought, isNotNull);
       expect(sought!, closeTo(90000, 1));
     });
@@ -85,29 +85,41 @@ void main() {
       );
       await t.pumpAndSettle();
 
-      await t.drag(_groove(), const Offset(0, 120));
+      await t.drag(_track(), const Offset(0, 120));
       await t.pumpAndSettle();
 
       expect(dismissed, isTrue);
       expect(sought, isNull);
     });
 
-    testWidgets('thumb swells while the finger is down', (t) async {
+    testWidgets('only the thumb is glass, and only while dragging', (
+      t,
+    ) async {
       await t.pumpWidget(_wrap(onSeek: (_) {}, onDismiss: () {}));
       await t.pumpAndSettle();
 
-      AnimatedScale scaleOf() =>
-          t.widget<AnimatedScale>(find.byType(AnimatedScale));
-      expect(scaleOf().scale, 1.0);
+      // One lens total: the drag-only thumb. The line itself is plain.
+      expect(find.byType(LiquidGlassLens), findsOneWidget);
 
-      final gesture = await t.startGesture(t.getCenter(_groove()));
+      AnimatedOpacity fadeOf() => t.widget<AnimatedOpacity>(
+        find.byKey(const Key('arch_seek_thumb_fade')),
+      );
+      AnimatedScale scaleOf() => t.widget<AnimatedScale>(
+        find.byKey(const Key('arch_seek_thumb_scale')),
+      );
+      expect(fadeOf().opacity, 0);
+      expect(scaleOf().scale, 0.5);
+
+      final gesture = await t.startGesture(t.getCenter(_track()));
       await gesture.moveBy(const Offset(30, 0));
       await t.pump();
-      expect(scaleOf().scale, 1.5);
+      expect(fadeOf().opacity, 1);
+      expect(scaleOf().scale, 1.0);
 
       await gesture.up();
       await t.pumpAndSettle();
-      expect(scaleOf().scale, 1.0);
+      expect(fadeOf().opacity, 0);
+      expect(scaleOf().scale, 0.5);
     });
 
     testWidgets('renders position fill and remaining time', (t) async {
