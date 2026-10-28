@@ -67,6 +67,12 @@ jobs:
       - name: Install NDK r27
         run: $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
 
+      - name: Set bindgen flags (paths expanded by shell, not YAML)
+        run: |
+          NDK=$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64
+          CLANG_VER=$(ls "$NDK/lib/clang")
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$NDK/sysroot/usr/include -I$NDK/sysroot/usr/include/aarch64-linux-android -I$NDK/lib/clang/$CLANG_VER/include -D__ANDROID_API__=24" >> "$GITHUB_ENV"
+
       - name: Generate secrets.local.dart (empty keys = quiet lanes)
         env:
           K_LASTFM: ${{ secrets.LASTFM_API_KEY }}
@@ -117,8 +123,8 @@ jobs:
 
       - name: Build split APKs
         run: flutter build apk --release --split-per-abi
-        env:
-          BINDGEN_EXTRA_CLANG_ARGS: -I$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include -I$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android -I$ANDROID_SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/19/include -D__ANDROID_API__=24
+        # BINDGEN_EXTRA_CLANG_ARGS comes from GITHUB_ENV (set + expanded
+        # by the shell in "Set bindgen flags" above).
 
       - name: Publish GitHub release (arm64 first — updater takes the first .apk)
         uses: softprops/action-gh-release@v2
