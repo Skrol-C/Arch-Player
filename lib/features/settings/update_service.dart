@@ -11,7 +11,7 @@ import '../../core/log.dart';
 /// the repo does not need to exist for the rest of the app to work —
 /// the check just fails silent and the manual button says so.
 const updateRepoOwner = 'Skrol-C';
-const updateRepoName = 'arch-player';
+const updateRepoName = 'Arch-Player';
 
 /// Later taps allowed per version before the prompt goes Update-only.
 const updateMaxSkips = 5;

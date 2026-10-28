@@ -49,10 +49,10 @@ agent/
 .claude/
 skills-lock.json
 
-# Docs and plans live on disk only — repo holds code
+# Docs and plans live on disk only; the repo holds code.
+# README is the exception: it is the public front door.
 AGENTS.md
 PRODUCT.md
-README.md
 docs/
 
 # Display fonts: local-only assets (~6.8MB of binaries). The repo keeps
