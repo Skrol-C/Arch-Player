@@ -60,7 +60,9 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y libclang-dev
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
-          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> "$GITHUB_ENV"
+          CLANG_SO=$(find /usr/lib -name 'libclang.so*' 2>/dev/null | head -1)
+          echo "LIBCLANG_PATH=$(dirname "$CLANG_SO")" >> "$GITHUB_ENV"
+          echo "Found libclang at: $CLANG_SO"
 
       - name: Install NDK r27
         run: $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
