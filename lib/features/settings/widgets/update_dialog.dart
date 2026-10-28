@@ -50,9 +50,12 @@ Future<void> showUpdateDialog(
         curve: Curves.easeOutCubic,
         reverseCurve: Curves.easeInCubic,
       );
-      return ScaleTransition(
-        scale: curved.drive(Tween<double>(begin: 0.96, end: 1.0)),
-        child: child,
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: curved.drive(Tween<double>(begin: 0.94, end: 1.0)),
+          child: child,
+        ),
       );
     },
   );
@@ -76,7 +79,7 @@ class _UpdateBodyState extends State<_UpdateBody> {
   void initState() {
     super.initState();
     loadChangelog().then((entries) {
-      if (mounted) setState(() => _commits = entries.take(5).toList());
+      if (mounted) setState(() => _commits = entries.take(3).toList());
     });
   }
 
@@ -168,10 +171,10 @@ class _UpdateBodyState extends State<_UpdateBody> {
           const SizedBox(height: 4),
           Text(
             'v${info.current} to v${info.version}',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+            style: const TextStyle(
+              color: archPink,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
             ),
           ),
           if (info.breaking) ...[
