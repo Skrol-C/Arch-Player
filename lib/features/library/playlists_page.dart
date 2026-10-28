@@ -336,7 +336,7 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
         final confirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            backgroundColor: paper,
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
             title: Text('Delete "${p.name}"?'),
             content: const Text(
               'The songs stay in your library. This cannot be undone.',
@@ -344,9 +344,11 @@ class _PlaylistsPageState extends ConsumerState<PlaylistsPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text(
+                child: Text(
                   'Keep',
-                  style: TextStyle(color: inkDim),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               FilledButton(

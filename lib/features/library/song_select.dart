@@ -130,7 +130,10 @@ class _SelectionSheetState extends ConsumerState<SelectionSheet> {
                         width: 40,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: ink.withValues(alpha: 0.15),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -227,7 +230,10 @@ class _SelectionSheetState extends ConsumerState<SelectionSheet> {
                               width: 28,
                               height: 4,
                               decoration: BoxDecoration(
-                                color: ink.withValues(alpha: 0.15),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -259,10 +265,11 @@ class _SelectionSheetState extends ConsumerState<SelectionSheet> {
                             ),
                             TextButton(
                               onPressed: widget.onExit,
-                              child: const Text(
+                              child: Text(
                                 'Done',
                                 style: TextStyle(
-                                  color: ink,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -389,27 +396,32 @@ class _QuickAction extends ConsumerWidget {
     final allStarred = _allStarredSync(ref, songs);
     return switch (index) {
       0 => _chip(
+        context,
         icon: CupertinoIcons.play_fill,
         label: 'Play',
         pink: true,
         onTap: onPlay,
       ),
       1 => _chip(
+        context,
         icon: CupertinoIcons.music_note_list,
         label: 'Playlist',
         onTap: onPlaylist,
       ),
       2 => _chip(
+        context,
         icon: CupertinoIcons.text_insert,
         label: 'Next',
         onTap: onNext,
       ),
       3 => _chip(
+        context,
         icon: CupertinoIcons.text_append,
         label: 'Queue',
         onTap: onQueue,
       ),
       _ => _chip(
+        context,
         icon: allStarred
             ? CupertinoIcons.star_fill
             : CupertinoIcons.star,
@@ -432,7 +444,8 @@ class _QuickAction extends ConsumerWidget {
     return true;
   }
 
-  Widget _chip({
+  Widget _chip(
+    BuildContext context, {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
@@ -456,12 +469,16 @@ class _QuickAction extends ConsumerWidget {
                   ? archPink
                   : selected
                   ? archPink.withValues(alpha: 0.14)
-                  : paperRaised,
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
               shape: BoxShape.circle,
             ),
             child: Icon(
               icon,
-              color: pink || selected ? (pink ? Colors.white : archPink) : ink,
+              color: pink || selected
+                  ? (pink
+                        ? Colors.white
+                        : archPink)
+                  : Theme.of(context).colorScheme.onSurface,
               size: 24,
             ),
           ),
@@ -469,7 +486,9 @@ class _QuickAction extends ConsumerWidget {
           Text(
             label,
             style: TextStyle(
-              color: selected ? archPink : ink,
+              color: selected
+                  ? archPink
+                  : Theme.of(context).colorScheme.onSurface,
               fontSize: 11,
               fontWeight: FontWeight.w600,
             ),

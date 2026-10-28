@@ -24,7 +24,7 @@ Future<Playlist?> newPlaylistDialog(
   final name = await showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
       title: Text(existing == null ? 'New playlist' : 'Rename playlist'),
       content: TextField(
         controller: c,
@@ -37,7 +37,12 @@ Future<Playlist?> newPlaylistDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel', style: TextStyle(color: inkDim)),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: archPink),
@@ -100,7 +105,10 @@ Future<void> showAddToPlaylistSheet(
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: ink.withValues(alpha: 0.15),
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -126,7 +134,9 @@ Future<void> showAddToPlaylistSheet(
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: paperRaised,
+                          color: Theme.of(sheetContext)
+                              .colorScheme
+                              .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(Icons.add_rounded, color: archPink),
@@ -152,7 +162,9 @@ Future<void> showAddToPlaylistSheet(
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: paperRaised,
+                              color: Theme.of(sheetContext)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: const Icon(
@@ -169,7 +181,12 @@ Future<void> showAddToPlaylistSheet(
                     ),
                     subtitle: Text(
                       '${members.length} songs',
-                      style: const TextStyle(color: inkDim, fontSize: 13),
+                      style: TextStyle(
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurfaceVariant,
+                        fontSize: 13,
+                      ),
                     ),
                     trailing: has
                         ? const Icon(
@@ -269,7 +286,8 @@ class _SheetThumb extends StatelessWidget {
     return FutureBuilder<List<Color>>(
       future: PlaylistArt.gradientFor(songs),
       builder: (context, snap) {
-        final stops = snap.data ?? const [paperRaised, paperRaised];
+        final raised = Theme.of(context).colorScheme.surfaceContainerHighest;
+        final stops = snap.data ?? [raised, raised];
         return Container(
           width: 44,
           height: 44,

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
-import '../../core/theme.dart';
 import '../player/morph_icon.dart';
 import '../settings/widgets/arch_switch.dart';
 import 'library_providers.dart';
@@ -32,13 +31,19 @@ class FolderSheet extends ConsumerWidget {
             ),
             Text(
               '${songs.length} songs in library',
-              style: const TextStyle(color: inkDim, fontSize: 13),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
             ),
             if (picked.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
                 'Picked homes: ${picked.length}',
-                style: const TextStyle(color: inkDim, fontSize: 13),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                ),
               ),
             ],
             const SizedBox(height: 8),

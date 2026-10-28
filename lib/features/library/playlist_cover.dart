@@ -57,7 +57,10 @@ Future<void> changePlaylistCover(
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: ink.withValues(alpha: 0.15),
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -77,7 +80,9 @@ Future<void> changePlaylistCover(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: paperRaised,
+                  color: Theme.of(sheetContext)
+                      .colorScheme
+                      .surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
@@ -100,12 +105,14 @@ Future<void> changePlaylistCover(
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: paperRaised,
+                    color: Theme.of(sheetContext)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     CupertinoIcons.music_note_2,
-                    color: ink,
+                    color: Theme.of(sheetContext).colorScheme.onSurface,
                   ),
                 ),
                 title: const Text(
@@ -123,21 +130,27 @@ Future<void> changePlaylistCover(
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: paperRaised,
+                    color: Theme.of(sheetContext)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     CupertinoIcons.arrow_uturn_left,
-                    color: ink,
+                    color: Theme.of(sheetContext).colorScheme.onSurface,
                   ),
                 ),
                 title: const Text(
                   'Remove cover',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-                subtitle: const Text(
+                subtitle: Text(
                   'Back to the auto-gradient',
-                  style: TextStyle(color: inkDim, fontSize: 13),
+                  style: TextStyle(
+                    color:
+                        Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
                 onTap: () => Navigator.of(sheetContext).pop('remove'),
               ),
@@ -232,7 +245,10 @@ Future<void> _pickFromSongs(
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: ink.withValues(alpha: 0.15),
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -272,7 +288,11 @@ Future<void> _pickFromSongs(
                       s.artist,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: inkDim),
+                      style: TextStyle(
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurfaceVariant,
+                      ),
                     ),
                     onTap: () => Navigator.of(sheetContext).pop(s),
                   ),
@@ -372,10 +392,10 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
             .toSet() ??
         {};
     return Scaffold(
-      backgroundColor: paper,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: paper,
-        foregroundColor: ink,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
         elevation: 0,
         title: Text('Add to ${widget.playlist.name}'),
         actions: [
@@ -394,7 +414,9 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
             child: Text(
               'Done${_picked.isEmpty ? '' : ' (${_picked.length})'}',
               style: TextStyle(
-                color: _picked.isEmpty ? inkDim : archPink,
+                color: _picked.isEmpty
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : archPink,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -412,10 +434,12 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
           ),
           Expanded(
             child: shown.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
                       'No songs match.',
-                      style: TextStyle(color: inkDim),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   )
                 : ListView.builder(
@@ -446,7 +470,11 @@ class _PlaylistSongPickerState extends ConsumerState<PlaylistSongPicker> {
                             s.artist,
                             maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: inkDim),
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
                         ),
                         trailing: owned
                             ? Container(

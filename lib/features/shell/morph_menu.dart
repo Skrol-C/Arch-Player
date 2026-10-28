@@ -366,7 +366,11 @@ class _MorphRow extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(action.icon, color: ink, size: 20),
+                    Icon(
+                      action.icon,
+                      color: Theme.of(context).colorScheme.onSurface,
+                      size: 20,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -384,8 +388,10 @@ class _MorphRow extends StatelessWidget {
                               action.subtitle!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: inkDim,
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                                 fontSize: 12,
                               ),
                             ),
@@ -403,9 +409,15 @@ class _MorphRow extends StatelessWidget {
               ),
             ),
             if (!last)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Divider(height: 1, color: Color(0x140B0B0D)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Divider(
+                  height: 1,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.12),
+                ),
               ),
           ],
         );

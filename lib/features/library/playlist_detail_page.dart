@@ -276,10 +276,13 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
                                           : () => _enterSelect(s),
                                     ),
                                     if (i < members.length - 1)
-                                      const Divider(
+                                      Divider(
                                         height: 1,
                                         thickness: 1,
-                                        color: Color(0x140B0B0D),
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.12),
                                       ),
                                   ],
                                 ),
@@ -306,10 +309,13 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
                                         .removePending(playlist.id, r),
                                   ),
                                   if (i < unmatched.length - 1)
-                                    const Divider(
+                                    Divider(
                                       height: 1,
                                       thickness: 1,
-                                      color: Color(0x140B0B0D),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.12),
                                     ),
                                 ],
                               ),
