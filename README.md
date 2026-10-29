@@ -4,12 +4,19 @@
 
 # Arch Player
 
-**A local-first music player with Needle pulls, with an emphasis on beauty.**
+**Your music, mixed like someone cares. Local-first, no accounts, no ads.**
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?logo=flutter)](https://flutter.dev)
-[![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android)](https://github.com/Skrol-C/Arch-Player)
-[![Stars](https://img.shields.io/github/stars/Skrol-C/Arch-Player?style=social)](https://github.com/Skrol-C/Arch-Player)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
+[![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?style=for-the-badge&logo=flutter)](https://flutter.dev)
+[![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android)](https://github.com/Skrol-C/Arch-Player/releases)
+[![Latest release](https://img.shields.io/github/v/release/Skrol-C/Arch-Player?style=for-the-badge&label=download)](https://github.com/Skrol-C/Arch-Player/releases/latest)
+
+![Auto-DJ blends](https://img.shields.io/badge/%F0%9F%8E%A7_Auto--DJ_blends-harmonic_%2B_tempo-ff4d6d)
+![Glass UI](https://img.shields.io/badge/%E2%9C%A8_Liquid_glass-everywhere-9b59b6)
+![True-black AMOLED](https://img.shields.io/badge/%F0%9F%8C%91_True--black_AMOLED-zero_burn-in-black)
+![Synced lyrics](https://img.shields.io/badge/%F0%9F%8E%A4_Synced_lyrics-word--timed-2ecc71)
+![No accounts](https://img.shields.io/badge/%F0%9F%94%92_No_accounts-everything_on_device-grey)
+![OTA updates](https://img.shields.io/badge/%E2%AC%86_OTA_updates-from_GitHub_releases-3498db)
 
 </div>
 
@@ -40,44 +47,14 @@
 
 ## Features
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <b>Glass pill nav + mini player</b>
-      <br>Liquid glass pill with the four destinations, mini player that
-      melts into the pill on scroll, full player with ambient art wash.
-    </td>
-    <td width="50%" valign="top">
-      <b>Needle pulls</b>
-      <br>Search a source, pick quality up to lossless, queue it, and find
-      it tagged in your library with art and synced lyrics.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <b>True-black AMOLED</b>
-      <br>Pure black scaffold with container tiers that part from the void,
-      dark glass recipe, hairline dividers. OLED pixels stay off.
-    </td>
-    <td width="50%" valign="top">
-      <b>Synced lyrics</b>
-      <br>Word-timed lines resolved through a reorderable provider chain,
-      embedded first, online search from the player.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <b>Local library + tagging</b>
-      <br>Songs, albums, artists, playlists. Edit tags in place, fix
-      covers, split artists stay whole.
-    </td>
-    <td width="50%" valign="top">
-      <b>Automix + sleep timer</b>
-      <br>Harmonically matched gapless handoffs between tracks, a
-      sleep timer, and a full up-next queue with drag reorder.
-    </td>
-  </tr>
-</table>
+| | |
+|---|---|
+| 🎧 **Auto-DJ blends** | Songs hand off to each other, matched by key and tempo. |
+| ✨ **Liquid glass** | Pill nav, melting mini player, glass seek thumb. |
+| 🌑 **True-black AMOLED** | Pixels off, battery saved, zero burn-in. |
+| 🎤 **Synced lyrics** | Word-timed lines, right in the player. |
+| 📚 **Local library** | Albums, artists, playlists, tag editing, your files stay yours. |
+| 🔌 **Needle pulls** | Grab tracks from your sources, tagged and queued. |
 
 ## Development
 
