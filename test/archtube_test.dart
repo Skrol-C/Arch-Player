@@ -1,5 +1,6 @@
 import 'package:arch_player/features/archtube/archtube_client.dart';
 import 'package:arch_player/features/archtube/client_identities.dart';
+import 'package:arch_player/features/archtube/dash_proxy.dart';
 import 'package:arch_player/features/archtube/video_match.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -64,6 +65,64 @@ void main() {
     });
   });
 
+  group('parseAdaptiveStreams', () {
+    Map<String, dynamic> dashJson(List<Map<String, dynamic>> formats) => {
+          'streamingData': {'adaptiveFormats': formats},
+        };
+    Map<String, dynamic> v(int itag, String q, String mime, int h, int br,
+            {String? url}) =>
+        {
+          'itag': itag,
+          'url': url ?? 'https://example/$itag',
+          'mimeType': mime,
+          'qualityLabel': q,
+          'width': 16,
+          'height': h,
+          'bitrate': br,
+        };
+    Map<String, dynamic> a(int itag, String mime, int br) => {
+          'itag': itag,
+          'url': 'https://example/$itag',
+          'mimeType': mime,
+          'bitrate': br,
+        };
+
+    test('mp4 ladder first, tallest first, ciphered skipped', () {
+      final dash = ArchtubeClient.parseAdaptiveStreams(dashJson([
+        v(303, '1080p60', 'video/webm; codecs="vp9"', 1080, 8000),
+        v(299, '1080p60', 'video/mp4; codecs="avc1.64002A"', 1080, 6000),
+        v(18, '360p', 'video/mp4; codecs="avc1.42001E"', 360, 1000),
+        {'itag': 137, 'signatureCipher': 's=abc'},
+        a(251, 'audio/webm; codecs="opus"', 160000),
+        a(140, 'audio/mp4; codecs="mp4a.40.2"', 128000),
+        a(140, 'audio/mp4; codecs="mp4a.40.2"', 128000),
+        a(328, 'audio/mp4; codecs="ec-3"', 500000),
+      ]));
+      expect(dash.playable, isTrue);
+      expect(
+        dash.videos.map((v) => v.itag),
+        [299, 18, 303],
+      );
+      expect(
+        dash.audios.map((a) => a.itag),
+        [251, 140],
+      );
+    });
+
+    test('dry or ciphered-only is not playable', () {
+      expect(
+        ArchtubeClient.parseAdaptiveStreams({}).playable,
+        isFalse,
+      );
+      expect(
+        ArchtubeClient.parseAdaptiveStreams(dashJson([
+          {'itag': 137, 'signatureCipher': 's=abc'},
+        ])).playable,
+        isFalse,
+      );
+    });
+  });
+
   group('parseDurationLabel', () {
     test('M:SS and H:MM:SS', () {
       expect(ArchtubeClient.parseDurationLabel('3:45'), 225);
@@ -72,6 +131,32 @@ void main() {
     test('empty and LIVE are null', () {
       expect(ArchtubeClient.parseDurationLabel(''), isNull);
       expect(ArchtubeClient.parseDurationLabel('LIVE'), isNull);
+    });
+  });
+
+  group('resolveDashRange', () {
+    void expectRange(String? header, int len, int start, int end) {
+      final r = resolveDashRange(header, len)!;
+      expect(r.start, start);
+      expect(r.end, end);
+    }
+
+    test('bare and open ranges cover the body', () {
+      expectRange(null, 1000, 0, 999);
+      expectRange('bytes=0-', 1000, 0, 999);
+      expectRange('bytes=200-499', 1000, 200, 499);
+    });
+
+    test('suffix and clamping', () {
+      expectRange('bytes=-200', 1000, 800, 999);
+      expectRange('bytes=900-9999', 1000, 900, 999);
+      expectRange('garbage', 1000, 0, 999);
+    });
+
+    test('past-the-end is unsatisfiable, unknown length passes through', () {
+      final r = resolveDashRange('bytes=2000-', 1000)!;
+      expect(r.end < r.start, isTrue);
+      expect(resolveDashRange('bytes=0-', 0), isNull);
     });
   });
 
@@ -125,16 +210,19 @@ void main() {
   });
 
   group('pickMatch', () {
-    ArchtubeHit hit(String id, String title, int? secs) =>
-        ArchtubeHit(videoId: id, title: title, channel: 'A',
+    ArchtubeHit hit(String id, String title, String channel, int? secs) =>
+        ArchtubeHit(
+            videoId: id, title: title, channel: channel,
             durationSecs: secs);
 
     test('bias to same song in a longer video', () {
       final won = pickMatch(
         hits: [
-          hit('shortone111', 'Song', 195),
-          hit('longone2222', 'Song Official Music Video', 208),
+          hit('shortone111', 'Song', 'A', 195),
+          hit('longone2222', 'Song Official Music Video', 'A', 208),
         ],
+        artist: 'A',
+        title: 'Song',
         songSecs: 200,
       );
       expect(won?.videoId, 'longone2222');
@@ -144,17 +232,130 @@ void main() {
       expect(
         pickMatch(
           hits: [
-            hit('farfarfar11', 'Song extended set', 900),
-            hit('nodurnone11', 'Song', null),
+            hit('farfarfar11', 'Song extended set', 'A', 900),
+            hit('nodurnone11', 'Song', 'A', null),
           ],
+          artist: 'A',
+          title: 'Song',
           songSecs: 200,
         ),
         isNull,
       );
     });
 
+    test('short cuts rejected, longs tolerated asymmetrically', () {
+      expect(
+        pickMatch(
+          hits: [hit('tooshort111', 'Song', 'A', 180)],
+          artist: 'A',
+          title: 'Song',
+          songSecs: 200,
+        ),
+        isNull,
+      );
+      final won = pickMatch(
+        hits: [hit('longish1111', 'Song', 'A', 260)],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+      );
+      expect(won?.videoId, 'longish1111');
+    });
+
+    test('vevo lane beats a plain upload', () {
+      final won = pickMatch(
+        hits: [
+          hit('plainplain1', 'Song', 'Some Fan', 200),
+          hit('vevovevo111', 'Song', 'AVevo', 200),
+        ],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+      );
+      expect(won?.videoId, 'vevovevo111');
+    });
+
+    test('live cut loses to the official one', () {
+      final won = pickMatch(
+        hits: [
+          hit('livelive111', 'Song Live At The Arena', 'A', 230),
+          hit('official111', 'Song Official Music Video', 'A', 215),
+        ],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+      );
+      expect(won?.videoId, 'official111');
+    });
+
+    test('rejected ids never re-win', () {
+      final won = pickMatch(
+        hits: [
+          hit('badbadbad11', 'Song Official Music Video', 'AVevo', 205),
+          hit('goodgood111', 'Song', 'A', 200),
+        ],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+        excluded: {'badbadbad11'},
+      );
+      expect(won?.videoId, 'goodgood111');
+    });
+
+    test('lyric upload loses to the artist channel video', () {
+      final won = pickMatch(
+        hits: [
+          hit('lyriclyric1', 'Hurricane (Lyrics)', 'Lyric Heaven', 179),
+          hit('official111', 'Hurricane (Official Music Video)',
+              'Kanye West', 263),
+        ],
+        artist: 'Kanye West',
+        title: 'Hurricane',
+        songSecs: 179,
+      );
+      expect(won?.videoId, 'official111');
+    });
+
+    test('audio upload is last resort only', () {
+      final lonely = pickMatch(
+        hits: [
+          hit('audioaudio1', 'Song (Official Audio)', 'A', 200),
+        ],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+      );
+      expect(lonely?.videoId, 'audioaudio1');
+      final beaten = pickMatch(
+        hits: [
+          hit('audioaudio1', 'Song (Official Audio)', 'A', 200),
+          hit('stagedstage', 'Song', 'A Fan', 205),
+        ],
+        artist: 'A',
+        title: 'Song',
+        songSecs: 200,
+      );
+      expect(beaten?.videoId, 'stagedstage');
+    });
+
+    test('anime full version wins over the tv size cut', () {
+      final won = pickMatch(
+        hits: [
+          hit('tvsize11111', 'Bloody Stream TV Size', 'Anime Tunes', 90),
+          hit('fullfull111', 'Bloody Stream Full Version', 'Anime Tunes',
+              245),
+          hit('lyriclyric1', 'Bloody Stream Lyrics', 'Lyric Heaven', 243),
+        ],
+        artist: 'Coda',
+        title: 'Bloody Stream',
+        songSecs: 243,
+      );
+      expect(won?.videoId, 'fullfull111');
+    });
+
     test('empty hits is null', () {
-      expect(pickMatch(hits: [], songSecs: 200), isNull);
+      expect(pickMatch(hits: [], artist: 'A', title: 'Song', songSecs: 200),
+          isNull);
     });
   });
 

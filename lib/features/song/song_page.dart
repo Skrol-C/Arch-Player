@@ -39,6 +39,7 @@ import '../player/format_marks.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
 import '../player/track_menu.dart';
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 
 /// A song, owned or remote. Owned carries the library Song (play,
@@ -258,16 +259,14 @@ class _SongPageState extends ConsumerState<SongPage> {
   /// Song menu: Doctor lives here; the Lyric Finder is the sheet's
   /// second page, no separate entry.
   Future<void> _openMenu(BuildContext context, WidgetRef ref) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: context,
-      groups: const [
-        [
-          MenuAction(
-            icon: CupertinoIcons.bandage,
-            label: 'Song Doctor',
-            value: 'doctor',
-          ),
-        ],
+      items: const [
+        MenuAction(
+          icon: CupertinoIcons.bandage,
+          label: 'Song Doctor',
+          value: 'doctor',
+        ),
       ],
     );
     if (!context.mounted) return;
@@ -305,11 +304,13 @@ class _SongPageState extends ConsumerState<SongPage> {
               icon: Icon(CupertinoIcons.trash,
                   color: Theme.of(context).colorScheme.onSurface),
             ),
-          IconButton(
-            tooltip: 'Options',
-            onPressed: () => _openMenu(context, ref),
-            icon: Icon(Icons.more_horiz_rounded,
-                color: Theme.of(context).colorScheme.onSurface),
+          Builder(
+            builder: (btnContext) => IconButton(
+              tooltip: 'Options',
+              onPressed: () => _openMenu(btnContext, ref),
+              icon: Icon(Icons.more_horiz_rounded,
+                  color: Theme.of(context).colorScheme.onSurface),
+            ),
           ),
         ],
       ),

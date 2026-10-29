@@ -21,8 +21,8 @@ import '../needle/queue_runner.dart';
 import '../needle/queue_store.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart'
-    show MenuAction, showSongMenu, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction, showSongMenu;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import 'library_providers.dart';
 import 'data/library_repository.dart';
 import 'song_select.dart';
@@ -1658,34 +1658,30 @@ class _PopularState extends ConsumerState<_Popular> {
       await showSongMenu(ref, btnContext, owned);
       return;
     }
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: btnContext,
-      groups: [
-        [
-          const MenuAction(
-            icon: CupertinoIcons.play_fill,
-            label: 'Preview',
-            value: 'preview',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.cloud_download,
-            label: 'Pull via Needle',
-            value: 'pull',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.music_note,
-            label: track.title,
-            subtitle: widget.artistName,
-            value: 'none',
-          ),
-        ],
-        [
-          const MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
-            value: 'share',
-          ),
-        ],
+      items: [
+        const MenuAction(
+          icon: CupertinoIcons.play_fill,
+          label: 'Preview',
+          value: 'preview',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.cloud_download,
+          label: 'Pull via Needle',
+          value: 'pull',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.music_note,
+          label: track.title,
+          subtitle: widget.artistName,
+          value: 'none',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          value: 'share',
+        ),
       ],
     );
     if (!btnContext.mounted) return;

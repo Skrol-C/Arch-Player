@@ -1,18 +1,13 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../core/glass.dart';
-import '../../core/log.dart';
 import '../../core/models.dart';
-import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../library/album_page.dart' show AlbumPage;
 import '../library/artist_hub_page.dart';
@@ -21,6 +16,7 @@ import '../library/playlists_providers.dart' show playlistsProvider;
 import '../library/song_row.dart' show fmtDuration;
 import '../song/song_page.dart';
 import '../automix/blend_preview.dart' show renderBlendPreview;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import 'morph_icon.dart';
 
 /// One row in a context menu. Tap pops [value] back to the caller -
@@ -52,348 +48,6 @@ Rect? menuAnchor(BuildContext context) {
   return box.localToGlobal(Offset.zero) & box.size;
 }
 
-/// Frosted anchored popover: appears at its resting anchor with
-/// fade + rise (no travel, no scale - the blur region stays static
-/// so the filter resolves once). Dismisses on barrier tap with
-/// fade only. Reduced-motion gets a plain fade. Returns the tapped
-/// row's value, or null on dismiss.
-Future<String?> showTrackMenu({
-  required BuildContext context,
-  List<MenuAction> quick = const [],
-  required List<List<MenuAction>> groups,
-}) {
-  final navigator = Navigator.of(context, rootNavigator: true);
-  final target = menuAnchor(context);
-  // Keyboard trap: if the library search field holds focus (keyboard
-  // up), pushing the route moves focus to the dialog and popping it
-  // hands focus back to search - keyboard rising on every close.
-  // Unfocusing first clears the restore target: nothing to return
-  // to, no keyboard. The route scope below (no keyboard requests)
-  // covers the other direction.
-  FocusManager.instance.primaryFocus?.unfocus();
-  ArchLog.i(
-    'nav',
-    'menu open anchor=${target == null ? 'centered' : '${target.width.toStringAsFixed(0)}x${target.height.toStringAsFixed(0)}@${target.left.toStringAsFixed(0)},${target.top.toStringAsFixed(0)}'} focus=${FocusManager.instance.primaryFocus}',
-  );
-  return navigator.push<String>(
-    RawDialogRoute<String>(
-      barrierColor: Colors.black.withValues(alpha: 0.12),
-      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      transitionDuration: Motion.reduced(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 450),
-      transitionBuilder: (_, _, _, child) => child,
-      pageBuilder: (context, animation, _) {
-        final media = MediaQuery.of(context);
-        // Floor the top edge on the view padding, not the route
-        // padding: dialog routes can report a zero top inset while
-        // the status bar is still there, which parked tall menus
-        // under it. The view padding is always real.
-        final pad = EdgeInsets.fromLTRB(
-          media.padding.left,
-          math.max(media.padding.top, media.viewPadding.top),
-          media.padding.right,
-          media.padding.bottom,
-        );
-        return AnimatedBuilder(
-          animation: animation,
-          // Rows build once and stay cached; the choreography below
-          // is their 1:1 recipe: travel + grow + glass reveal.
-          child: _MenuRows(quick: quick, groups: groups),
-          builder: (context, child) {
-            // One lens from frame zero, morphed params, no cover,
-            // no swap: travel plays on the lens at paper state
-            // (opaque white, zero blur, zero bend - visually paper,
-            // backdrop cost trivial), then tint, blur and bend grow
-            // together. The morph starts inside the fastest part of
-            // the travel (12%) so its most visible stretch hides
-            // where the eye is busiest. Nothing swaps, so no swap
-            // frame can flash.
-            final t = animation.value;
-            final raw = const Interval(
-              0,
-              0.5,
-              curve: Curves.easeOutCubic,
-            ).transform(t);
-            final motion = raw;
-            final glide = Curves.easeOutCubic.transform(raw);
-            final morphRaw = ((t - 0.12) / 0.88).clamp(0.0, 1.0);
-            final morph = (morphRaw * morphRaw * (3 - 2 * morphRaw)).clamp(
-              0.0,
-              1.0,
-            );
-            return FocusScope(
-              // The menu takes no text: never let it (or a focus
-              // reclaim across rapid reopen) summon the keyboard.
-              canRequestFocus: false,
-              skipTraversal: true,
-              child: CustomSingleChildLayout(
-                delegate: _MenuLayout(
-                  anchor: target,
-                  maxWidth: 300,
-                  padding: pad,
-                  progress: glide,
-                ),
-                child: Transform.scale(
-                  scale: 0.15 + 0.85 * glide,
-                  child: IgnorePointer(
-                    ignoring:
-                        motion < 1 ||
-                        animation.status == AnimationStatus.reverse,
-                    child: _MenuShell(morph: morph, child: child!),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
-}
-
-class _MenuLayout extends SingleChildLayoutDelegate {
-  final Rect? anchor;
-  final EdgeInsets padding;
-  final double maxWidth;
-  final double progress;
-  static const _margin = 16.0;
-
-  const _MenuLayout({
-    required this.anchor,
-    required this.padding,
-    required this.maxWidth,
-    required this.progress,
-  });
-
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    final width = math.min(
-      maxWidth,
-      math.max(0.0, constraints.maxWidth - padding.horizontal - _margin * 2),
-    );
-    final height = math.max(
-      0.0,
-      constraints.maxHeight - padding.vertical - _margin * 2,
-    );
-    return BoxConstraints(minWidth: width, maxWidth: width, maxHeight: height);
-  }
-
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    final left = padding.left + _margin;
-    final top = padding.top + _margin;
-    final right = math.max(
-      left,
-      size.width - padding.right - _margin - childSize.width,
-    );
-    final bottom = math.max(
-      top,
-      size.height - padding.bottom - _margin - childSize.height,
-    );
-    Offset resting;
-    if (anchor == null) {
-      resting = Offset(
-        (size.width - childSize.width) / 2,
-        size.height * 0.3 - childSize.height / 2,
-      );
-    } else {
-      final below = anchor!.bottom + 8;
-      final above = anchor!.top - childSize.height - 8;
-      final y = below <= bottom
-          ? below
-          : above >= top
-          ? above
-          : bottom;
-      resting = Offset(
-        (anchor!.right - childSize.width).clamp(left, right),
-        y.clamp(top, bottom),
-      );
-    }
-    final origin = anchor?.center;
-    if (origin == null) return resting;
-    return Offset.lerp(
-      origin - childSize.center(Offset.zero),
-      resting,
-      progress,
-    )!;
-  }
-
-  @override
-  bool shouldRelayout(_MenuLayout old) =>
-      anchor != old.anchor ||
-      padding != old.padding ||
-      maxWidth != old.maxWidth ||
-      progress != old.progress;
-}
-
-class _MenuShell extends StatelessWidget {
-  final double morph;
-  final Widget child;
-  const _MenuShell({required this.morph, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    // One lens, always mounted, params morphed: at morph=0 it is
-    // visually paper (opaque white, no blur, no bend), at morph=1
-    // the full menu recipe. No cover, no swap, no blend - the tree
-    // never changes shape, so no frame can flash or seam.
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: LiquidGlassLens(
-            style: ArchGlass.menuMorphed(morph,
-                amoled: isAmoledScheme(context)),
-            child: SizedBox.expand(),
-          ),
-        ),
-        child,
-      ],
-    );
-  }
-}
-
-/// Menu rows: quick chips first, then groups top to bottom.
-class _MenuRows extends StatelessWidget {
-  final List<MenuAction> quick;
-  final List<List<MenuAction>> groups;
-
-  const _MenuRows({required this.quick, required this.groups});
-
-  @override
-  Widget build(BuildContext context) {
-    // Cascade order: quick chips first, then groups top to bottom.
-    // 30ms apart with fast fades, so every row is visible inside
-    // the emergence glide - the bloom plays to an audience,
-    // never an empty stage.
-    var k = 0;
-    // Material canvas for the rows: ListTile paints ink on the
-    // nearest Material ancestor, and a bare dialog route provides
-    // none - without this every open throws Material.of null.
-    // Scroll-safe: a tall menu scrolls inside its capped height
-    // instead of clipping its top rows off-screen.
-    return Material(
-      type: MaterialType.transparency,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (quick.isNotEmpty) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      for (final a in quick)
-                        CascadeIn(
-                          delayMs: (k++) * 30,
-                          child: _QuickChip(action: a),
-                        ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 12, indent: 16, endIndent: 16),
-              ],
-              for (var g = 0; g < groups.length; g++) ...[
-                if (g > 0) const Divider(height: 8, indent: 16, endIndent: 16),
-                for (final a in groups[g])
-                  CascadeIn(
-                    delayMs: (k++) * 30,
-                    child: _MenuRow(action: a),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _QuickChip extends StatelessWidget {
-  final MenuAction action;
-  const _QuickChip({required this.action});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        Navigator.of(context).pop(action.value);
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: action.selected
-                  ? archPink.withValues(alpha: 0.14)
-                  : paperRaised,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              action.icon,
-              color: action.selected ? archPink : ink,
-              size: 24,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            action.label,
-            style: TextStyle(
-              color: action.selected ? archPink : ink,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MenuRow extends StatelessWidget {
-  final MenuAction action;
-  const _MenuRow({required this.action});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
-      leading: Icon(action.icon, color: action.selected ? archPink : inkDim),
-      title: Text(
-        action.label,
-        style: TextStyle(
-          color: action.selected ? archPink : ink,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: action.subtitle == null
-          ? null
-          : Text(
-              action.subtitle!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: inkDim, fontSize: 13),
-            ),
-      trailing: action.selected
-          ? const Icon(CupertinoIcons.checkmark, color: archPink)
-          : null,
-      onTap: () {
-        HapticFeedback.selectionClick();
-        Navigator.of(context).pop(action.value);
-      },
-    );
-  }
-}
 
 /// Owned-album lookup shared by every menu: normalized title plus
 /// artist overlap (collaborations merged at grouping, so any shared
@@ -420,6 +74,7 @@ String sleepLabel(Duration? d) {
 
 /// Shared song menu: Go to Album (owned only), Go to Artist, Share,
 /// Details. Handles routing internally; callers just open it.
+/// Renders through the morph menu.
 Future<void> showSongMenu(
   WidgetRef ref,
   BuildContext context,
@@ -427,7 +82,7 @@ Future<void> showSongMenu(
 ) async {
   final ownedAlbum = ownedAlbumFor(ref, song);
   final starred = ref.read(playlistsProvider.notifier).isStarred(song.id);
-  final value = await showTrackMenu(
+  final value = await showMorphMenu(
     context: context,
     groups: [
       [
@@ -516,14 +171,14 @@ Future<void> showSongMenu(
 }
 
 /// Title/artist nav menu: Go to Artist always, Go to Album when owned.
-/// One tap, both destinations discoverable.
+/// One tap, both destinations discoverable. Renders through morph.
 Future<void> showTrackNavMenu(
   WidgetRef ref,
   BuildContext context,
   Song song,
 ) async {
   final ownedAlbum = ownedAlbumFor(ref, song);
-  final value = await showTrackMenu(
+  final value = await showMorphMenu(
     context: context,
     groups: [
       [

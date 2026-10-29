@@ -8,7 +8,8 @@ import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'album_card.dart';
 import 'artist_page.dart';
@@ -83,21 +84,19 @@ class _ArtistHubPageState extends ConsumerState<ArtistHubPage> {
   }
 
   Future<void> _openMenu(BuildContext buttonContext, List<Song> songs) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: buttonContext,
-      groups: [
-        [
-          const MenuAction(
-            icon: CupertinoIcons.person,
-            label: 'Open artist page',
-            value: 'open',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.shuffle,
-            label: 'Shuffle',
-            value: 'shuffle',
-          ),
-        ],
+      items: const [
+        MenuAction(
+          icon: CupertinoIcons.person,
+          label: 'Open artist page',
+          value: 'open',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.shuffle,
+          label: 'Shuffle',
+          value: 'shuffle',
+        ),
       ],
     );
     if (!mounted) return;

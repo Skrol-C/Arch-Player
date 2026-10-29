@@ -28,6 +28,7 @@ import '../player/player_providers.dart';
 import '../player/play_guarded.dart';
 import '../needle/sandbox.dart';
 import '../player/track_menu.dart';
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../song/song_page.dart';
 import 'provider_marks.dart';
 import 'router.dart';
@@ -1516,42 +1517,40 @@ class _RowState extends ConsumerState<_Row> {
                 explicit: hit.explicit,
               )
             : null;
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: btnContext,
-      groups: [
-        [
-          if (songRef != null)
-            MenuAction(
-              icon: CupertinoIcons.music_note,
-              label: 'Song page',
-              subtitle: hit.name,
-              value: 'song',
-            ),
-          if (oa != null)
-            MenuAction(
-              icon: CupertinoIcons.music_albums,
-              label: 'Open album',
-              subtitle: hit.name,
-              value: 'album',
-            ),
+      items: [
+        if (songRef != null)
           MenuAction(
-            icon: CupertinoIcons.cloud_download,
-            label: 'Download',
-            subtitle: hit.artists.isNotEmpty ? hit.artists : null,
-            value: 'pull',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.person,
-            label: 'View artist',
-            value: 'artist',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
+            icon: CupertinoIcons.music_note,
+            label: 'Song page',
             subtitle: hit.name,
-            value: 'share',
+            value: 'song',
           ),
-        ],
+        if (oa != null)
+          MenuAction(
+            icon: CupertinoIcons.music_albums,
+            label: 'Open album',
+            subtitle: hit.name,
+            value: 'album',
+          ),
+        MenuAction(
+          icon: CupertinoIcons.cloud_download,
+          label: 'Download',
+          subtitle: hit.artists.isNotEmpty ? hit.artists : null,
+          value: 'pull',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.person,
+          label: 'View artist',
+          value: 'artist',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          subtitle: hit.name,
+          value: 'share',
+        ),
       ],
     );
     if (!mounted) return;

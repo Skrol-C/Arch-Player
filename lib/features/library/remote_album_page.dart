@@ -22,7 +22,8 @@ import '../needle/queue_store.dart';
 import '../player/morph_icon.dart';
 import '../player/play_guarded.dart';
 import '../player/player_providers.dart';
-import '../player/track_menu.dart' show MenuAction, showTrackMenu;
+import '../player/track_menu.dart' show MenuAction;
+import '../shell/morph_menu.dart' show showMorphMenu;
 import '../shell/dock.dart';
 import 'artist_page.dart' show ArtistPage;
 import 'library_providers.dart';
@@ -695,33 +696,31 @@ class _RemoteBody extends ConsumerWidget {
 
   Future<void> _remoteTrackMenu(
       WidgetRef ref, BuildContext btnContext, DzAlbumTrack t, String cover) async {
-    final value = await showTrackMenu(
+    final value = await showMorphMenu(
       context: btnContext,
-      groups: [
-        [
-          const MenuAction(
-            icon: CupertinoIcons.play_fill,
-            label: 'Preview',
-            value: 'preview',
-          ),
-          const MenuAction(
-            icon: CupertinoIcons.cloud_download,
-            label: 'Pull via Needle',
-            value: 'pull',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.person,
-            label: 'Go to Artist',
-            subtitle: artistName,
-            value: 'artist',
-          ),
-          MenuAction(
-            icon: CupertinoIcons.square_arrow_up,
-            label: 'Share',
-            subtitle: '${t.title} - $artistName',
-            value: 'share',
-          ),
-        ],
+      items: [
+        const MenuAction(
+          icon: CupertinoIcons.play_fill,
+          label: 'Preview',
+          value: 'preview',
+        ),
+        const MenuAction(
+          icon: CupertinoIcons.cloud_download,
+          label: 'Pull via Needle',
+          value: 'pull',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.person,
+          label: 'Go to Artist',
+          subtitle: artistName,
+          value: 'artist',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          subtitle: '${t.title} - $artistName',
+          value: 'share',
+        ),
       ],
     );
     if (!btnContext.mounted) return;

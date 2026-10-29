@@ -1,58 +1,251 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/badges.dart' show TypeBadge;
 import '../../core/log.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
+import '../player/audio_handler.dart';
 import '../player/player_providers.dart';
 import 'archtube_client.dart';
+import 'dash_proxy.dart';
 import 'video_providers.dart';
 
-/// Film glyph above the art: grey at rest, pink while video owns
-/// the stage. The single entry/exit for video mode.
-class VideoToggle extends ConsumerWidget {
-  const VideoToggle({super.key});
+/// Song/Video pill above the art: the single entry/exit for video
+/// mode, YT-Music grammar. Bordered rounded pill, hairline divider
+/// between the lobes, pink = active (selection follows pink).
+/// Safe bordered recipe, no lens. A black quality badge rides to the
+/// right of the pill while video owns the stage (tap-to-quality
+/// lands with the adaptive menu slice).
+class VideoModeSwitch extends ConsumerWidget {
+  final VideoSong song;
+  final ValueChanged<BuildContext>? onQualityTap;
+
+  const VideoModeSwitch({super.key, required this.song, this.onQualityTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final active = ref.watch(videoModeProvider);
-    return SizedBox(
-      width: 48,
-      height: 40,
-      child: IconButton(
-        iconSize: 26,
-        color: active
-            ? archPink
-            : Theme.of(context).colorScheme.onSurfaceVariant,
-        tooltip: active ? 'Back to song' : 'Watch video',
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          ref.read(videoModeProvider.notifier).state = !active;
-        },
-        icon: AnimatedScale(
-          scale: active ? 1.15 : 1.0,
-          duration: Motion.reduced(context)
-              ? Duration.zero
-              : Motion.stateChange,
-          curve: Curves.easeOutBack,
-          child: const Icon(CupertinoIcons.videocam_fill),
+    final scheme = Theme.of(context).colorScheme;
+    final videoMode = ref.watch(videoModeProvider);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          height: 38,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: scheme.onSurface.withValues(alpha: 0.12)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ModeLobe(
+                icon: CupertinoIcons.music_note,
+                label: 'Song',
+                active: !videoMode,
+                onTap: () {
+                  if (!videoMode) return;
+                  HapticFeedback.selectionClick();
+                  // Handoff while mounted: seek the parked audio to
+                  // the mapped song position and play, then drop the
+                  // mode. Dispose repeats the same target as a
+                  // backstop for abnormal unmounts.
+                  final vpos = ref.read(videoPositionProvider);
+                  final offset = ref.read(videoOffsetProvider(song.id));
+                  final ms = (vpos.inMilliseconds - offset * 1000)
+                      .round()
+                      .clamp(0, song.duration.inMilliseconds);
+                  ArchLog.i('archtube',
+                      'video exit resume at=${ms}ms (pill tap)');
+                  final handler = ref.read(audioHandlerProvider);
+                  Future<void> go() async {
+                    try {
+                      await handler.seek(Duration(milliseconds: ms));
+                      await handler.play();
+                      ArchLog.i(
+                          'archtube', 'video exit audio playing');
+                    } catch (e) {
+                      ArchLog.w(
+                          'archtube', 'video exit resume failed: $e');
+                    }
+                  }
+
+                  unawaited(go());
+                  ref.read(videoModeProvider.notifier).state = false;
+                },
+              ),
+              Container(
+                width: 1,
+                height: 22,
+                color: scheme.onSurface.withValues(alpha: 0.12),
+              ),
+              _ModeLobe(
+                icon: CupertinoIcons.videocam_fill,
+                label: 'Video',
+                active: videoMode,
+                onTap: () {
+                  if (!videoMode) {
+                    HapticFeedback.selectionClick();
+                    ref.read(videoModeProvider.notifier).state = true;
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        _QualityBadge(song: song, onTap: onQualityTap),
+      ],
+    );
+  }
+}
+
+/// One pill lobe: icon + label, pink fill + pink text when active,
+/// transparent + dim when idle. Reduced-motion cuts the fill fade.
+class _ModeLobe extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _ModeLobe({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Motion.reduced(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? archPink.withValues(alpha: 0.16) : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: active ? archPink : scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                color: active ? archPink : scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+/// Current quality mark: the house black badge (`TypeBadge` grammar),
+/// video-mode only, hidden until a stream label lands. Tap opens the
+/// player menu at the video rows (wired by the caller).
+class _QualityBadge extends ConsumerWidget {
+  final VideoSong song;
+  final ValueChanged<BuildContext>? onTap;
+
+  const _QualityBadge({required this.song, this.onTap});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(videoModeProvider)) return const SizedBox.shrink();
+    final link = ref.watch(
+      videoLinkProvider(
+        songQuery(
+          songId: song.id,
+          artist: song.artist,
+          title: song.title,
+          songSecs: song.duration.inSeconds,
+        ),
+      ),
+    );
+    final videoId = link.value?.videoId;
+    if (videoId == null) return const SizedBox.shrink();
+    final playback = ref.watch(videoPlaybackProvider(videoId));
+    final options = playback.value?.options;
+    if (options == null || options.isEmpty) return const SizedBox.shrink();
+    final picked =
+        ref.watch(selectedItagProvider(videoId)) ?? options.first.itag;
+    final option = options.firstWhere(
+      (o) => o.itag == picked,
+      orElse: () => options.first,
+    );
+    final label = ref.watch(hybridDashProvider(videoId))
+        ? 'HQ AUDIO'
+        : (option.label.isEmpty ? _itagLabel(option.itag) : option.label);
+    if (label.isEmpty) return const SizedBox.shrink();
+    final badge = TypeBadge(label: label);
+    final tap = onTap;
+    if (tap == null) {
+      return Padding(padding: const EdgeInsets.only(left: 8), child: badge);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Builder(
+        builder: (badgeContext) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            tap(badgeContext);
+          },
+          child: badge,
+        ),
+      ),
+    );
+  }
+}
+
+/// Fallback labels for the progressive ladder when YouTube serves no
+/// `qualityLabel`. Unknown itags stay hidden, never guessed.
+String _itagLabel(int itag) => switch (itag) {
+  22 => '720p',
+  18 => '360p',
+  _ => '',
+};
+
 /// Video stage: replaces the art box while video mode is on.
 /// Link (cached, else one auto-search) then streams, each with
 /// explicit loading/error/empty/data. Never a dead screen.
+/// [height] is the full box: the player fills it exactly, message
+/// states treat it as a minimum so tall editors can still grow.
 class VideoStage extends ConsumerStatefulWidget {
   final VideoSong song;
   final double width;
+  final double height;
 
-  const VideoStage({super.key, required this.song, required this.width});
+  const VideoStage({
+    super.key,
+    required this.song,
+    required this.width,
+    required this.height,
+  });
 
   @override
   ConsumerState<VideoStage> createState() => _VideoStageState();
@@ -89,42 +282,41 @@ class _VideoStageState extends ConsumerState<VideoStage> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final link = ref.watch(videoLinkProvider(
-      songQuery(
-        songId: widget.song.id,
-        artist: widget.song.artist,
-        title: widget.song.title,
-        songSecs: widget.song.duration.inSeconds,
+    final link = ref.watch(
+      videoLinkProvider(
+        songQuery(
+          songId: widget.song.id,
+          artist: widget.song.artist,
+          title: widget.song.title,
+          songSecs: widget.song.duration.inSeconds,
+        ),
       ),
-    ));
+    );
     return SizedBox(
       width: widget.width,
       child: link.when(
         loading: () => _VideoMessage(
           width: widget.width,
+          height: widget.height,
           label: 'Finding video...',
           child: const CupertinoActivityIndicator(),
         ),
         error: (e, _) => _VideoMessage(
           width: widget.width,
+          height: widget.height,
           icon: CupertinoIcons.exclamationmark_triangle,
           label: 'Video lookup failed',
           detail: '$e',
           actions: [
             TextButton(
-              onPressed: () =>
-                  ref.invalidate(videoLinkProvider),
+              onPressed: () => ref.invalidate(videoLinkProvider),
               child: const Text(
                 'Retry',
-                style: TextStyle(
-                  color: archPink,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: archPink, fontWeight: FontWeight.w600),
               ),
             ),
             TextButton(
-              onPressed: () =>
-                  setState(() => _linkEditorOpen = true),
+              onPressed: () => setState(() => _linkEditorOpen = true),
               child: Text(
                 'Paste link',
                 style: TextStyle(
@@ -134,17 +326,17 @@ class _VideoStageState extends ConsumerState<VideoStage> {
               ),
             ),
           ],
-          below: _linkEditorOpen
-              ? _LinkEditor(songId: widget.song.id)
-              : null,
+          below: _linkEditorOpen ? _LinkEditor(songId: widget.song.id) : null,
         ),
         data: (resolved) {
           if (resolved == null) {
             return _VideoMessage(
               width: widget.width,
+              height: widget.height,
               icon: CupertinoIcons.videocam,
               label: 'No video found',
-              detail: 'No YouTube match landed in the '
+              detail:
+                  'No YouTube match landed in the '
                   'duration window. Paste one below.',
               below: _LinkEditor(songId: widget.song.id),
             );
@@ -154,6 +346,7 @@ class _VideoStageState extends ConsumerState<VideoStage> {
             song: widget.song,
             videoId: resolved.videoId,
             width: widget.width,
+            height: widget.height,
           );
         },
       ),
@@ -163,8 +356,11 @@ class _VideoStageState extends ConsumerState<VideoStage> {
 
 /// Loading/error/empty shell: scheme surface, centered glyph,
 /// label, optional detail + actions + manual entry below.
+/// [height] is a minimum: short states hold the full box so the
+/// stage never jumps size, tall editors still grow past it.
 class _VideoMessage extends StatelessWidget {
   final double width;
+  final double height;
   final String label;
   final String? detail;
   final IconData? icon;
@@ -174,6 +370,7 @@ class _VideoMessage extends StatelessWidget {
 
   const _VideoMessage({
     required this.width,
+    required this.height,
     required this.label,
     this.detail,
     this.icon,
@@ -187,6 +384,8 @@ class _VideoMessage extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: width,
+      constraints: BoxConstraints(minHeight: height),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
         borderRadius: BorderRadius.circular(24),
@@ -196,8 +395,11 @@ class _VideoMessage extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           child ??
-              Icon(icon ?? CupertinoIcons.videocam,
-                  size: 40, color: scheme.onSurfaceVariant),
+              Icon(
+                icon ?? CupertinoIcons.videocam,
+                size: 40,
+                color: scheme.onSurfaceVariant,
+              ),
           const SizedBox(height: 12),
           Text(
             label,
@@ -215,10 +417,7 @@ class _VideoMessage extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
             ),
           ],
           if (actions != null) ...[
@@ -228,54 +427,54 @@ class _VideoMessage extends StatelessWidget {
               children: actions!,
             ),
           ],
-          if (below != null) ...[
-            const SizedBox(height: 12),
-            below!,
-          ],
+          if (below != null) ...[const SizedBox(height: 12), below!],
         ],
       ),
     );
   }
 }
 
-/// Streams gate: loading/error/data around the player box, plus the
-/// quality picker, offset nudge, and unlink once a stream plays.
+/// Streams gate: loading/error/data around the player box.
+/// Quality, aspect, offset, and link rows live in the video menu.
 class _VideoBox extends ConsumerWidget {
   final VideoSong song;
   final String videoId;
   final double width;
+  final double height;
 
   const _VideoBox({
     super.key,
     required this.song,
     required this.videoId,
     required this.width,
+    required this.height,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final streams = ref.watch(videoStreamsProvider(videoId));
-    return streams.when(
+    final playback = ref.watch(videoPlaybackProvider(videoId));
+    return playback.when(
       loading: () => _VideoMessage(
         width: width,
+        height: height,
         label: 'Loading video...',
         child: const CupertinoActivityIndicator(),
       ),
       error: (e, _) => _VideoMessage(
         width: width,
+        height: height,
         icon: CupertinoIcons.exclamationmark_triangle,
         label: 'Video unavailable',
-        detail: 'YouTube served no playable stream. '
+        detail:
+            'YouTube served no playable stream. '
             'Disguises exhausted.',
         actions: [
           TextButton(
-            onPressed: () =>
-                ref.invalidate(videoStreamsProvider(videoId)),
+            onPressed: () => ref.invalidate(videoPlaybackProvider(videoId)),
             child: const Text(
               'Retry',
-              style: TextStyle(
-                  color: archPink, fontWeight: FontWeight.w600),
+              style: TextStyle(color: archPink, fontWeight: FontWeight.w600),
             ),
           ),
           TextButton(
@@ -292,23 +491,26 @@ class _VideoBox extends ConsumerWidget {
           ),
         ],
       ),
-      data: (list) {
-        if (list.isEmpty) {
+      data: (pb) {
+        if (pb.options.isEmpty) {
           return _VideoMessage(
             width: width,
+            height: height,
             icon: CupertinoIcons.exclamationmark_triangle,
             label: 'Video unavailable',
-            detail: 'YouTube served no playable stream. '
+            detail:
+                'YouTube served no playable stream. '
                 'Disguises exhausted.',
             actions: [
               TextButton(
                 onPressed: () =>
-                    ref.invalidate(videoStreamsProvider(videoId)),
+                    ref.invalidate(videoPlaybackProvider(videoId)),
                 child: const Text(
                   'Retry',
                   style: TextStyle(
-                      color: archPink,
-                      fontWeight: FontWeight.w600),
+                    color: archPink,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -316,24 +518,36 @@ class _VideoBox extends ConsumerWidget {
           );
         }
         final picked =
-            ref.watch(selectedItagProvider(videoId)) ?? list.first.itag;
-        final stream = list.firstWhere(
-          (s) => s.itag == picked,
-          orElse: () => list.first,
+            ref.watch(selectedItagProvider(videoId)) ?? pb.options.first.itag;
+        final option = pb.options.firstWhere(
+          (o) => o.itag == picked,
+          orElse: () => pb.options.first,
         );
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _StreamPlayer(
-              song: song,
-              stream: stream,
-              width: width,
-            ),
-            const SizedBox(height: 8),
-            _QualityRow(
-                streams: list, videoId: videoId, picked: stream.itag),
-            _OffsetRow(song: song),
-          ],
+        if (option.dash && pb.dashAudioUrl != null) {
+          return _DashPlayer(
+            song: song,
+            videoId: videoId,
+            videoUrl: option.url,
+            videoLength: option.length,
+            videoType: option.type,
+            audioUrl: pb.dashAudioUrl!,
+            audioLength: pb.dashAudioLength,
+            audioType: pb.dashAudioType,
+            width: width,
+            height: height,
+          );
+        }
+        return _StreamPlayer(
+          song: song,
+          stream: ArchtubeStream(
+            itag: option.itag,
+            url: option.url,
+            mime: '',
+            qualityLabel: option.label,
+            bitrate: 0,
+          ),
+          width: width,
+          height: height,
         );
       },
     );
@@ -348,11 +562,13 @@ class _StreamPlayer extends ConsumerStatefulWidget {
   final VideoSong song;
   final ArchtubeStream stream;
   final double width;
+  final double height;
 
   const _StreamPlayer({
     required this.song,
     required this.stream,
     required this.width,
+    required this.height,
   });
 
   @override
@@ -361,13 +577,67 @@ class _StreamPlayer extends ConsumerStatefulWidget {
 
 class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
   VideoPlayerController? _controller;
-  bool _audioWasPlaying = false;
   bool _exited = false;
   String? _error;
+
+  /// Song this box was born for. Dispose resumes audio only on a
+  /// same-song unmount (mode exit, player close); a song change
+  /// belongs to the engine, never to a stale video box.
+  late final int _songId = widget.song.id;
+
+  /// Last seen video-clock position. Drives the mapped audio resume
+  /// when the box unmounts without the exit path.
+  Duration _lastVideoPos = Duration.zero;
+
+  /// Last published whole second: the seekbar follows per second,
+  /// not per frame.
+  int _lastReportedSec = -1;
+
+  /// Last published play state: the transport mirrors transitions
+  /// only, never per-frame value churn.
+  bool _lastPlaying = false;
+
+  /// Song audio handle captured while mounted, and the last offset:
+  /// dispose cannot use ref, so the backstop resume rides these.
+  late ArchAudioHandler _songHandler;
+  double _lastOffset = 0;
+
+  void _publishPlaying(bool playingNow) {
+    if (playingNow == _lastPlaying) return;
+    _lastPlaying = playingNow;
+    ref.read(videoPlayingProvider.notifier).state = playingNow;
+  }
+
+  /// Video-clock position mapped back to song time (minus offset,
+  /// clamped to the song). The song owns the timeline, so every
+  /// handoff back to audio lands here, never at the stale pause.
+  Duration _songPosOf(Duration videoPos) {
+    final offset = ref.read(videoOffsetProvider(widget.song.id));
+    final ms = (videoPos.inMilliseconds - offset * 1000)
+        .round()
+        .clamp(0, widget.song.duration.inMilliseconds);
+    return Duration(milliseconds: ms);
+  }
+
+  /// Ref-free twin for dispose: ref throws once unmount starts.
+  Duration _mappedResume() {
+    final ms = (_lastVideoPos.inMilliseconds - _lastOffset * 1000)
+        .round()
+        .clamp(0, widget.song.duration.inMilliseconds);
+    return Duration(milliseconds: ms);
+  }
+
+  void _publishClock(Duration pos) {
+    _lastVideoPos = pos;
+    if (pos.inSeconds == _lastReportedSec) return;
+    _lastReportedSec = pos.inSeconds;
+    ref.read(videoPositionProvider.notifier).state = pos;
+  }
 
   @override
   void initState() {
     super.initState();
+    _songHandler = ref.read(audioHandlerProvider);
     _init(widget.stream.url);
   }
 
@@ -381,6 +651,7 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
   }
 
   Future<void> _init(String url) async {
+    _publishPlaying(false);
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
     try {
@@ -395,8 +666,8 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
       return;
     }
     // Handoff: audio off fully before video on. Never both.
-    _audioWasPlaying =
-        ref.read(playingProvider).value ?? false;
+    // The entry pause is unconditional; the exit always plays back,
+    // so the was-playing flag has no job here.
     final handler = ref.read(audioHandlerProvider);
     try {
       await handler.pause();
@@ -405,8 +676,7 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     }
     if (!mounted) return;
     final offset = ref.read(videoOffsetProvider(widget.song.id));
-    final songPos =
-        ref.read(positionProvider).value ?? Duration.zero;
+    final songPos = ref.read(positionProvider).value ?? Duration.zero;
     final startAt = Duration(
       milliseconds: ((songPos.inMilliseconds / 1000 + offset) * 1000)
           .round()
@@ -417,8 +687,11 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     final safeStart = startAt > length
         ? Duration.zero
         : startAt > Duration.zero
-            ? startAt
-            : Duration.zero;
+        ? startAt
+        : Duration.zero;
+    _lastVideoPos = safeStart;
+    _lastReportedSec = safeStart.inSeconds;
+    ref.read(videoPositionProvider.notifier).state = safeStart;
     try {
       if (safeStart > Duration.zero) {
         await controller.seekTo(safeStart);
@@ -451,6 +724,7 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
   /// Re-init preserving the handoff: audio is already ours, so no
   /// second pause, just seek + play.
   Future<void> _initAt(String url, Duration from) async {
+    _publishPlaying(false);
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
     try {
@@ -464,6 +738,9 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
       return;
     }
     controller.addListener(_onTick);
+    _lastVideoPos = from;
+    _lastReportedSec = from.inSeconds;
+    ref.read(videoPositionProvider.notifier).state = from;
     try {
       await controller.seekTo(from);
       await controller.play();
@@ -478,11 +755,13 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     final c = _controller;
     if (c == null || !c.value.isInitialized || _exited) return;
     final offset = ref.read(videoOffsetProvider(widget.song.id));
+    _lastOffset = offset;
     final windowEnd = Duration(
-      milliseconds:
-          ((widget.song.duration.inSeconds + offset) * 1000).round(),
+      milliseconds: ((widget.song.duration.inSeconds + offset) * 1000).round(),
     );
     final pos = c.value.position;
+    _publishClock(pos);
+    _publishPlaying(c.value.isPlaying);
     final dur = c.value.duration;
     final end = windowEnd < dur ? windowEnd : dur;
     if (pos >= end && end > Duration.zero) {
@@ -491,21 +770,30 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
   }
 
   /// Window end or user exit: video off fully before audio back.
+  /// Audio always resumes at the mapped song position and plays:
+  /// leaving video means back to the song, never back to silence.
   Future<void> _exitToSong() async {
     if (_exited) return;
     _exited = true;
     final c = _controller;
+    Duration resume = _lastVideoPos;
     try {
+      resume = c?.value.position ?? _lastVideoPos;
       await c?.pause();
     } catch (_) {}
+    _publishPlaying(false);
     if (!mounted) return;
     ref.read(videoModeProvider.notifier).state = false;
-    if (_audioWasPlaying) {
-      try {
-        await ref.read(audioHandlerProvider).play();
-      } catch (e) {
-        ArchLog.w('archtube', 'audio resume failed: $e');
-      }
+    try {
+      final handler = ref.read(audioHandlerProvider);
+      final target = _songPosOf(resume);
+      ArchLog.i('archtube',
+          'video exit resume at=${target.inMilliseconds}ms (window end)');
+      await handler.seek(target);
+      await handler.play();
+      ArchLog.i('archtube', 'video exit audio playing');
+    } catch (e) {
+      ArchLog.w('archtube', 'audio resume failed: $e');
     }
   }
 
@@ -517,12 +805,18 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
       c.pause();
       c.dispose();
     }
-    // Unmount without the exit path (song change, player close):
-    // hand transport back only when audio played on entry and the
-    // mode is still ours.
-    if (!_exited && _audioWasPlaying) {
+    // Unmount without the exit path (player close, abnormal drop):
+    // back to the song, always playing. A song change belongs to
+    // the engine, so a stale box never touches it. The seek chains
+    // before the play so a stale play can never jump ahead.
+    // Ref-free: ref throws once unmount starts, so the stashed
+    // handle answers.
+    if (!_exited && widget.song.id == _songId) {
       try {
-        ref.read(audioHandlerProvider).play();
+        final target = _mappedResume();
+        ArchLog.i('archtube',
+            'video exit resume at=${target.inMilliseconds}ms (dispose)');
+        unawaited(_songHandler.seek(target).then((_) => _songHandler.play()));
       } catch (e) {
         ArchLog.w('archtube', 'dispose resume failed: $e');
       }
@@ -534,10 +828,34 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final aspect = ref.watch(videoAspectProvider);
+    // Transport play/pause rings this bell with the target state.
+    // Seekbar scrubs ring their own. One controller answers.
+    ref.listen(videoPlayRequestProvider, (prev, next) {
+      if (prev?.gen == next.gen) return;
+      final c = _controller;
+      if (c == null || !c.value.isInitialized || _exited) return;
+      unawaited(next.play ? c.play() : c.pause());
+    });
+    ref.listen(videoSeekRequestProvider, (prev, next) {
+      if (prev?.gen == next.gen) return;
+      final c = _controller;
+      if (c == null || !c.value.isInitialized || _exited) return;
+      c.seekTo(next.pos);
+    });
+    ref.listen<int>(videoFullscreenRequestProvider, (prev, next) {
+      final c = _controller;
+      if (prev == next || c == null || !c.value.isInitialized) return;
+      if (!context.mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => _FullscreenVideo(controller: c)),
+      );
+    });
     final c = _controller;
     if (_error != null) {
       return _VideoMessage(
         width: widget.width,
+        height: widget.height,
         icon: CupertinoIcons.exclamationmark_triangle,
         label: 'Playback failed',
         detail: _error,
@@ -549,8 +867,7 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
             },
             child: const Text(
               'Retry',
-              style: TextStyle(
-                  color: archPink, fontWeight: FontWeight.w600),
+              style: TextStyle(color: archPink, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -559,23 +876,23 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     if (c == null || !c.value.isInitialized) {
       return _VideoMessage(
         width: widget.width,
+        height: widget.height,
         label: 'Loading video...',
         child: const CupertinoActivityIndicator(),
       );
     }
     return Container(
       width: widget.width,
+      height: widget.height,
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
         borderRadius: BorderRadius.circular(24),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: VideoPlayer(c),
-          ),
+          _VideoPicture(controller: c, aspect: aspect),
           Positioned(
             right: 6,
             bottom: 6,
@@ -584,13 +901,682 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
               tooltip: 'Fullscreen',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      _FullscreenVideo(controller: c),
+                  builder: (_) => _FullscreenVideo(controller: c),
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Dual player: DASH video-only picture plus the video's own
+/// audio-only sound on a second lightweight player. Same handoff
+/// contract as the progressive box: song audio parked, mapped
+/// resume on exit, window end flips back. The audio clock leads:
+/// the picture chases it past the drift budget, and the seekbar
+/// follows the audio clock.
+class _DashPlayer extends ConsumerStatefulWidget {
+  final VideoSong song;
+  final String videoId;
+  final String videoUrl;
+  final int videoLength;
+  final String videoType;
+  final String audioUrl;
+  final int audioLength;
+  final String audioType;
+  final double width;
+  final double height;
+
+  const _DashPlayer({
+    required this.song,
+    required this.videoId,
+    required this.videoUrl,
+    required this.videoLength,
+    required this.videoType,
+    required this.audioUrl,
+    required this.audioLength,
+    required this.audioType,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  ConsumerState<_DashPlayer> createState() => _DashPlayerState();
+}
+
+class _DashPlayerState extends ConsumerState<_DashPlayer> {
+  VideoPlayerController? _video;
+  AudioPlayer? _audio;
+  DashProxy? _videoProxy;
+  DashProxy? _audioProxy;
+  bool _exited = false;
+  String? _error;
+  Duration _lastAudioPos = Duration.zero;
+  int _lastReportedSec = -1;
+  bool _lastPlaying = false;
+  int _lastCorrectMs = 0;
+
+  /// Drift past this re-seeks the picture onto the sound.
+  static const _driftBudgetMs = 1500;
+
+  late final int _songId = widget.song.id;
+
+  /// Song audio handle captured while mounted: dispose cannot use
+  /// ref (it throws once unmount starts), so the backstop resume
+  /// rides this instead.
+  late ArchAudioHandler _songHandler;
+
+  /// Last seen offset for the ref-free dispose mapping.
+  double _lastOffset = 0;
+
+  /// DASH load attempts: the first failure re-resolves fresh URLs
+  /// (expiry), a fresh failure bans DASH into progressive fallback.
+  int _dashAttempts = 0;
+
+  /// Ref-free song mapping for dispose: audio clock minus the last
+  /// offset, clamped to the song.
+  Duration _mappedResume() {
+    final ms = (_lastAudioPos.inMilliseconds - _lastOffset * 1000)
+        .round()
+        .clamp(0, widget.song.duration.inMilliseconds);
+    return Duration(milliseconds: ms);
+  }
+
+  /// DASH source failure (403, wall, expiry): fresh URLs first,
+  /// progressive fallback when fresh fails too. Never an error
+  /// screen while another lane can play.
+  void _onDashFailure(String detail) {
+    if (!mounted) return;
+    if (_dashAttempts > 0) {
+      ArchLog.w('archtube', 'dash failed fresh, falling back: $detail');
+      ref.read(dashFailedProvider(widget.videoId).notifier).state = true;
+      noteDashFailure(ref, widget.videoId);
+      ref.invalidate(videoPlaybackProvider(widget.videoId));
+      return;
+    }
+    _dashAttempts++;
+    ArchLog.i('archtube', 'dash failed, re-resolving fresh URLs: $detail');
+    ref.invalidate(videoPlaybackProvider(widget.videoId));
+  }
+
+  Duration _songPosOf(Duration videoPos) {
+    final offset = ref.read(videoOffsetProvider(widget.song.id));
+    final ms = (videoPos.inMilliseconds - offset * 1000)
+        .round()
+        .clamp(0, widget.song.duration.inMilliseconds);
+    return Duration(milliseconds: ms);
+  }
+
+  void _publishClock(Duration pos) {
+    _lastAudioPos = pos;
+    if (pos.inSeconds == _lastReportedSec) return;
+    _lastReportedSec = pos.inSeconds;
+    ref.read(videoPositionProvider.notifier).state = pos;
+  }
+
+  void _publishPlaying(bool playingNow) {
+    if (playingNow == _lastPlaying) return;
+    _lastPlaying = playingNow;
+    ref.read(videoPlayingProvider.notifier).state = playingNow;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _songHandler = ref.read(audioHandlerProvider);
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DashPlayer old) {
+    super.didUpdateWidget(old);
+    if (old.audioUrl != widget.audioUrl) {
+      _init();
+    } else if (old.videoUrl != widget.videoUrl) {
+      // Quality swap: the sound keeps running, only the picture
+      // re-inits, landing on the live audio clock.
+      _swapVideo();
+    }
+  }
+
+  Duration _startAt() {
+    final offset = ref.read(videoOffsetProvider(widget.song.id));
+    final songPos = ref.read(positionProvider).value ?? Duration.zero;
+    return Duration(
+      milliseconds: ((songPos.inMilliseconds / 1000 + offset) * 1000)
+          .round()
+          .clamp(0, 1 << 31),
+    );
+  }
+
+  /// Serve one upstream URL through a fresh loopback proxy,
+  /// dropping the previous one. Throws when the bind fails, which
+  /// degrades like any other source failure.
+  ///
+  /// EXPERIMENT (DASH 403): flip [directFetch] true to hand ExoPlayer
+  /// the raw googlevideo URL with no proxy in the middle. Proxy vs
+  /// transport, one variable. Default false = normal path.
+  static bool directFetch = false;
+
+  Future<Uri> _serveVideo() async {
+    final old = _videoProxy;
+    _videoProxy = null;
+    try {
+      await old?.close();
+    } catch (_) {}
+    if (directFetch) {
+      ArchLog.i('archtube', 'DIRECT video fetch (no proxy)');
+      return Uri.parse(widget.videoUrl);
+    }
+    final proxy = DashProxy(
+      upstreamUrl: widget.videoUrl,
+      contentLength: widget.videoLength,
+      contentType:
+          widget.videoType.isEmpty ? 'video/mp4' : widget.videoType,
+    );
+    await proxy.start();
+    _videoProxy = proxy;
+    return proxy.url;
+  }
+
+  Future<Uri> _serveAudio() async {
+    final old = _audioProxy;
+    _audioProxy = null;
+    try {
+      await old?.close();
+    } catch (_) {}
+    final proxy = DashProxy(
+      upstreamUrl: widget.audioUrl,
+      contentLength: widget.audioLength,
+      contentType:
+          widget.audioType.isEmpty ? 'audio/mp4' : widget.audioType,
+    );
+    await proxy.start();
+    _audioProxy = proxy;
+    return proxy.url;
+  }
+
+  Future<void> _closeProxies() async {
+    final videoProxy = _videoProxy;
+    final audioProxy = _audioProxy;
+    _videoProxy = null;
+    _audioProxy = null;
+    try {
+      await videoProxy?.close();
+    } catch (_) {}
+    try {
+      await audioProxy?.close();
+    } catch (_) {}
+  }
+
+  Future<void> _init() async {
+    _publishPlaying(false);
+    ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
+    // Retry-safe: drop any failed pair before building the next.
+    final oldVideo = _video;
+    final oldAudio = _audio;
+    _video = null;
+    _audio = null;
+    try {
+      await oldVideo?.pause();
+    } catch (_) {}
+    try {
+      await oldVideo?.dispose();
+    } catch (_) {}
+    try {
+      await oldAudio?.pause();
+    } catch (_) {}
+    try {
+      await oldAudio?.dispose();
+    } catch (_) {}
+    late final Uri videoUri;
+    try {
+      videoUri = await _serveVideo();
+    } catch (e) {
+      ArchLog.w('archtube', 'dash proxy start failed: $e');
+      await _tryHybrid('$e');
+      return;
+    }
+    final video = VideoPlayerController.networkUrl(videoUri);
+    _video = video;
+    try {
+      await video.initialize();
+    } catch (e) {
+      ArchLog.w('archtube', 'dash picture init failed: $e');
+      await _tryHybrid('$e');
+      return;
+    }
+    if (!mounted) {
+      await video.dispose();
+      return;
+    }
+    // Serialized: the sound proxy starts only after the picture's
+    // first bytes land. Parallel range bursts read botty and the
+    // whole pair eats the wall together; staggered, each stands
+    // on its own.
+    late final Uri audioUri;
+    try {
+      audioUri = await _serveAudio();
+    } catch (e) {
+      ArchLog.w('archtube', 'dash proxy start failed: $e');
+      _onDashFailure('$e');
+      return;
+    }
+    final audio = AudioPlayer();
+    _audio = audio;
+    try {
+      await audio.setAudioSource(AudioSource.uri(audioUri));
+    } catch (e) {
+      ArchLog.w('archtube', 'dash sound init failed: $e');
+      await video.dispose();
+      _onDashFailure('$e');
+      return;
+    }
+    if (!mounted || _exited) {
+      await video.dispose();
+      await audio.dispose();
+      return;
+    }
+    // Handoff: song audio off fully before video sound on.
+    final handler = ref.read(audioHandlerProvider);
+    try {
+      await handler.pause();
+    } catch (e) {
+      ArchLog.w('archtube', 'audio pause failed: $e');
+    }
+    if (!mounted) return;
+    final startAt = _startAt();
+    video.addListener(_onTick);
+    final length = video.value.duration;
+    final safeStart = startAt > length
+        ? Duration.zero
+        : startAt > Duration.zero
+            ? startAt
+            : Duration.zero;
+    _publishClock(safeStart);
+    try {
+      if (safeStart > Duration.zero) {
+        await video.seekTo(safeStart);
+        await audio.seek(safeStart);
+      }
+      if (!mounted || _exited) return;
+      await audio.play();
+      await video.play();
+      ref.read(dashFailStreakProvider.notifier).state = 0;
+    } catch (e) {
+      ArchLog.w('archtube', 'dash start failed: $e');
+      _onDashFailure('$e');
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Hybrid fallback: picture DASH walled, but the sound leg may
+  /// still serve. Progressive picture (muted, direct URL) under DASH
+  /// sound, same clocks, same sync machinery. Degrades fully when
+  /// either leg fails.
+  Future<void> _tryHybrid(Object videoError) async {
+    final failedVideo = _video;
+    _video = null;
+    try {
+      await failedVideo?.dispose();
+    } catch (_) {}
+    ArchLog.i('archtube', 'dash picture walled, trying hybrid sound');
+    late final Uri audioUri;
+    try {
+      audioUri = await _serveAudio();
+    } catch (e) {
+      ArchLog.w('archtube', 'hybrid audio proxy failed: $e');
+      _onDashFailure('$videoError / $e');
+      return;
+    }
+    final audio = AudioPlayer();
+    _audio = audio;
+    try {
+      await audio.setAudioSource(AudioSource.uri(audioUri));
+    } catch (e) {
+      ArchLog.w('archtube', 'hybrid sound init failed: $e');
+      _onDashFailure('$videoError / $e');
+      return;
+    }
+    List<ArchtubeStream> prog;
+    try {
+      prog = await ref
+          .read(archtubeClientProvider)
+          .playerStreams(widget.videoId);
+    } catch (e) {
+      ArchLog.w('archtube', 'hybrid progressive fetch failed: $e');
+      _onDashFailure('$videoError / $e');
+      return;
+    }
+    if (prog.isEmpty) {
+      _onDashFailure('$videoError / no progressive');
+      return;
+    }
+    final video =
+        VideoPlayerController.networkUrl(Uri.parse(prog.first.url));
+    _video = video;
+    try {
+      await video.initialize();
+      await video.setVolume(0);
+    } catch (e) {
+      ArchLog.w('archtube', 'hybrid picture init failed: $e');
+      _onDashFailure('$videoError / $e');
+      return;
+    }
+    if (!mounted || _exited) {
+      await video.dispose();
+      await audio.dispose();
+      return;
+    }
+    final handler = ref.read(audioHandlerProvider);
+    try {
+      await handler.pause();
+    } catch (e) {
+      ArchLog.w('archtube', 'audio pause failed: $e');
+    }
+    if (!mounted) return;
+    final startAt = _startAt();
+    video.addListener(_onTick);
+    _publishClock(startAt);
+    try {
+      if (startAt > Duration.zero) {
+        await video.seekTo(startAt);
+        await audio.seek(startAt);
+      }
+      if (!mounted || _exited) return;
+      await audio.play();
+      await video.play();
+      ref.read(dashFailStreakProvider.notifier).state = 0;
+      ref.read(hybridDashProvider(widget.videoId).notifier).state = true;
+      ArchLog.i('archtube', 'hybrid engaged: muted picture + dash sound');
+    } catch (e) {
+      ArchLog.w('archtube', 'hybrid start failed: $e');
+      _onDashFailure('$videoError / $e');
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Quality swap mid-play: fresh picture lands on the running
+  /// sound clock, resuming only if it was playing.
+  Future<void> _swapVideo() async {
+    final audio = _audio;
+    final wasPlaying = _lastPlaying;
+    final at = audio?.position ?? _lastAudioPos;
+    final old = _video;
+    old?.removeListener(_onTick);
+    _video = null;
+    if (mounted) setState(() {});
+    try {
+      await old?.pause();
+    } catch (_) {}
+    try {
+      await old?.dispose();
+    } catch (_) {}
+    if (!mounted || _exited) return;
+    late final Uri videoUri;
+    try {
+      videoUri = await _serveVideo();
+    } catch (e) {
+      ArchLog.w('archtube', 'dash swap proxy failed: $e');
+      await _dropAudio();
+      _onDashFailure('$e');
+      return;
+    }
+    final video = VideoPlayerController.networkUrl(videoUri);
+    _video = video;
+    try {
+      await video.initialize();
+    } catch (e) {
+      ArchLog.w('archtube', 'dash swap init failed: $e');
+      await _dropAudio();
+      _onDashFailure('$e');
+      return;
+    }
+    if (!mounted || _exited) {
+      await video.dispose();
+      return;
+    }
+    video.addListener(_onTick);
+    try {
+      await video.seekTo(at);
+      if (wasPlaying && !mounted) return;
+      if (wasPlaying) await video.play();
+      ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
+    } catch (e) {
+      ArchLog.w('archtube', 'dash swap start failed: $e');
+      await _dropAudio();
+      _onDashFailure('$e');
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Drop the dash sound leg (swap failure): the degrade path mounts
+  /// progressive muxed sound, so anything left playing doubles audio.
+  Future<void> _dropAudio() async {
+    final a = _audio;
+    _audio = null;
+    try {
+      await a?.pause();
+    } catch (_) {}
+    try {
+      await a?.dispose();
+    } catch (_) {}
+    ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
+  }
+
+  void _onTick() {
+    final v = _video;
+    final a = _audio;
+    if (v == null || !v.value.isInitialized || a == null || _exited) return;
+    final vpos = v.value.position;
+    final apos = a.position;
+    _publishClock(apos);
+    _publishPlaying(v.value.isPlaying || a.playing);
+    // Picture chases sound, at most one correction a second: seeks
+    // are silent skips, never audible jumps.
+    final driftMs = (vpos.inMilliseconds - apos.inMilliseconds).abs();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (driftMs > _driftBudgetMs && nowMs - _lastCorrectMs > 1000) {
+      _lastCorrectMs = nowMs;
+      ArchLog.i('archtube', 'dash drift ${driftMs}ms, chasing');
+      unawaited(v.seekTo(apos));
+    }
+    final offset = ref.read(videoOffsetProvider(widget.song.id));
+    _lastOffset = offset;
+    final windowEnd = Duration(
+      milliseconds: ((widget.song.duration.inSeconds + offset) * 1000).round(),
+    );
+    var end = windowEnd;
+    final vdur = v.value.duration;
+    if (vdur < end) end = vdur;
+    final adur = a.duration;
+    if (adur != null && adur < end) end = adur;
+    if (apos >= end && end > Duration.zero) {
+      _exitToSong();
+    }
+  }
+
+  /// Window end: both off fully before song audio back, which always
+  /// resumes at the mapped position and plays.
+  Future<void> _exitToSong() async {
+    if (_exited) return;
+    _exited = true;
+    final v = _video;
+    final a = _audio;
+    Duration resume = _lastAudioPos;
+    try {
+      resume = a?.position ?? _lastAudioPos;
+      await a?.pause();
+      await v?.pause();
+    } catch (_) {}
+    _publishPlaying(false);
+    if (!mounted) return;
+    ref.read(videoModeProvider.notifier).state = false;
+    try {
+      final handler = ref.read(audioHandlerProvider);
+      final target = _songPosOf(resume);
+      ArchLog.i('archtube',
+          'video exit resume at=${target.inMilliseconds}ms (window end)');
+      await handler.seek(target);
+      await handler.play();
+      ArchLog.i('archtube', 'video exit audio playing');
+    } catch (e) {
+      ArchLog.w('archtube', 'audio resume failed: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    final v = _video;
+    if (v != null) {
+      v.removeListener(_onTick);
+      v.pause();
+      v.dispose();
+    }
+    final a = _audio;
+    if (a != null) {
+      a.pause();
+      a.dispose();
+    }
+    unawaited(_closeProxies());
+    // Unmount without the exit path (player close, abnormal drop):
+    // back to the song, always playing. A song change belongs to
+    // the engine, so a stale box never touches it. Ref-free: ref
+    // throws once unmount starts, so the stashed handle answers.
+    if (!_exited && widget.song.id == _songId) {
+      try {
+        final target = _mappedResume();
+        ArchLog.i('archtube',
+            'video exit resume at=${target.inMilliseconds}ms (dispose)');
+        unawaited(_songHandler.seek(target).then((_) => _songHandler.play()));
+      } catch (e) {
+        ArchLog.w('archtube', 'dispose resume failed: $e');
+      }
+    }
+    _video = null;
+    _audio = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final aspect = ref.watch(videoAspectProvider);
+    ref.listen(videoPlayRequestProvider, (prev, next) {
+      if (prev?.gen == next.gen) return;
+      if (_exited) return;
+      final v = _video;
+      final a = _audio;
+      if (next.play) {
+        unawaited(v?.play() ?? Future.value());
+        unawaited(a?.play() ?? Future.value());
+      } else {
+        unawaited(a?.pause() ?? Future.value());
+        unawaited(v?.pause() ?? Future.value());
+      }
+    });
+    ref.listen(videoSeekRequestProvider, (prev, next) {
+      if (prev?.gen == next.gen) return;
+      if (_exited) return;
+      unawaited(_video?.seekTo(next.pos) ?? Future.value());
+      unawaited(_audio?.seek(next.pos) ?? Future.value());
+    });
+    ref.listen<int>(videoFullscreenRequestProvider, (prev, next) {
+      final v = _video;
+      if (prev == next || v == null || !v.value.isInitialized) return;
+      if (!context.mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => _FullscreenVideo(controller: v)),
+      );
+    });
+    final v = _video;
+    if (_error != null) {
+      return _VideoMessage(
+        width: widget.width,
+        height: widget.height,
+        icon: CupertinoIcons.exclamationmark_triangle,
+        label: 'Playback failed',
+        detail: _error,
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() => _error = null);
+              _onDashFailure('manual retry');
+            },
+            child: const Text(
+              'Retry',
+              style: TextStyle(color: archPink, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      );
+    }
+    if (v == null || !v.value.isInitialized) {
+      return _VideoMessage(
+        width: widget.width,
+        height: widget.height,
+        label: 'Loading video...',
+        child: const CupertinoActivityIndicator(),
+      );
+    }
+    return Container(
+      width: widget.width,
+      height: widget.height,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _VideoPicture(controller: v, aspect: aspect),
+          Positioned(
+            right: 6,
+            bottom: 6,
+            child: _GlassIconButton(
+              icon: Icons.fullscreen,
+              tooltip: 'Fullscreen',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => _FullscreenVideo(controller: v),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The picture itself, filling whatever box it lands in: fit shows
+/// the whole frame letterboxed, fill crops to cover. Zero-size
+/// (pre-first-frame) falls back to plain.
+class _VideoPicture extends StatelessWidget {
+  final VideoPlayerController controller;
+  final VideoAspect aspect;
+
+  const _VideoPicture({required this.controller, required this.aspect});
+
+  @override
+  Widget build(BuildContext context) {
+    final size = controller.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return VideoPlayer(controller);
+    }
+    return FittedBox(
+      fit: aspect == VideoAspect.fill ? BoxFit.cover : BoxFit.contain,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: VideoPlayer(controller),
       ),
     );
   }
@@ -606,6 +1592,7 @@ class _FullscreenVideo extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final active = ref.watch(videoModeProvider);
+    final aspect = ref.watch(videoAspectProvider);
     if (!active) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (Navigator.of(context).canPop()) {
@@ -622,7 +1609,7 @@ class _FullscreenVideo extends ConsumerWidget {
             Center(
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: VideoPlayer(controller),
+                child: _VideoPicture(controller: controller, aspect: aspect),
               ),
             ),
             Positioned(
@@ -670,136 +1657,10 @@ class _GlassIconButton extends StatelessWidget {
           HapticFeedback.selectionClick();
           onTap();
         },
-        icon: Icon(icon, shadows: const [
-          Shadow(color: Colors.black54, blurRadius: 6),
-        ]),
-      ),
-    );
-  }
-}
-
-/// Quality picker: one chip per progressive stream, ladder best
-/// pre-picked. Pink = selected (selection follows pink).
-class _QualityRow extends ConsumerWidget {
-  final List<ArchtubeStream> streams;
-  final String videoId;
-  final int picked;
-
-  const _QualityRow({
-    required this.streams,
-    required this.videoId,
-    required this.picked,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (streams.length < 2) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 8,
-        children: [
-          for (final s in streams)
-            ChoiceChip(
-              label: Text(
-                s.qualityLabel.isEmpty ? 'itag ${s.itag}' : s.qualityLabel,
-                style: const TextStyle(fontSize: 12),
-              ),
-              selected: s.itag == picked,
-              selectedColor: archPink.withValues(alpha: 0.18),
-              labelStyle: TextStyle(
-                color: s.itag == picked
-                    ? archPink
-                    : scheme.onSurfaceVariant,
-                fontWeight: s.itag == picked
-                    ? FontWeight.w700
-                    : FontWeight.w400,
-              ),
-              side: BorderSide(
-                color: scheme.onSurface.withValues(alpha: 0.12),
-              ),
-              onSelected: (_) {
-                HapticFeedback.selectionClick();
-                ref
-                    .read(selectedItagProvider(videoId).notifier)
-                    .state = s.itag;
-              },
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Offset nudge: -/+1s around the auto 0, persisted to the link.
-class _OffsetRow extends ConsumerWidget {
-  final VideoSong song;
-
-  const _OffsetRow({required this.song});
-
-  Future<void> _nudge(WidgetRef ref, double by) async {
-    final notifier = ref.read(videoOffsetProvider(song.id).notifier);
-    final next = (notifier.state + by).clamp(0.0, 30.0);
-    notifier.state = next;
-    try {
-      final store = ref.read(videoLinkStoreProvider);
-      final link = await store.load(song.id);
-      if (link != null) {
-        await store.save(song.id, link.withOffset(next));
-      }
-    } catch (e) {
-      ArchLog.w('archtube', 'offset persist failed: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final offset = ref.watch(videoOffsetProvider(song.id));
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            iconSize: 18,
-            color: scheme.onSurfaceVariant,
-            tooltip: 'Video starts 1s earlier',
-            onPressed: () => _nudge(ref, -1),
-            icon: const Icon(CupertinoIcons.minus_circled),
-          ),
-          Text(
-            'Offset ${offset.toStringAsFixed(0)}s',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 12,
-            ),
-          ),
-          IconButton(
-            iconSize: 18,
-            color: scheme.onSurfaceVariant,
-            tooltip: 'Video starts 1s later',
-            onPressed: () => _nudge(ref, 1),
-            icon: const Icon(CupertinoIcons.plus_circled),
-          ),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: () async {
-              HapticFeedback.selectionClick();
-              await clearVideoLink(ref, song.id);
-            },
-            child: Text(
-              'Unlink',
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 12,
-                decoration: TextDecoration.underline,
-              ),
-            ),
-          ),
-        ],
+        icon: Icon(
+          icon,
+          shadows: const [Shadow(color: Colors.black54, blurRadius: 6)],
+        ),
       ),
     );
   }
@@ -840,8 +1701,7 @@ class _LinkEditorState extends ConsumerState<_LinkEditor> {
     });
     final wasDark = Theme.of(context).brightness == Brightness.dark;
     try {
-      await setVideoLink(ref,
-          songId: widget.songId, input: _text.text);
+      await setVideoLink(ref, songId: widget.songId, input: _text.text);
     } catch (e) {
       if (!mounted) return;
       // Theme verdict captured before the await above; the copy
@@ -874,8 +1734,7 @@ class _LinkEditorState extends ConsumerState<_LinkEditor> {
                 decoration: InputDecoration(
                   hintText: 'Video ID or YouTube link',
                   hintStyle: TextStyle(
-                    color: scheme.onSurfaceVariant
-                        .withValues(alpha: 0.7),
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
                     fontSize: 13,
                   ),
                   isDense: true,
@@ -886,15 +1745,11 @@ class _LinkEditorState extends ConsumerState<_LinkEditor> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color:
-                          scheme.onSurface.withValues(alpha: 0.14),
+                      color: scheme.onSurface.withValues(alpha: 0.14),
                     ),
                   ),
                 ),
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: scheme.onSurface, fontSize: 13),
                 onSubmitted: (_) => _save(),
               ),
             ),
@@ -921,10 +1776,7 @@ class _LinkEditorState extends ConsumerState<_LinkEditor> {
           const SizedBox(height: 4),
           Text(
             _error!,
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
         ],
       ],

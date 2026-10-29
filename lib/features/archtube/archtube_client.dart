@@ -23,6 +23,68 @@ class ArchtubeStream {
   });
 }
 
+/// One video-only (DASH) stream: picture without sound. ANDROID
+/// serves these with direct URLs today, no decipher. The player box
+/// pairs one with an [ArchtubeDashAudio] in the dual player.
+class ArchtubeDashVideo {
+  final int itag;
+  final String url;
+  final String qualityLabel;
+  final int width;
+  final int height;
+  final int bitrate;
+  final String mime;
+  final int contentLength;
+  final String contentType;
+
+  const ArchtubeDashVideo({
+    required this.itag,
+    required this.url,
+    required this.qualityLabel,
+    required this.width,
+    required this.height,
+    required this.bitrate,
+    required this.mime,
+    required this.contentLength,
+    required this.contentType,
+  });
+
+  bool get isMp4Avc =>
+      mime.contains('video/mp4') && mime.contains('avc1');
+}
+
+/// One audio-only (DASH) stream: the video's own sound for the dual
+/// player. Higher bitrate than the progressive mux (251 opus, then
+/// 140 m4a), which is the whole audible point of DASH.
+class ArchtubeDashAudio {
+  final int itag;
+  final String url;
+  final int bitrate;
+  final String mime;
+  final int contentLength;
+  final String contentType;
+
+  const ArchtubeDashAudio({
+    required this.itag,
+    required this.url,
+    required this.bitrate,
+    required this.mime,
+    required this.contentLength,
+    required this.contentType,
+  });
+}
+
+/// A playable DASH pair: picture ladder plus sound ladder. Empty
+/// when nothing direct served (caller falls back to progressive).
+class ArchtubeDash {
+  final List<ArchtubeDashVideo> videos;
+  final List<ArchtubeDashAudio> audios;
+
+  const ArchtubeDash({required this.videos, required this.audios});
+
+  bool get playable => videos.isNotEmpty && audios.isNotEmpty;
+}
+
 /// One search hit for video matching.
 class ArchtubeHit {
   final String videoId;
@@ -128,6 +190,39 @@ class ArchtubeClient {
     return [];
   }
 
+  /// DASH pair for [videoId], rotating disguises until one yields a
+  /// playable video+audio set with direct URLs. Empty when all are
+  /// dry or ciphered: the caller falls back to progressive.
+  Future<ArchtubeDash> playerDash(String videoId) async {
+    for (final id in archtubeLadder) {
+      final json = await _post('player', id, {
+        'videoId': videoId,
+        'contentCheckOk': true,
+        'racyCheckOk': true,
+      });
+      if (json == null) continue;
+      final status =
+          json['playabilityStatus'] as Map<String, dynamic>? ?? {};
+      if (status['status'] != 'OK') continue;
+      final dash = parseAdaptiveStreams(json);
+      if (!dash.playable) {
+        ArchLog.i('archtube',
+            '${id.clientName} DASH dry for $videoId, rotating');
+        continue;
+      }
+      ArchLog.i('archtube',
+          '${id.clientName} DASH for $videoId '
+          '(${dash.videos.length}v+${dash.audios.length}a)');
+      // IP-binding check: the URL is cut for the IP that asked. Log the
+      // bound ip so the phone's public IP can be held next to it.
+      final firstUrl = dash.videos.isNotEmpty ? dash.videos.first.url : '';
+      final boundIp = Uri.tryParse(firstUrl)?.queryParameters['ip'];
+      ArchLog.i('archtube', 'DASH url bound ip=$boundIp for $videoId');
+      return dash;
+    }
+    return const ArchtubeDash(videos: [], audios: []);
+  }
+
   /// Artist + title search for video matching. Returns raw hits;
   /// ranking lives in [scoreHits] (video_match.dart).
   Future<List<ArchtubeHit>> search(String query) async {
@@ -183,6 +278,73 @@ class ArchtubeClient {
       return b.bitrate.compareTo(a.bitrate);
     });
     return out;
+  }
+
+  /// DASH sets out of a player response: video-only ladder plus
+  /// audio-only ladder, direct URLs only. Ciphered entries are
+  /// skipped and counted; surround codecs (ac-3, ec-3) are skipped,
+  /// stereo only. Duplicate itags keep the first.
+  static ArchtubeDash parseAdaptiveStreams(Map<String, dynamic> json) {
+    final sd = json['streamingData'] as Map<String, dynamic>?;
+    final adaptive = sd?['adaptiveFormats'] as List?;
+    if (adaptive == null) return const ArchtubeDash(videos: [], audios: []);
+    final videos = <ArchtubeDashVideo>[];
+    final audios = <ArchtubeDashAudio>[];
+    final seenVideo = <int>{};
+    final seenAudio = <int>{};
+    var ciphered = 0;
+    for (final f in adaptive) {
+      if (f is! Map<String, dynamic>) continue;
+      final url = f['url'] as String?;
+      if (url == null || url.isEmpty) {
+        if (f['signatureCipher'] != null) ciphered++;
+        continue;
+      }
+      final itag = (f['itag'] as num?)?.toInt() ?? 0;
+      final mime = (f['mimeType'] as String?) ?? '';
+      final bitrate = (f['bitrate'] as num?)?.toInt() ?? 0;
+      final contentLength =
+          int.tryParse('${f['contentLength'] ?? ''}') ?? 0;
+      final contentType = mime.split(';').first.trim();
+      if (mime.startsWith('video/')) {
+        if (!seenVideo.add(itag)) continue;
+        videos.add(ArchtubeDashVideo(
+          itag: itag,
+          url: url,
+          qualityLabel: (f['qualityLabel'] as String?) ?? '',
+          width: (f['width'] as num?)?.toInt() ?? 0,
+          height: (f['height'] as num?)?.toInt() ?? 0,
+          bitrate: bitrate,
+          mime: mime,
+          contentLength: contentLength,
+          contentType: contentType.isEmpty ? 'video/mp4' : contentType,
+        ));
+      } else if (mime.startsWith('audio/')) {
+        if (mime.contains('ac-3') || mime.contains('ec-3')) continue;
+        if (!seenAudio.add(itag)) continue;
+        audios.add(ArchtubeDashAudio(
+          itag: itag,
+          url: url,
+          bitrate: bitrate,
+          mime: mime,
+          contentLength: contentLength,
+          contentType: contentType.isEmpty ? 'audio/mp4' : contentType,
+        ));
+      }
+    }
+    if (ciphered > 0) {
+      ArchLog.i('archtube', 'skipped $ciphered ciphered adaptive formats');
+    }
+    // Picture ladder: MP4/AVC first (safest decode), then tallest,
+    // then hottest bitrate. Unlabeled entries sink.
+    videos.sort((a, b) {
+      if (a.isMp4Avc != b.isMp4Avc) return a.isMp4Avc ? -1 : 1;
+      if (a.height != b.height) return b.height.compareTo(a.height);
+      return b.bitrate.compareTo(a.bitrate);
+    });
+    // Sound ladder: hottest bitrate first (251 opus, then 140 m4a).
+    audios.sort((a, b) => b.bitrate.compareTo(a.bitrate));
+    return ArchtubeDash(videos: videos, audios: audios);
   }
 
   /// Search hits out of a search response. Tolerates both the

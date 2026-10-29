@@ -13,8 +13,14 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 
 /// Morph context menu: the V2 glass experiment, live.
 ///
-/// Same contract as showTrackMenu (anchor rect in, tapped value out),
-/// but the menu grows out of its button through native LiquidGlassMorph.
+/// Same contract as the old anchored menu (anchor rect in, tapped
+/// value out), but the menu grows out of its button through native
+/// LiquidGlassMorph.
+///
+/// Takes the same shape as every caller already speaks: [quick]
+/// chips first, then [groups] top to bottom ([items] is the legacy
+/// flat spelling of one group). Tall menus scroll inside a cap, so
+/// no row ever clips off-screen.
 ///
 /// Root cause of the last two near-misses (verified in
 /// liquid_glass_easy 4.3.4, liquid_glass_morph.dart `_retarget` +
@@ -54,14 +60,21 @@ import '../player/track_menu.dart' show MenuAction, menuAnchor;
 Future<String?> showMorphMenu({
   required BuildContext context,
   Rect? anchor,
-  required List<MenuAction> items,
+  List<MenuAction> items = const [],
+  List<MenuAction> quick = const [],
+  List<List<MenuAction>> groups = const [],
 }) {
   final navigator = Navigator.of(context, rootNavigator: true);
   FocusManager.instance.primaryFocus?.unfocus();
   final target = anchor ?? menuAnchor(context);
+  final sections = groups.isNotEmpty
+      ? groups
+      : (items.isNotEmpty
+          ? <List<MenuAction>>[items]
+          : const <List<MenuAction>>[]);
   ArchLog.i(
     'nav',
-    'morph menu open anchor=${target == null ? 'none' : '${target.width.toStringAsFixed(0)}x${target.height.toStringAsFixed(0)}@${target.left.toStringAsFixed(0)},${target.top.toStringAsFixed(0)}'}',
+    'morph menu open anchor=${target == null ? 'none' : '${target.width.toStringAsFixed(0)}x${target.height.toStringAsFixed(0)}@${target.left.toStringAsFixed(0)},${target.top.toStringAsFixed(0)}'} rows=${sections.fold<int>(0, (n, g) => n + g.length)}',
   );
   return navigator.push<String>(
     PageRouteBuilder<String>(
@@ -75,7 +88,8 @@ Future<String?> showMorphMenu({
       pageBuilder: (context, animation, _) => _MorphPage(
         animation: animation,
         anchor: target,
-        items: items,
+        quick: quick,
+        groups: sections,
       ),
     ),
   );
@@ -133,14 +147,19 @@ double _clampV(double v, double lo, double hi) =>
     hi <= lo ? lo : v.clamp(lo, hi);
 
 /// Estimated menu height from the rows we render: InkWell vertical
-/// padding 24 + label ~22, subtitle adds ~16, 1 px dividers, 16 outer.
-/// Only used to pick above/below and the hinge rect; the morph itself
-/// measures the real height and the hinge tracks it exactly.
-double _estimateMenuHeight(List<MenuAction> items) {
+/// padding 24 + label ~22, subtitle adds ~16, 1 px dividers, quick
+/// chips add a row, 16 outer. Only used to pick above/below and the
+/// hinge rect; the morph itself measures the real height and the
+/// hinge tracks it exactly.
+double _estimateMenuHeight(
+    List<MenuAction> quick, List<List<MenuAction>> groups) {
   var h = 16.0;
-  for (var i = 0; i < items.length; i++) {
-    h += 46.0 + (items[i].subtitle != null ? 16.0 : 0.0);
-    if (i < items.length - 1) h += 1.0;
+  if (quick.isNotEmpty) h += 96.0;
+  for (var g = 0; g < groups.length; g++) {
+    if (g > 0) h += 12.0;
+    for (final a in groups[g]) {
+      h += 46.0 + (a.subtitle != null ? 16.0 : 0.0) + 1.0;
+    }
   }
   return h;
 }
@@ -193,12 +212,14 @@ Rect _menuRect(Rect? anchor, double estH, Size field, EdgeInsets padding) {
 class _MorphPage extends StatefulWidget {
   final Animation<double> animation;
   final Rect? anchor;
-  final List<MenuAction> items;
+  final List<MenuAction> quick;
+  final List<List<MenuAction>> groups;
 
   const _MorphPage({
     required this.animation,
     required this.anchor,
-    required this.items,
+    required this.quick,
+    required this.groups,
   });
 
   @override
@@ -231,7 +252,7 @@ class _MorphPageState extends State<_MorphPage> {
     final media = MediaQuery.of(context);
     final field = media.size;
     final fieldRect = Offset.zero & field;
-    final estH = _estimateMenuHeight(widget.items);
+    final estH = _estimateMenuHeight(widget.quick, widget.groups);
     // The two rects the morph hinges on: seed exactly on the button,
     // menu adjacent to it. alignmentFor recovers each placement, and
     // the edge anchor pins the neck to the menu's button-side edge —
@@ -273,7 +294,8 @@ class _MorphPageState extends State<_MorphPage> {
                       child: LiquidGlassLens(
                         style: ArchGlass.menuMorph(
                             amoled: isAmoledScheme(context)),
-                        child: _MorphRows(items: widget.items),
+                        child: _MorphRows(
+                            quick: widget.quick, groups: widget.groups),
                       ),
                     ),
                   )
@@ -292,7 +314,8 @@ class _MorphPageState extends State<_MorphPage> {
                       child: open
                           ? _MorphRows(
                               key: const ValueKey('menu'),
-                              items: widget.items,
+                              quick: widget.quick,
+                              groups: widget.groups,
                             )
                           : const SizedBox(
                               key: ValueKey('seed'),
@@ -310,35 +333,110 @@ class _MorphPageState extends State<_MorphPage> {
 }
 
 class _MorphRows extends StatelessWidget {
-  final List<MenuAction> items;
+  final List<MenuAction> quick;
+  final List<List<MenuAction>> groups;
   const _MorphRows({
     super.key,
-    required this.items,
+    required this.quick,
+    required this.groups,
   });
 
   @override
   Widget build(BuildContext context) {
-    // The morph measures its child under unbounded height to read the
-    // natural size; InkWell's internals cannot take infinity (debug
-    // red-screen, silent garbage in release), so the measure is capped
-    // at the screen - never the binding constraint on a real menu,
-    // just infinity made finite.
+    // Tall menus scroll inside a cap instead of clipping: the morph
+    // measures its child under unbounded height, so the measure is
+    // capped at the safe field, never the binding constraint.
+    final media = MediaQuery.of(context);
+    final cap = media.size.height - media.padding.vertical - _margin * 2;
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height,
+        maxHeight: cap > 0 ? cap : 0,
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < items.length; i++)
-              _MorphRow(
-                action: items[i],
-                last: i == items.length - 1,
-              ),
-          ],
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (quick.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      for (final a in quick) _MorphQuickChip(action: a),
+                    ],
+                  ),
+                ),
+                _morphDivider(context),
+              ],
+              for (var g = 0; g < groups.length; g++) ...[
+                // Group ends skip the row divider; the section divider
+                // below owns the separation, so dividers never double.
+                for (var i = 0; i < groups[g].length; i++)
+                  _MorphRow(
+                    action: groups[g][i],
+                    last: i == groups[g].length - 1,
+                  ),
+                if (g < groups.length - 1) _morphDivider(context),
+              ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+Widget _morphDivider(BuildContext context) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Divider(
+        height: 12,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+      ),
+    );
+
+class _MorphQuickChip extends StatelessWidget {
+  final MenuAction action;
+  const _MorphQuickChip({required this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => Navigator.of(context).pop(action.value),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: action.selected
+                  ? archPink.withValues(alpha: 0.14)
+                  : scheme.surfaceContainerHighest,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              action.icon,
+              color: action.selected ? archPink : scheme.onSurface,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            action.label,
+            style: TextStyle(
+              color: action.selected ? archPink : scheme.onSurface,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

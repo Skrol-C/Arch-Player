@@ -32,6 +32,7 @@ import 'current_art.dart';
 import '../song/song_page.dart';
 import '../archtube/video_providers.dart';
 import '../archtube/video_stage.dart';
+import '../shell/morph_menu.dart' show showMorphMenu;
 
 /// Full player, Apple anatomy in our skin: ambient artwork wash,
 /// morphing art stage (full cover <-> 72px header + panel), glass
@@ -52,9 +53,11 @@ class PlayerScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(CupertinoIcons.music_note,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    size: 64),
+                Icon(
+                  CupertinoIcons.music_note,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: 64,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Nothing playing',
@@ -68,7 +71,8 @@ class PlayerScreen extends ConsumerWidget {
                 Text(
                   'Pick a song from the library',
                   style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextButton(
@@ -92,8 +96,11 @@ class PlayerScreen extends ConsumerWidget {
     // the page stays black and light text keeps its contrast.
     final palette = ref.watch(playerPaletteProvider).value;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final wash = playerWashOf(palette,
-        dark: dark, amoled: isAmoledScheme(context));
+    final wash = playerWashOf(
+      palette,
+      dark: dark,
+      amoled: isAmoledScheme(context),
+    );
     final tones = _lowEndTones(palette);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -110,10 +117,7 @@ class PlayerScreen extends ConsumerWidget {
           child: Stack(
             children: [
               Positioned.fill(
-                child: _LowEndGradient(
-                  bloom: tones.bloom,
-                  depth: tones.depth,
-                ),
+                child: _LowEndGradient(bloom: tones.bloom, depth: tones.depth),
               ),
               SafeArea(
                 child: _ImmersionScope(
@@ -122,7 +126,8 @@ class PlayerScreen extends ConsumerWidget {
                       _Immersed(
                         child: _DismissDrag(
                           child: _TopBar(
-                            onMore: () => _openPlayerMenu(ref, context, song),
+                            onMore: (btnContext) =>
+                                _openPlayerMenu(ref, btnContext, song),
                           ),
                         ),
                       ),
@@ -202,6 +207,7 @@ class _LowEndGradient extends StatelessWidget {
     );
   }
 }
+
 /// The morphing stage: full cover (art + titles) at rest, 72px header
 /// + panel when lyrics or queue take over. One 380ms driver - cover
 /// and panel travel together, never on separate timings.
@@ -352,7 +358,10 @@ class _CompactHeader extends ConsumerWidget {
                   song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -485,8 +494,10 @@ class _DismissDrag extends ConsumerWidget {
 
 /// Grip + glass more (actions menu). Dismissal is the hero drag and
 /// the system back button; the grip is the visual affordance.
+/// [onMore] gets the button's own context so the morph menu grows
+/// out of the button, never the page center.
 class _TopBar extends StatelessWidget {
-  final VoidCallback? onMore;
+  final ValueChanged<BuildContext>? onMore;
   const _TopBar({this.onMore});
 
   @override
@@ -500,9 +511,7 @@ class _TopBar extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurfaceVariant
+              color: Theme.of(context).colorScheme.onSurfaceVariant
                   .withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(2),
             ),
@@ -511,21 +520,27 @@ class _TopBar extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: LiquidGlassLens(
               style: ArchGlass.circle(
-                  radius: 24, amoled: isAmoledScheme(context)),
+                radius: 24,
+                amoled: isAmoledScheme(context),
+              ),
               touch: ArchGlass.lensTouch(),
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: IconButton(
-                  icon: Icon(CupertinoIcons.ellipsis,
-                      color: Theme.of(context).colorScheme.onSurface),
-                  iconSize: 26,
-                  onPressed: onMore == null
-                      ? null
-                      : () {
-                          HapticFeedback.selectionClick();
-                          onMore!();
-                        },
+              child: Builder(
+                builder: (btnContext) => SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: IconButton(
+                    icon: Icon(
+                      CupertinoIcons.ellipsis,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                    iconSize: 26,
+                    onPressed: onMore == null
+                        ? null
+                        : () {
+                            HapticFeedback.selectionClick();
+                            onMore!(btnContext);
+                          },
+                  ),
                 ),
               ),
             ),
@@ -828,6 +843,12 @@ class _DragHeroState extends ConsumerState<_DragHero>
     final Song? peek = peekDir != 0
         ? ref.read(audioHandlerProvider).neighborSong(-peekDir)
         : null;
+    final vsong = VideoSong(
+      id: song.id,
+      artist: song.artist,
+      title: song.title,
+      duration: song.duration,
+    );
     return GestureDetector(
       onVerticalDragUpdate: (d) {
         if (Motion.reduced(context) || _panelUp || videoMode) return;
@@ -924,115 +945,147 @@ class _DragHeroState extends ConsumerState<_DragHero>
                 // while paint may extend 48px out — the clip lives at
                 // that padded boundary, so the shadow never gets cut
                 // and the peek art enters from just off-frame.
-                // Video toggle: film glyph above the art, pink while
-                // video owns the stage. Art and video crossfade; the
-                // titles below never move.
-                const VideoToggle(),
-                const SizedBox(height: 4),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  child: videoMode
-                      ? VideoStage(
-                          key: const ValueKey('video'),
-                          song: VideoSong(
-                            id: song.id,
-                            artist: song.artist,
-                            title: song.title,
-                            duration: song.duration,
-                          ),
-                          width: widget.artSize,
-                        )
-                      : Transform.translate(
-                          key: const ValueKey('art'),
-                          offset: const Offset(0, -20),
-                  child: _PauseSquash(
-                    playing: playing,
-                    child: SizedBox(
-                      width: widget.artSize,
-                      height: widget.artSize,
-                      child: OverflowBox(
-                        maxWidth: widget.artSize + 96,
-                        maxHeight: widget.artSize + 96,
-                        child: ClipRect(
-                          child: SizedBox(
-                            width: widget.artSize + 96,
-                            height: widget.artSize + 96,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                if (peek != null)
-                                  Transform.translate(
-                                    offset: Offset(
-                                      _dragX - peekDir * (widget.artSize + 24),
-                                      0,
-                                    ),
-                                    child: _artBox(peek),
-                                  ),
-                                Transform.translate(
-                                  offset: Offset(_dragX, 0),
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    switchInCurve: Curves.easeOutCubic,
-                                    switchOutCurve: Curves.easeInCubic,
-                                    // Directional handoff: incoming art snaps in
-                                    // from the swipe side; programmatic changes
-                                    // fade-settle in place. Gesture landings skip
-                                    // the slide — the finger already placed it.
-                                    // Short and level — the travel reads as the
-                                    // swipe's momentum, not a floaty entrance.
-                                    transitionBuilder: (child, anim) {
-                                      if (Motion.reduced(context)) {
-                                        return FadeTransition(
-                                          opacity: anim,
-                                          child: child,
-                                        );
-                                      }
-                                      final slide = song.id == _slidelessForId
-                                          ? 0.0
-                                          : 0.16 * _swipeDir;
-                                      return FadeTransition(
-                                        opacity: anim,
-                                        child: SlideTransition(
-                                          position: anim.drive(
-                                            Tween(
-                                              begin: Offset(slide, 0),
-                                              end: Offset.zero,
-                                            ).chain(
-                                              CurveTween(curve: Motion.arrival),
-                                            ),
-                                          ),
-                                          child: ScaleTransition(
-                                            scale: anim.drive(
-                                              Tween(
-                                                begin: 0.94,
-                                                end: 1.0,
-                                              ).chain(
-                                                CurveTween(
-                                                  curve: Motion.arrival,
+                // Video switch: bordered Song/Video pill above the art,
+                // black quality badge riding right while video owns the
+                // stage. Art and video crossfade; the titles below
+                // never move.
+                VideoModeSwitch(
+                  song: vsong,
+                  onQualityTap: (badgeContext) =>
+                      _openPlayerMenu(ref, badgeContext, song),
+                ),
+                // Gap clears the art's -20px paint lift below: the cover
+                // translates up over its slot, so a 4px gap would park
+                // the pill behind it. Video has no lift, so it sits
+                // tight and returns the pixels to the taller box.
+                SizedBox(height: videoMode ? 8 : 24),
+                LayoutBuilder(
+                  builder: (context, cons) {
+                    // Video budget: the square box at cover size, capped
+                    // to what the stage actually fits so short screens
+                    // never overflow. Titles + gaps reserve ~110 below.
+                    final videoH = !cons.hasBoundedHeight
+                        ? widget.artSize
+                        : (cons.maxHeight - (38 + 8 + 16 + 100)).clamp(
+                            120.0,
+                            widget.artSize,
+                          );
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: videoMode
+                          ? VideoStage(
+                              key: const ValueKey('video'),
+                              song: vsong,
+                              width: widget.artSize,
+                              height: videoH,
+                            )
+                          : Transform.translate(
+                              key: const ValueKey('art'),
+                              offset: const Offset(0, -20),
+                              child: _PauseSquash(
+                                playing: playing,
+                                child: SizedBox(
+                                  width: widget.artSize,
+                                  height: widget.artSize,
+                                  child: OverflowBox(
+                                    maxWidth: widget.artSize + 96,
+                                    maxHeight: widget.artSize + 96,
+                                    child: ClipRect(
+                                      child: SizedBox(
+                                        width: widget.artSize + 96,
+                                        height: widget.artSize + 96,
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            if (peek != null)
+                                              Transform.translate(
+                                                offset: Offset(
+                                                  _dragX -
+                                                      peekDir *
+                                                          (widget.artSize + 24),
+                                                  0,
+                                                ),
+                                                child: _artBox(peek),
+                                              ),
+                                            Transform.translate(
+                                              offset: Offset(_dragX, 0),
+                                              child: AnimatedSwitcher(
+                                                duration: const Duration(
+                                                  milliseconds: 300,
+                                                ),
+                                                switchInCurve:
+                                                    Curves.easeOutCubic,
+                                                switchOutCurve:
+                                                    Curves.easeInCubic,
+                                                // Directional handoff: incoming art snaps in
+                                                // from the swipe side; programmatic changes
+                                                // fade-settle in place. Gesture landings skip
+                                                // the slide — the finger already placed it.
+                                                // Short and level — the travel reads as the
+                                                // swipe's momentum, not a floaty entrance.
+                                                transitionBuilder: (child, anim) {
+                                                  if (Motion.reduced(context)) {
+                                                    return FadeTransition(
+                                                      opacity: anim,
+                                                      child: child,
+                                                    );
+                                                  }
+                                                  final slide =
+                                                      song.id == _slidelessForId
+                                                      ? 0.0
+                                                      : 0.16 * _swipeDir;
+                                                  return FadeTransition(
+                                                    opacity: anim,
+                                                    child: SlideTransition(
+                                                      position: anim.drive(
+                                                        Tween(
+                                                          begin: Offset(
+                                                            slide,
+                                                            0,
+                                                          ),
+                                                          end: Offset.zero,
+                                                        ).chain(
+                                                          CurveTween(
+                                                            curve:
+                                                                Motion.arrival,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      child: ScaleTransition(
+                                                        scale: anim.drive(
+                                                          Tween(
+                                                            begin: 0.94,
+                                                            end: 1.0,
+                                                          ).chain(
+                                                            CurveTween(
+                                                              curve: Motion
+                                                                  .arrival,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        child: child,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                                child: _artBox(
+                                                  song,
+                                                  key: ValueKey(song.albumId),
                                                 ),
                                               ),
                                             ),
-                                            child: child,
-                                          ),
+                                          ],
                                         ),
-                                      );
-                                    },
-                                    child: _artBox(
-                                      song,
-                                      key: ValueKey(song.albumId),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 if (isPreview)
@@ -1121,7 +1174,11 @@ class _DragHeroState extends ConsumerState<_DragHero>
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1146,6 +1203,9 @@ class _DragHeroState extends ConsumerState<_DragHero>
 /// Seek entry: engine position/duration in, guarded seek + lyric
 /// follow out. The gesture lives in [ArchSeekBar]; this only wires
 /// the engine (position stream, guarded seek, dismiss close).
+/// Video mode reads the published video clock mapped back to song
+/// time, and scrubs drive both clocks: the video seeks now, the
+/// paused audio seeks with it so resume lands where the video is.
 class _Scrub extends ConsumerWidget {
   final Song song;
   const _Scrub({required this.song});
@@ -1154,15 +1214,34 @@ class _Scrub extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final totalMs = song.duration.inMilliseconds;
     final max = (totalMs > 0 ? totalMs : 1).toDouble();
-    final position = ref.watch(positionProvider).value ?? Duration.zero;
     final handler = ref.read(audioHandlerProvider);
+    final videoMode = ref.watch(videoModeProvider);
+    final double posMs;
+    if (videoMode) {
+      final vpos = ref.watch(videoPositionProvider);
+      final offset = ref.watch(videoOffsetProvider(song.id));
+      posMs =
+          (vpos.inMilliseconds - offset * 1000).clamp(0.0, max).toDouble();
+    } else {
+      final position = ref.watch(positionProvider).value ?? Duration.zero;
+      posMs = position.inMilliseconds.toDouble().clamp(0.0, max);
+    }
     return ArchSeekBar(
-      positionMs: position.inMilliseconds.toDouble().clamp(0.0, max),
+      positionMs: posMs,
       totalMs: max,
       onSeek: (ms) {
+        final target = Duration(milliseconds: ms.toInt());
+        if (videoMode) {
+          final offset = ref.read(videoOffsetProvider(song.id));
+          final vTarget = target +
+              Duration(milliseconds: (offset * 1000).round());
+          final req = ref.read(videoSeekRequestProvider);
+          ref.read(videoSeekRequestProvider.notifier).state =
+              (gen: req.gen + 1, pos: vTarget);
+        }
         playGuarded(
           context,
-          () => handler.seek(Duration(milliseconds: ms.toInt())),
+          () => handler.seek(target),
         );
         LyricsSlot.jumpToActive(ref);
       },
@@ -1177,12 +1256,18 @@ class _Scrub extends ConsumerWidget {
 /// One Apple row: shuffle | prev | PLAY | next | repeat. Shuffle and
 /// repeat ride the persisted engine states; the play circle breathes
 /// with state (60 playing, 54 paused); transport parks while
-/// buffering.
+/// buffering. Video mode swaps the row: -10s | PLAY | +10s driving
+/// the video clock, shuffle/repeat hidden until song mode.
 class _Transport extends ConsumerWidget {
   const _Transport();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(videoModeProvider)) {
+      final song = ref.watch(currentSongProvider).value;
+      if (song == null) return const SizedBox.shrink();
+      return _videoTransport(context, ref, song);
+    }
     final playing = ref.watch(playingProvider).value ?? false;
     final loading = ref.watch(bufferingProvider).value ?? false;
     final shuffle = ref.watch(shuffleProvider);
@@ -1268,6 +1353,70 @@ class _Transport extends ConsumerWidget {
   }
 }
 
+/// Video transport: -10s | PLAY | +10s on the video clock. The
+/// center button mirrors the video (never the parked audio);
+/// steps walk the paused audio along so resume stays aligned.
+Widget _videoTransport(BuildContext context, WidgetRef ref, Song song) {
+  final scheme = Theme.of(context).colorScheme;
+  final videoPlaying = ref.watch(videoPlayingProvider);
+  void step(int secs) {
+    HapticFeedback.selectionClick();
+    unawaited(nudgeVideoSeconds(
+      ref,
+      songId: song.id,
+      songDuration: song.duration,
+      bySecs: secs,
+    ));
+  }
+
+  return Padding(
+    padding: EdgeInsets.zero,
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        IconButton(
+          iconSize: 44,
+          color: scheme.onSurface,
+          tooltip: 'Back 10 seconds',
+          onPressed: () => step(-10),
+          icon: const MorphIcon(
+            iconKey: 'back10',
+            child: Icon(CupertinoIcons.gobackward_10),
+          ),
+        ),
+        IconButton(
+          iconSize: 58,
+          color: archPink,
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            final req = ref.read(videoPlayRequestProvider);
+            ref.read(videoPlayRequestProvider.notifier).state =
+                (gen: req.gen + 1, play: !videoPlaying);
+          },
+          icon: MorphIcon(
+            iconKey: videoPlaying,
+            child: Icon(
+              videoPlaying
+                  ? CupertinoIcons.pause_fill
+                  : CupertinoIcons.play_fill,
+            ),
+          ),
+        ),
+        IconButton(
+          iconSize: 44,
+          color: scheme.onSurface,
+          tooltip: 'Forward 10 seconds',
+          onPressed: () => step(10),
+          icon: const MorphIcon(
+            iconKey: 'forward10',
+            child: Icon(CupertinoIcons.goforward_10),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Lyrics - queue - sleep as floating glass circles. Glass lives on
 /// floating controls only - this row qualifies, content never does.
 /// Each toggles its panel (tap again returns to cover); sleep opens
@@ -1349,9 +1498,7 @@ class _UtilityAction extends StatelessWidget {
       height: 48,
       child: IconButton(
         iconSize: 26,
-        color: selected
-            ? archPink
-            : Theme.of(context).colorScheme.onSurface,
+        color: selected ? archPink : Theme.of(context).colorScheme.onSurface,
         tooltip: tooltip,
         onPressed: onTap == null
             ? null
@@ -1410,8 +1557,7 @@ class _QueuePanel extends ConsumerWidget {
                 ),
                 tooltip: 'Automix',
                 active: automix,
-                onTap: () =>
-                    ref.read(autoMixProvider.notifier).toggle(),
+                onTap: () => ref.read(autoMixProvider.notifier).toggle(),
               ),
               const SizedBox(width: 4),
               _PanelModeBtn(
@@ -1448,8 +1594,7 @@ class _QueuePanel extends ConsumerWidget {
                 ),
                 tooltip: 'Autoplay',
                 active: autoplay,
-                onTap: () =>
-                    ref.read(autoPlayProvider.notifier).toggle(),
+                onTap: () => ref.read(autoPlayProvider.notifier).toggle(),
               ),
             ],
           ),
@@ -1483,7 +1628,8 @@ class _QueuePanel extends ConsumerWidget {
                   child: Text(
                     'Queue is empty - play something.',
                     style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 )
               : ReorderableListView.builder(
@@ -1498,8 +1644,9 @@ class _QueuePanel extends ConsumerWidget {
                   },
                   proxyDecorator: (child, _, _) => Material(
                     elevation: 4,
-                    color:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                     child: child,
                   ),
@@ -1512,111 +1659,110 @@ class _QueuePanel extends ConsumerWidget {
                       children: [
                         Dismissible(
                           key: ValueKey('queue-${song.id}-$i'),
-                      direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) async => !current,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 24),
-                        color: archPink.withValues(alpha: 0.12),
-                        child: const Icon(
-                          CupertinoIcons.trash,
-                          color: archPink,
-                        ),
-                      ),
-                      onDismissed: (_) => playGuarded(
-                        context,
-                        () => handler.removeQueueIndex(i),
-                      ),
-                      child: ListTile(
-                        selected: current,
-                        selectedTileColor: archPink.withValues(alpha: 0.1),
-                        contentPadding: const EdgeInsets.only(
-                          left: 16,
-                          right: 4,
-                        ),
-                        onTap: () => playGuarded(
-                          context,
-                          () => handler.playSong(song, queue),
-                        ),
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox.square(
-                            dimension: 44,
-                            child: FileArtImage(
-                              path: song.path,
-                              albumId: song.albumId,
-                              size: 44,
-                              radius: 8,
+                          direction: DismissDirection.endToStart,
+                          confirmDismiss: (_) async => !current,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 24),
+                            color: archPink.withValues(alpha: 0.12),
+                            child: const Icon(
+                              CupertinoIcons.trash,
+                              color: archPink,
                             ),
                           ),
-                        ),
-                        title: Text(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: current
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            color: current
-                                ? archPink
-                                : Theme.of(context).colorScheme.onSurface,
+                          onDismissed: (_) => playGuarded(
+                            context,
+                            () => handler.removeQueueIndex(i),
                           ),
-                        ),
-                        subtitle: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                  fontSize: 13,
+                          child: ListTile(
+                            selected: current,
+                            selectedTileColor: archPink.withValues(alpha: 0.1),
+                            contentPadding: const EdgeInsets.only(
+                              left: 16,
+                              right: 4,
+                            ),
+                            onTap: () => playGuarded(
+                              context,
+                              () => handler.playSong(song, queue),
+                            ),
+                            leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: SizedBox.square(
+                                dimension: 44,
+                                child: FileArtImage(
+                                  path: song.path,
+                                  albumId: song.albumId,
+                                  size: 44,
+                                  radius: 8,
                                 ),
                               ),
                             ),
-                            if (automix) _QueueKeyBadge(song: song),
-                          ],
-                        ),
-                        trailing: ReorderableDragStartListener(
-                          index: i,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Icon(
-                              CupertinoIcons.line_horizontal_3,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                            title: Text(
+                              song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: current
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color: current
+                                    ? archPink
+                                    : Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            subtitle: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                if (automix) _QueueKeyBadge(song: song),
+                              ],
+                            ),
+                            trailing: ReorderableDragStartListener(
+                              index: i,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  CupertinoIcons.line_horizontal_3,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    // Harmonic handoff arrow: shown between consecutive
-                    // rows while automix owns the order. The badge on
-                    // each row names this track's key; the arrow says
-                    // the next one blends in.
-                    if (automix && i < queue.length - 1)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 1),
-                        child: Icon(
-                          CupertinoIcons.chevron_down,
-                          size: 14,
-                          color: archPink,
-                        ),
-                      ),
-                  ],
-                );
+                        // Harmonic handoff arrow: shown between consecutive
+                        // rows while automix owns the order. The badge on
+                        // each row names this track's key; the arrow says
+                        // the next one blends in.
+                        if (automix && i < queue.length - 1)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 1),
+                            child: Icon(
+                              CupertinoIcons.chevron_down,
+                              size: 14,
+                              color: archPink,
+                            ),
+                          ),
+                      ],
+                    );
                   },
                 ),
         ),
       ],
     );
   }
-
 }
 
 /// Camelot key badge per queue row (automix only): the harmonic
@@ -1635,10 +1781,7 @@ class _QueueKeyBadge extends ConsumerWidget {
     final open =
         ref
             .read(audioHandlerProvider)
-            .musicalCached(
-              title: song.title,
-              artist: song.artist,
-            )
+            .musicalCached(title: song.title, artist: song.artist)
             ?.openKey ??
         '';
     if (open.isEmpty) return const SizedBox.shrink();
@@ -1778,8 +1921,9 @@ class _SleepOption extends StatelessWidget {
       title: Text(
         _label(d),
         style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w600),
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       trailing: selected
           ? const Icon(CupertinoIcons.checkmark, color: archPink)
@@ -1800,14 +1944,19 @@ class _SleepOption extends StatelessWidget {
 
 /// Player menu: Share quick, Go to Album/Artist, Sleep, Details.
 /// Same rows as the song menu, plus the live sleep subtitle.
+/// Video mode serves the video rows instead (see [_openVideoMenu]).
 Future<void> _openPlayerMenu(
   WidgetRef ref,
   BuildContext context,
   Song song,
 ) async {
+  if (ref.read(videoModeProvider)) {
+    await _openVideoMenu(ref, context, song);
+    return;
+  }
   final album = ownedAlbumFor(ref, song);
   final sleep = ref.read(sleepProvider).value;
-  final value = await showTrackMenu(
+  final value = await showMorphMenu(
     context: context,
     quick: const [
       MenuAction(
@@ -1892,4 +2041,231 @@ Future<void> _openPlayerMenu(
       );
       break;
   }
+}
+
+/// Video menu: the adaptive `...` rows while video owns the stage.
+/// Quality lists what YouTube actually served (one row even when a
+/// lone 360p is all there is, never a hidden row), then Aspect, Sync
+/// nudge, Link, and the shared Share + Details. Song-only rows
+/// (Album/Artist nav, Doctor, Sleep) stay hidden until song mode.
+Future<void> _openVideoMenu(
+  WidgetRef ref,
+  BuildContext context,
+  Song song,
+) async {
+  final q = songQuery(
+    songId: song.id,
+    artist: song.artist,
+    title: song.title,
+    songSecs: song.duration.inSeconds,
+  );
+  final videoId = ref.read(videoLinkProvider(q)).value?.videoId;
+  final options = videoId == null
+      ? null
+      : ref.read(videoPlaybackProvider(videoId)).value?.options;
+  final pickedItag = (videoId != null && options != null && options.isNotEmpty)
+      ? (ref.read(selectedItagProvider(videoId)) ?? options.first.itag)
+      : null;
+  final offset = ref.read(videoOffsetProvider(song.id));
+  final aspect = ref.read(videoAspectProvider);
+  final value = await showMorphMenu(
+    context: context,
+    groups: [
+      if (options != null && options.isNotEmpty)
+        [
+          for (final o in options)
+            MenuAction(
+              icon: Icons.hd,
+              label: o.label.toUpperCase(),
+              value: 'quality:${o.itag}',
+              selected: o.itag == pickedItag,
+            ),
+        ]
+      else
+        const [
+          MenuAction(
+            icon: CupertinoIcons.arrow_clockwise,
+            label: 'Reload video',
+            subtitle: 'Re-resolve the link and streams',
+            value: 'reload',
+          ),
+        ],
+      [
+        MenuAction(
+          icon: Icons.aspect_ratio,
+          label: 'Fit frame',
+          subtitle: 'Whole picture visible',
+          value: 'aspect:fit',
+          selected: aspect == VideoAspect.fit,
+        ),
+        MenuAction(
+          icon: Icons.crop,
+          label: 'Fill frame',
+          subtitle: 'Crop to cover the stage',
+          value: 'aspect:fill',
+          selected: aspect == VideoAspect.fill,
+        ),
+        const MenuAction(
+          icon: Icons.fullscreen,
+          label: 'Fullscreen',
+          value: 'fullscreen',
+        ),
+      ],
+      [
+        MenuAction(
+          icon: CupertinoIcons.minus_circled,
+          label: 'Video starts 1s earlier',
+          subtitle: _offsetLabel(offset),
+          value: 'sync:-1',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.plus_circled,
+          label: 'Video starts 1s later',
+          subtitle: _offsetLabel(offset),
+          value: 'sync:+1',
+        ),
+      ],
+      [
+        const MenuAction(
+          icon: CupertinoIcons.link,
+          label: 'Paste link',
+          subtitle: 'Use a different YouTube video',
+          value: 'paste',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.trash,
+          label: 'Unlink video',
+          subtitle: videoId ?? 'No link cached',
+          value: 'unlink',
+        ),
+      ],
+      const [
+        MenuAction(
+          icon: CupertinoIcons.square_arrow_up,
+          label: 'Share',
+          value: 'share',
+        ),
+        MenuAction(
+          icon: CupertinoIcons.info_circle,
+          label: 'Details',
+          value: 'details',
+        ),
+      ],
+    ],
+  );
+  if (!context.mounted) return;
+  if (value == null) return;
+  if (value.startsWith('quality:') && videoId != null) {
+    final itag = int.tryParse(value.substring('quality:'.length));
+    if (itag != null) {
+      HapticFeedback.selectionClick();
+      ref.read(selectedItagProvider(videoId).notifier).state = itag;
+    }
+    return;
+  }
+  switch (value) {
+    case 'aspect:fit':
+      HapticFeedback.selectionClick();
+      await ref.read(videoAspectProvider.notifier).set(VideoAspect.fit);
+      break;
+    case 'aspect:fill':
+      HapticFeedback.selectionClick();
+      await ref.read(videoAspectProvider.notifier).set(VideoAspect.fill);
+      break;
+    case 'fullscreen':
+      HapticFeedback.selectionClick();
+      ref.read(videoFullscreenRequestProvider.notifier).state++;
+      break;
+    case 'sync:-1':
+      HapticFeedback.selectionClick();
+      await nudgeVideoOffset(ref, songId: song.id, by: -1);
+      break;
+    case 'sync:+1':
+      HapticFeedback.selectionClick();
+      await nudgeVideoOffset(ref, songId: song.id, by: 1);
+      break;
+    case 'reload':
+      HapticFeedback.selectionClick();
+      ref.invalidate(videoLinkProvider);
+      // Clears DASH failure memory too, so this forces a fresh
+      // HD probe instead of replaying the fallback.
+      clearDashFailures(ref, videoId);
+      break;
+    case 'paste':
+      await _showPasteLinkDialog(ref, context, song.id);
+      break;
+    case 'unlink':
+      HapticFeedback.selectionClick();
+      await clearVideoLink(ref, song.id);
+      break;
+    case 'share':
+      SharePlus.instance.share(
+        ShareParams(text: '${song.title} - ${song.artist}'),
+      );
+      break;
+    case 'details':
+      showModalBottomSheet(
+        context: context,
+        builder: (_) => TrackDetailsSheet(song: song),
+      );
+      break;
+  }
+}
+
+/// Sync subtitle for the video menu: the live offset in words.
+String _offsetLabel(double offset) {
+  if (offset <= 0) return 'In sync with the song';
+  return 'Video starts ${offset.toStringAsFixed(0)}s late';
+}
+
+/// Manual link entry from the video menu: paste an ID or URL and it
+/// becomes the cached link. Bad input explains itself in place.
+Future<void> _showPasteLinkDialog(
+  WidgetRef ref,
+  BuildContext context,
+  int songId,
+) async {
+  final text = TextEditingController();
+  String? error;
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('Link video'),
+          content: TextField(
+            controller: text,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Video ID or YouTube link',
+              errorText: error,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  await setVideoLink(ref, songId: songId, input: text.text);
+                } catch (_) {
+                  setState(() => error = 'That is not a video ID or link.');
+                  return;
+                }
+                if (context.mounted) Navigator.of(context).pop(true);
+              },
+              child: const Text(
+                'Link',
+                style: TextStyle(color: archPink, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  text.dispose();
+  if (saved != true) return;
 }
