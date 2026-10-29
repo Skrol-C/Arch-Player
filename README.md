@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="assets/icon/app_logo.png" width="120" alt="Arch Player logo">
+<img src="assets/icon/app_logo.png" width="120" alt="Arch Player logo" style="border-radius:28px">
 
 # Arch Player
 
 **A local-first music player with Needle pulls, with an emphasis on beauty.**
+
+<sub>**LOCAL-FIRST &nbsp;·&nbsp; NO ACCOUNTS &nbsp;·&nbsp; NO ADS &nbsp;·&nbsp; YOUR FILES STAY YOURS**</sub>
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?style=for-the-badge&logo=flutter)](https://flutter.dev)
