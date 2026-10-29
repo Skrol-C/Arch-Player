@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/icon/app_logo.png" width="120" alt="Arch Player logo" style="border-radius:28px">
+<img src="assets/icon/app_logo_rounded.png" width="120" alt="Arch Player logo">
 
 # Arch Player
 
