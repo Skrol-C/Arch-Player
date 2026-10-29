@@ -4,7 +4,7 @@
 
 # Arch Player
 
-**Your music, mixed like someone cares. Local-first, no accounts, no ads.**
+**A local-first music player with Needle pulls, with an emphasis on beauty.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?style=for-the-badge&logo=flutter)](https://flutter.dev)
