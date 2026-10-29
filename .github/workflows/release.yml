@@ -38,6 +38,8 @@ jobs:
       HAS_RELEASE_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -126,11 +128,37 @@ jobs:
         # BINDGEN_EXTRA_CLANG_ARGS comes from GITHUB_ENV (set + expanded
         # by the shell in "Set bindgen flags" above).
 
+      - name: Rename + resolve release notes (arm64 first)
+        id: prep
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          OUT="build/app/outputs/flutter-apk"
+          cp "$OUT/app-arm64-v8a-release.apk" "$OUT/ArchPlayer-${TAG}-arm64.apk"
+          cp "$OUT/app-armeabi-v7a-release.apk" "$OUT/ArchPlayer-${TAG}-v7a.apk"
+          cp "$OUT/app-x86_64-release.apk" "$OUT/ArchPlayer-${TAG}-x86_64.apk"
+          git fetch --tags --quiet
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          {
+            echo "## What's changed"
+            echo ""
+            if [ -n "$PREV" ]; then
+              git log "${PREV}..${TAG}" --pretty='- %s (%h)' --max-count=8 --reverse
+              N="$(git rev-list --count "${PREV}..${TAG}")"
+              if [ "$N" -gt 8 ]; then
+                echo ""
+                echo "[Full changelog](https://github.com/Skrol-C/Arch-Player/compare/${PREV}...${TAG}) ($N commits)"
+              fi
+            else
+              git log "${TAG}" --pretty='- %s (%h)' --max-count=8 --reverse
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+          echo "notes=$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub release (arm64 first — updater takes the first .apk)
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: ${{ steps.prep.outputs.notes }}
           files: |
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/flutter-apk/app-x86_64-release.apk
+            build/app/outputs/flutter-apk/ArchPlayer-*-arm64.apk
+            build/app/outputs/flutter-apk/ArchPlayer-*-v7a.apk
+            build/app/outputs/flutter-apk/ArchPlayer-*-x86_64.apk
