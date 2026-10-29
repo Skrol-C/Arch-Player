@@ -368,7 +368,13 @@ class NowPlayingDock extends ConsumerWidget {
     });
     final pillW = NowPlayingDock.pillWidthOf(context);
     final miniW = NowPlayingDock.miniWidthOf(context);
-    final bottom = MediaQuery.paddingOf(context).bottom + 12;
+    final systemBottom = math.max(
+      MediaQuery.viewPaddingOf(context).bottom,
+      MediaQuery.systemGestureInsetsOf(context).bottom,
+    );
+    // Float margin above the per-device system nav (3-button bars are
+    // tall, gesture bars are slim): the pill hovers fully visible on all.
+    final bottom = systemBottom + 12;
     // Single driver t: 0 = full unit, 1 = split. Everything below reads
     // t and nothing else - locked choreography, no drift between parts.
     // 700ms melt travel: the fusing must be SEEN, not inferred. This is
