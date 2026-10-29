@@ -30,6 +30,8 @@ import 'player_providers.dart';
 import 'track_menu.dart';
 import 'current_art.dart';
 import '../song/song_page.dart';
+import '../archtube/video_providers.dart';
+import '../archtube/video_stage.dart';
 
 /// Full player, Apple anatomy in our skin: ambient artwork wash,
 /// morphing art stage (full cover <-> 72px header + panel), glass
@@ -809,6 +811,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
     final song = widget.song;
     final isPreview = song.folderKey == 'preview' || song.id < 0;
     final playing = ref.watch(playingProvider).value ?? false;
+    final videoMode = ref.watch(videoModeProvider);
     // Carousel peek: the song a swipe would land on, revealed
     // proportionally while the finger is down. peekDir is the drag
     // sign (left = -1); the handler counts skips the other way
@@ -827,12 +830,12 @@ class _DragHeroState extends ConsumerState<_DragHero>
         : null;
     return GestureDetector(
       onVerticalDragUpdate: (d) {
-        if (Motion.reduced(context) || _panelUp) return;
+        if (Motion.reduced(context) || _panelUp || videoMode) return;
         _snap.stop();
         setState(() => _dragY = (_dragY + d.delta.dy).clamp(-220.0, 400.0));
       },
       onVerticalDragEnd: (d) {
-        if (_panelUp) return;
+        if (_panelUp || videoMode) return;
         final v = d.primaryVelocity ?? 0;
         if (_dragY > 140 || v > 700) {
           // Drag down: dismiss.
@@ -855,7 +858,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
       // and lift-off decides — past slop fires, less springs back.
       // Skip convention matches the handler: drag left = next (+1).
       onHorizontalDragUpdate: (d) {
-        if (_panelUp || Motion.reduced(context)) return;
+        if (_panelUp || Motion.reduced(context) || videoMode) return;
         final handler = ref.read(audioHandlerProvider);
         final next = _dragX + d.delta.dx;
         // Past the end with loop off there is no neighbor: resist,
@@ -870,7 +873,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
         setState(() => _dragX = next);
       },
       onHorizontalDragCancel: () {
-        if (_dragX != 0) {
+        if (_dragX != 0 && !videoMode) {
           _glide(
             to: 0,
             duration: const Duration(milliseconds: 220),
@@ -879,7 +882,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
         }
       },
       onHorizontalDragEnd: (d) {
-        if (_panelUp) return;
+        if (_panelUp || videoMode) return;
         if (_dragX < -_commitSlop) {
           _fireSwipe(1);
         } else if (_dragX > _commitSlop) {
@@ -921,8 +924,29 @@ class _DragHeroState extends ConsumerState<_DragHero>
                 // while paint may extend 48px out — the clip lives at
                 // that padded boundary, so the shadow never gets cut
                 // and the peek art enters from just off-frame.
-                Transform.translate(
-                  offset: const Offset(0, -20),
+                // Video toggle: film glyph above the art, pink while
+                // video owns the stage. Art and video crossfade; the
+                // titles below never move.
+                const VideoToggle(),
+                const SizedBox(height: 4),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  child: videoMode
+                      ? VideoStage(
+                          key: const ValueKey('video'),
+                          song: VideoSong(
+                            id: song.id,
+                            artist: song.artist,
+                            title: song.title,
+                            duration: song.duration,
+                          ),
+                          width: widget.artSize,
+                        )
+                      : Transform.translate(
+                          key: const ValueKey('art'),
+                          offset: const Offset(0, -20),
                   child: _PauseSquash(
                     playing: playing,
                     child: SizedBox(
@@ -1008,6 +1032,7 @@ class _DragHeroState extends ConsumerState<_DragHero>
                       ),
                     ),
                   ),
+                ),
                 ),
                 const SizedBox(height: 16),
                 if (isPreview)
