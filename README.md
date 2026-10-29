@@ -11,14 +11,12 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
 [![Built with Flutter](https://img.shields.io/badge/Built_with-Flutter-02569B?style=for-the-badge&logo=flutter)](https://flutter.dev)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android)](https://github.com/Skrol-C/Arch-Player/releases)
-[![Latest release](https://img.shields.io/github/v/release/Skrol-C/Arch-Player?style=for-the-badge&label=download)](https://github.com/Skrol-C/Arch-Player/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Skrol-C/arch-player?style=for-the-badge&label=download)](https://github.com/Skrol-C/arch-player/releases/latest)
 
 ![Auto-DJ blends](https://img.shields.io/badge/%F0%9F%8E%A7_Auto--DJ_blends-harmonic_%2B_tempo-ff4d6d)
 ![Glass UI](https://img.shields.io/badge/%E2%9C%A8_Liquid_glass-everywhere-9b59b6)
 ![True-black AMOLED](https://img.shields.io/badge/%F0%9F%8C%91_True--black_AMOLED-zero_burn-in-black)
 ![Synced lyrics](https://img.shields.io/badge/%F0%9F%8E%A4_Synced_lyrics-word--timed-2ecc71)
-![No accounts](https://img.shields.io/badge/%F0%9F%94%92_No_accounts-everything_on_device-grey)
-![OTA updates](https://img.shields.io/badge/%E2%AC%86_OTA_updates-from_GitHub_releases-3498db)
 
 </div>
 
