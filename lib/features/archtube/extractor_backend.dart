@@ -24,12 +24,13 @@ import 'archtube_client.dart';
 /// gate: extractor NOT default, no layered fixes past a 403).
 enum StreamBackend { archtube, extractor }
 
-/// Flip to [StreamBackend.extractor] after the on-device pass. The
-/// persisted per-device override (below) wins over this default.
-const kDefaultStreamBackend = StreamBackend.archtube;
+/// Default ticket source. Extractor won the on-device pass (2026-10-30:
+/// 16 served, zero 403s, same phone/network where the own client
+/// walled). The persisted per-device override (below) wins over this.
+const kDefaultStreamBackend = StreamBackend.extractor;
 
-/// Ticket source switch, persisted per device. Own client until the
-/// extractor proves itself on the test phone.
+/// Ticket source switch, persisted per device. Extractor is default;
+/// own client stays parked and selectable.
 final streamBackendProvider =
     NotifierProvider<StreamBackendNotifier, StreamBackend>(
       StreamBackendNotifier.new,
