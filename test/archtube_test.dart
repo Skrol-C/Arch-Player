@@ -1,8 +1,12 @@
 import 'package:arch_player/features/archtube/archtube_client.dart';
 import 'package:arch_player/features/archtube/client_identities.dart';
 import 'package:arch_player/features/archtube/dash_proxy.dart';
+import 'package:arch_player/features/archtube/player_js.dart';
+import 'package:arch_player/features/archtube/po_token.dart';
+import 'package:arch_player/features/archtube/upstream_engine.dart';
 import 'package:arch_player/features/archtube/video_match.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   group('disguise ladder', () {
@@ -395,6 +399,98 @@ void main() {
       expect(VideoLink.decode('aqz-KE-bpKQ')?.videoId,
           'aqz-KE-bpKQ');
       expect(VideoLink.decode(''), isNull);
+    });
+  });
+
+  group('PlayerCipher (original solver, synthetic base.js)', () {
+    const js = '''
+var AB={rv:function(a){a.reverse()},sp:function(a,b){a.splice(0,b)},sw:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b%a.length]=c}};
+var CD=function(a){a=a.split("");AB.sw(a,3);AB.rv(a);AB.sp(a,2);return a.join("")};
+a.set("alr","yes");c&&(c=CD(c));
+var EF=function(a){var b=a.split("");b.splice(0,2);b.reverse();return b.join("")};
+b=a.get("n"))&&(b=EF(b));
+''';
+
+    test('parses sig + n recipes from structural anchors', () {
+      final cipher = PlayerCipher.parsePlayerJs(js, 'test123');
+      expect(cipher.sigOps.length, 3);
+      expect(cipher.sigOps[0].op, CipherOp.swap);
+      expect(cipher.sigOps[1].op, CipherOp.reverse);
+      expect(cipher.sigOps[2].op, CipherOp.splice);
+      expect(cipher.canDescrambleN, isTrue);
+    });
+
+    test('sig descramble applies swap/reverse/splice in order', () {
+      final cipher = PlayerCipher.parsePlayerJs(js, 'test123');
+      expect(cipher.descrambleSig('abcdef'), 'acbd');
+    });
+
+    test('n descramble applies inline splice + reverse', () {
+      final cipher = PlayerCipher.parsePlayerJs(js, 'test123');
+      expect(cipher.descrambleN('abcdef'), 'fedc');
+    });
+
+    test('rebuildUrl re-attaches sig under sp, keeps n without recipe',
+        () {
+      const noN = '''
+var AB={rv:function(a){a.reverse()}};
+var CD=function(a){a=a.split("");AB.rv(a);return a.join("")};
+a.set("alr","yes");c&&(c=CD(c));
+''';
+      final cipher = PlayerCipher.parsePlayerJs(noN, 'v2');
+      expect(cipher.canDescrambleN, isFalse);
+      final url = cipher.rebuildUrl(
+        's=abcdef&sp=sig&url=https%3A%2F%2Fexample.com%2Fv%3Fn%3Dpq',
+      );
+      expect(url, 'https://example.com/v?n=pq&sig=fedcba');
+    });
+
+    test('unknown shapes throw instead of guessing', () {
+      expect(
+        () => PlayerCipher.parsePlayerJs('var x = 1;', 'v9'),
+        throwsStateError,
+      );
+    });
+
+    test('watch helpers: player url, version, visitorData', () {
+      const html =
+          '{"PLAYER_JS_URL":"/s/player/abc123/base.js","visitorData":"Cgt123=="}';
+      expect(
+        PlayerCipher.playerJsUrlOfWatch(html),
+        'https://www.youtube.com/s/player/abc123/base.js',
+      );
+      expect(
+        PlayerCipher.playerVersionOf(
+          'https://www.youtube.com/s/player/abc123/base.js',
+        ),
+        'abc123',
+      );
+      expect(PlayerCipher.visitorDataOfWatch(html), 'Cgt123==');
+      expect(PlayerCipher.playerJsUrlOfWatch('{}'), isNull);
+    });
+  });
+
+  group('PoTokenSlot', () {
+    test('applies poToken without blocking on visitorData', () {
+      PoTokenSlot.clearForTest();
+      final body = <String, dynamic>{
+        'context': archtubeLadder.first.contextPayload(),
+        'videoId': 'aqz-KE-bpKQ',
+      };
+      final headers = <String, String>{};
+      PoTokenSlot.setPoToken('tok123');
+      PoTokenSlot.apply(body, headers);
+      expect(
+        (body['serviceIntegrityDimensions'] as Map)['poToken'],
+        'tok123',
+      );
+      PoTokenSlot.clearForTest();
+    });
+  });
+
+  group('UpstreamEngine', () {
+    test('always yields a client, cronet or dart', () {
+      expect(UpstreamEngine.client(), isA<http.BaseClient>());
     });
   });
 }

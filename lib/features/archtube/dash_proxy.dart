@@ -2,11 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:cronet_http/cronet_http.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart' as http_io;
 
 import '../../core/log.dart';
+import 'upstream_engine.dart';
 
 /// Parsed byte range, end inclusive. end < start means unsatisfiable
 /// (caller answers 416).
@@ -106,8 +105,8 @@ DashRange? resolveDashRange(String? header, int contentLength) {
 /// speed, but only up to a point: a range spanning (nearly) the
 /// whole file 403s too. So this loopback server translates every
 /// incoming request into a capped closed upstream range using the
-/// known content length. Upstream fetches ride Cronet's Chromium
-/// stack (browser TLS fingerprint) with the Dart stack as fallback.
+/// known content length. Upstream fetches ride the shared engine
+/// (Cronet's Chromium stack first, Dart fallback), one flight at
 /// One flight at a time: a seek cancels the stale pipe before
 /// opening the next.
 class DashProxy {
@@ -131,36 +130,11 @@ class DashProxy {
   http.BaseClient? _activeClient;
   bool _closed = false;
 
-  /// Shared Chromium stack for upstream fetches: browser TLS
-  /// fingerprint instead of Dart's. Built once, guarded once; when
-  /// the provider is missing the Dart stack answers instead.
-  static CronetEngine? _cronetEngine;
-  static bool _cronetDead = false;
-  static bool _loggedEngine = false;
-
-  Future<http.BaseClient> _upstreamClient() async {
-    if (!_cronetDead) {
-      try {
-        _cronetEngine ??= CronetEngine.build(
-          cacheMode: CacheMode.disabled,
-          userAgent: browserMediaHeaders['User-Agent'],
-        );
-        if (!_loggedEngine) {
-          _loggedEngine = true;
-          ArchLog.i('archtube', 'upstream engine: cronet');
-        }
-        return CronetClient.fromCronetEngine(_cronetEngine!);
-      } catch (e) {
-        _cronetDead = true;
-        ArchLog.w('archtube', 'cronet unavailable, dart fallback: $e');
-      }
-    }
-    if (!_loggedEngine) {
-      _loggedEngine = true;
-      ArchLog.i('archtube', 'upstream engine: dart');
-    }
-    return http_io.IOClient(HttpClient()..autoUncompress = false);
-  }
+  /// Upstream fetches ride the shared engine (Cronet first, Dart
+  /// fallback; the winner logs once). One flight at a time: a seek
+  /// cancels the stale pipe before opening the next.
+  Future<http.BaseClient> _upstreamClient() async =>
+      UpstreamEngine.client(userAgent: browserMediaHeaders['User-Agent']);
 
   /// First successful serve logs once: later silence is normal.
   bool _loggedServing = false;
@@ -363,7 +337,7 @@ class DashProxy {
       final upstream = http.Request('GET', _stampedUri());
       upstream.headers.addAll(browserMediaHeaders);
       upstream.headers['Range'] = 'bytes=$start-$end';
-      if (client is! CronetClient) {
+      if (!UpstreamEngine.usesCronet) {
         upstream.headers['Accept-Encoding'] = 'identity';
       }
       final res = await client
@@ -464,7 +438,7 @@ class DashProxy {
     try {
       final upstream = http.Request('GET', _stampedUri());
       upstream.headers.addAll(browserMediaHeaders);
-      if (client is! CronetClient) {
+      if (!UpstreamEngine.usesCronet) {
         upstream.headers['Accept-Encoding'] = 'identity';
       }
       final incoming = req.headers.value('range');

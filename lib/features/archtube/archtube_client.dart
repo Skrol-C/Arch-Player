@@ -5,6 +5,9 @@ import 'package:http/http.dart' as http;
 
 import '../../core/log.dart';
 import 'client_identities.dart';
+import 'player_js.dart';
+import 'po_token.dart';
+import 'upstream_engine.dart';
 
 /// Content playback nonce: 16-char random alphanumeric, unique per
 /// playback session, NewPipe grammar. YouTube stamps `cpn` on every
@@ -128,16 +131,16 @@ class ArchtubeHit {
 /// (no cipher) and search returns compactVideoRenderer hits.
 ///
 /// Disguise rotation: tries each ladder identity in order, keeps the
-/// first that comes back OK with at least one usable progressive
-/// stream. A dry or non-OK identity is skipped, never retried for
-/// that call. Signature-ciphered URLs are skipped in v1; the
-/// decipher slot ([decipherSlot]) is structured for later and logs
-/// what it passes over.
+/// first that comes back OK with at least one usable stream. A dry
+/// or non-OK identity is skipped, never retried for that call.
+/// Ciphered URLs fall back to the player-JS decipher
+/// ([PlayerCipher], cached per player version) before an identity
+/// is declared dry.
 class ArchtubeClient {
-  final http.Client _http;
+  final http.BaseClient _http;
 
-  ArchtubeClient([http.Client? httpClient])
-      : _http = httpClient ?? http.Client();
+  ArchtubeClient([http.BaseClient? httpClient])
+      : _http = httpClient ?? _EngineClient();
 
   void dispose() => _http.close();
 
@@ -153,18 +156,28 @@ class ArchtubeClient {
   ) async {
     final uri = Uri.parse('$_host/youtubei/v1/$endpoint'
         '?key=${id.apiKey}&prettyPrint=false');
+    final headers = {
+      'Content-Type': 'application/json',
+      'User-Agent': id.userAgent,
+    };
+    final payload = {
+      ...body,
+      'context': id.contextPayload(),
+    };
+    // Session identity accrues in the background, never blocking:
+    // the first calls go out bare, later ones carry visitorData and
+    // the PO token slot when one exists. State logs once.
+    final vid = body['videoId'];
+    if (vid is String && vid.isNotEmpty) {
+      PoTokenSlot.ensureVisitorData(_http, vid);
+    }
+    PoTokenSlot.apply(payload, headers);
     try {
       final res = await _http
           .post(
             uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': id.userAgent,
-            },
-            body: jsonEncode({
-              ...body,
-              'context': id.contextPayload(),
-            }),
+            headers: headers,
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) {
@@ -207,6 +220,18 @@ class ArchtubeClient {
       }
       final streams = parseProgressiveStreams(json);
       if (streams.isEmpty) {
+        // Direct URLs dry: one decipher attempt before rotating.
+        final rescued = await _rescueCiphered(json, videoId);
+        if (rescued != null) {
+          final retry = parseProgressiveStreams({'streamingData': rescued});
+          if (retry.isNotEmpty) {
+            ArchLog.i(
+              'archtube',
+              '${id.clientName} deciphered ${retry.length} for $videoId',
+            );
+            return retry;
+          }
+        }
         ArchLog.i('archtube', '${id.clientName} dry for $videoId, rotating');
         continue;
       }
@@ -239,7 +264,21 @@ class ArchtubeClient {
       if (json == null) continue;
       final status = json['playabilityStatus'] as Map<String, dynamic>? ?? {};
       if (status['status'] != 'OK') continue;
-      final dash = parseAdaptiveStreams(json);
+      var dash = parseAdaptiveStreams(json);
+      if (!dash.playable) {
+        // Direct URLs dry: one decipher attempt before rotating.
+        final rescued = await _rescueCiphered(json, videoId);
+        if (rescued != null) {
+          dash = parseAdaptiveStreams({'streamingData': rescued});
+          if (dash.playable) {
+            ArchLog.i(
+              'archtube',
+              '${id.clientName} deciphered DASH for $videoId '
+              '(${dash.videos.length}v+${dash.audios.length}a)',
+            );
+          }
+        }
+      }
       if (!dash.playable) {
         ArchLog.i(
           'archtube',
@@ -456,15 +495,86 @@ class ArchtubeClient {
     return secs;
   }
 
-  /// Signature-decipher slot for later breakage bills. v1 never
-  /// calls it (ANDROID progressive needs no decipher); when ciphered
-  /// formats become unavoidable, implement base.js parsing + n-token
-  /// here and stop skipping them in [parseProgressiveStreams].
-  static String decipherSlot(String signatureCipher) {
-    throw UnimplementedError(
-      'Archtube decipher not implemented: ANDROID progressive '
-      'needs no decipher. Cipher seen: '
-      '${signatureCipher.substring(0, signatureCipher.length.clamp(0, 48))}',
+  /// Ciphered-only fallback: descramble every `signatureCipher`
+  /// entry via the player-JS recipe (cached per player version)
+  /// and return a synthesized `streamingData` map the pure parsers
+  /// above can read as if the URLs had been direct. Null when there
+  /// is nothing ciphered to rescue, or the recipe is unreachable:
+  /// the caller rotates to the next disguise as before.
+  Future<Map<String, dynamic>?> _rescueCiphered(
+    Map<String, dynamic> json,
+    String videoId,
+  ) async {
+    final sd = json['streamingData'];
+    if (sd is! Map<String, dynamic>) return null;
+    var ciphered = 0;
+    for (final key in const ['formats', 'adaptiveFormats']) {
+      final list = sd[key];
+      if (list is! List) continue;
+      for (final f in list) {
+        if (f is Map<String, dynamic> &&
+            (f['url'] is! String || (f['url'] as String).isEmpty) &&
+            f['signatureCipher'] is String) {
+          ciphered++;
+        }
+      }
+    }
+    if (ciphered == 0) return null;
+    final cipher = await PlayerCipher.forVideo(_http, videoId);
+    if (cipher == null) return null;
+    var rescued = 0;
+    Map<String, dynamic> convert(Map<String, dynamic> f) {
+      final url = f['url'];
+      final sc = f['signatureCipher'];
+      if ((url is String && url.isNotEmpty) || sc is! String) return f;
+      try {
+        final out = Map<String, dynamic>.of(f)
+          ..['url'] = cipher.rebuildUrl(sc);
+        rescued++;
+        return out;
+      } catch (e) {
+        ArchLog.i('archtube', 'decipher: skipped itag ${f['itag']} ($e)');
+        return f;
+      }
+    }
+    final out = <String, dynamic>{};
+    for (final e in sd.entries) {
+      if ((e.key == 'formats' || e.key == 'adaptiveFormats') &&
+          e.value is List) {
+        out[e.key] = (e.value as List)
+            .map((f) => f is Map<String, dynamic> ? convert(f) : f)
+            .toList();
+      } else {
+        out[e.key] = e.value;
+      }
+    }
+    ArchLog.i(
+      'archtube',
+      'decipher: rescued $rescued/$ciphered ciphered entries for $videoId',
     );
+    return rescued == 0 ? null : out;
+  }
+}
+
+/// Default transport for [ArchtubeClient]: the shared upstream
+/// engine (Cronet first, Dart fallback) behind an [http.BaseClient]
+/// face, so the player/search POSTs ride the same stack as the
+/// DASH proxy fetches. One client per [ArchtubeClient], closed on
+/// dispose. Injected clients (tests) bypass the engine entirely.
+class _EngineClient extends http.BaseClient {
+  http.BaseClient? _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    _inner ??= UpstreamEngine.client();
+    return _inner!.send(request);
+  }
+
+  @override
+  void close() {
+    try {
+      _inner?.close();
+    } catch (_) {}
+    _inner = null;
   }
 }
