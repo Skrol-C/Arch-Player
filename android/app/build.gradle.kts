@@ -84,3 +84,9 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Spike ONLY: real OkHttp for the transport discrimination test
+    // (transport_spike.dart). Nothing in playback touches this.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}

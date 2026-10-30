@@ -142,6 +142,13 @@ class DashProxy {
   /// One-timer for the full-URL replay test.
   static bool _loggedFullUrl = false;
 
+  /// Last 403-walled upstream (URL + closed range), kept for the
+  /// transport spike only. Set on every forensics hit so a later
+  /// long-press replays the freshest wall, not the first.
+  static String? lastWalledUrl;
+  static int? lastWalledStart;
+  static int? lastWalledEnd;
+
   /// Upstream range cap: with Range headers (not URL params) size
   /// is no longer the wall — 4MB chunks 206 clean. Bigger chunks =
   /// fewer roundtrips = less stutter. Players chain them seamlessly.
@@ -356,6 +363,9 @@ class DashProxy {
         );
         // One-timer: full URL bytes for the PC replay test. Local log
         // only; the signature dies with the URL in a few hours.
+        lastWalledUrl = upstreamUrl;
+        lastWalledStart = start;
+        lastWalledEnd = end;
         if (!_loggedFullUrl) {
           _loggedFullUrl = true;
           ArchLog.w(
