@@ -72,15 +72,15 @@ class ExtractorBridge(
                             val out = mutableListOf<Map<String, Any?>>()
                             for (s in info.videoStreams) {
                                 val m = videoMap(s, videoOnly = false)
-                                if ((m["url"] as String).isNotEmpty) out.add(m)
+                                if ((m["url"] as String).isNotEmpty()) out.add(m)
                             }
                             for (s in info.videoOnlyStreams) {
                                 val m = videoMap(s, videoOnly = true)
-                                if ((m["url"] as String).isNotEmpty) out.add(m)
+                                if ((m["url"] as String).isNotEmpty()) out.add(m)
                             }
                             for (s in info.audioStreams) {
                                 val m = audioMap(s)
-                                if ((m["url"] as String).isNotEmpty) out.add(m)
+                                if ((m["url"] as String).isNotEmpty()) out.add(m)
                             }
                             result.success(out)
                         } catch (e: Exception) {
