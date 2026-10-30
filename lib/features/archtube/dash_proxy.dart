@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 
 import '../../core/log.dart';
+import 'po_token.dart';
 import 'upstream_engine.dart';
 
 /// Parsed byte range, end inclusive. end < start means unsatisfiable
@@ -334,7 +335,20 @@ class DashProxy {
               } catch (_) {}
               return;
             }
-            ArchLog.i('archtube', 'dash proxy refreshed upstream, retrying');
+            // Minted-ticket proof: the refresh re-resolves through the
+            // stamped player path, so the forensics lines below show
+            // whether freshly stamped URLs still 403. Stamp state and
+            // the fresh URL's pot param ride this line.
+            final freshPot =
+                Uri.tryParse(fresh.url)?.queryParameters.containsKey('pot') ??
+                    false;
+            ArchLog.i(
+              'archtube',
+              'dash proxy refreshed upstream '
+              '(visitor=${PoTokenSlot.visitorData == null ? 'none' : 'present'} '
+              'poToken=${PoTokenSlot.poToken == null ? 'absent' : 'present'} '
+              'freshPot=${freshPot ? 'present' : 'absent'}), retrying',
+            );
           }
         } catch (e) {
           ArchLog.w('archtube', 'dash proxy refresh failed: $e');

@@ -164,12 +164,16 @@ class ArchtubeClient {
       ...body,
       'context': id.contextPayload(),
     };
-    // Session identity accrues in the background, never blocking:
-    // the first calls go out bare, later ones carry visitorData and
-    // the PO token slot when one exists. State logs once.
+    // Session stamp accrues synchronously as part of every video
+    // resolve: the watch-page crumb is awaited (shared flight across
+    // concurrent resolves) before the request goes out, so the call
+    // carries visitorData + X-Goog-Visitor-Id from the first play,
+    // and a minted PO token once the minter lands one.
     final vid = body['videoId'];
     if (vid is String && vid.isNotEmpty) {
-      PoTokenSlot.ensureVisitorData(_http, vid);
+      try {
+        await PoTokenSlot.ensureStamp(_http, vid);
+      } catch (_) {}
     }
     PoTokenSlot.apply(payload, headers);
     try {

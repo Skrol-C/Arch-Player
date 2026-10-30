@@ -515,6 +515,14 @@ a.set("alr","yes");c&&(c=CD(c));
   });
 
   group('PoTokenSlot', () {
+    test('botguard challenge extractor balances braces, null when absent', () {
+      expect(PoTokenSlot.botguardChallengeOfWatch('{}'), isNull);
+      final html =
+          '{"bgChallenge":{"challengeData":"abc","program":"x"}}';
+      final got = PoTokenSlot.botguardChallengeOfWatch(html);
+      expect(got, '{"challengeData":"abc","program":"x"}');
+    });
+
     test('applies poToken without blocking on visitorData', () {
       PoTokenSlot.clearForTest();
       final body = <String, dynamic>{
