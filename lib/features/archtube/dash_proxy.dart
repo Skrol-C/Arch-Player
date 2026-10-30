@@ -337,12 +337,18 @@ class DashProxy {
   ///
   /// Upstream URL with this play's `cpn` stamped on, official-client
   /// grammar. Silent when no nonce is wired or one is already there.
+  /// Always strips the `range`/`rn` URL params first: some audio lanes
+  /// (itag 251) carry a near-full-file `range` in the URL, the exact
+  /// cursed shape the wall 403s. Upstream fetches ride a real Range
+  /// header instead (see [_fetchRange]), never URL params.
   Uri _stampedUri() {
     final base = Uri.parse(upstreamUrl);
+    final q = Map<String, String>.of(base.queryParameters);
+    final stripped = q.remove('range') != null || q.remove('rn') != null;
     final nonce = contentPlaybackNonce;
-    if (nonce == null || nonce.isEmpty) return base;
-    if (base.queryParameters.containsKey('cpn')) return base;
-    final q = Map<String, String>.of(base.queryParameters)..['cpn'] = nonce;
+    final stamp = nonce != null && nonce.isNotEmpty && !q.containsKey('cpn');
+    if (stamp) q['cpn'] = nonce;
+    if (!stripped && !stamp) return base;
     return base.replace(queryParameters: q);
   }
 
