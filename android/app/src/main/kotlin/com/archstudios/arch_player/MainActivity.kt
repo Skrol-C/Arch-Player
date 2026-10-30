@@ -355,7 +355,7 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                                                     buf.clear()
                                                 }
                                             }
-                                        } catch (_) {}
+                                        } catch (_: Exception) {}
                                         android.util.Log.d(
                                             "ArchPlayer",
                                             "spike okhttp fetchChunk -> ${resp.code} ($total bytes)",
