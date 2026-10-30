@@ -161,21 +161,25 @@ class ArchAudioHandler extends BaseAudioHandler {
   }
 
   /// Volume ramp on the audible transport. Superseded calls abort;
-  /// the newest fade always wins.
-  Future<void> _rampTo(double target, Duration over) async {
+  /// the newest fade always wins. True = reached the target, false =
+  /// a newer fade took over mid-ramp (the caller must not assume the
+  /// gain it asked for).
+  Future<bool> _rampTo(double target, Duration over) async {
     final gen = ++_fadeGen;
     final start = _vol;
     const steps = 12;
     final step = Duration(milliseconds: (over.inMilliseconds / steps).round());
     for (var i = 1; i <= steps; i++) {
-      if (gen != _fadeGen) return;
+      if (gen != _fadeGen) return false;
       await _applyVolume(start + (target - start) * (i / steps));
       if (i < steps) await Future<void>.delayed(step);
     }
+    return true;
   }
 
-  Future<void> _fadeOut([Duration? over]) =>
-      _rampTo(0.0, over ?? _pauseFade);
+  Future<void> _fadeOut([Duration? over]) async {
+    await _rampTo(0.0, over ?? _pauseFade);
+  }
 
   Future<void> _fadeIn([Duration? over]) async {
     if (_vol >= 0.99) {
@@ -466,6 +470,28 @@ class ArchAudioHandler extends BaseAudioHandler {
   /// Every event logs — focus issues are diagnosable forever after this.
   bool _pausedForInterruption = false;
 
+  /// True while video mode owns the timeline. Our own video session
+  /// (ExoPlayer picture, dash sound leg) requests OS focus when it
+  /// starts, which arrives here as an interruption: without this flag
+  /// the song ducks under its own video, and the interruption end
+  /// pulls the song back over the picture. While set, every
+  /// interruption event is ours, so all of them are ignored.
+  bool _videoOwnsAudio = false;
+
+  /// Last video-exit resume, for pill-tap/dispose dedupe: the tap
+  /// resumes, then the unmount backstop fires on the same target.
+  /// Same position within the window collapses to one resume.
+  DateTime? _lastVideoResumeAt;
+  int _lastVideoResumeMs = -1;
+
+  /// Video handoff: the box calls this on entry, the exit paths call
+  /// [resumeFromVideo]. Engaging clears any pending interruption
+  /// resume so our own video session can never park or pull the song.
+  void setVideoActive(bool active) {
+    _videoOwnsAudio = active;
+    if (active) _pausedForInterruption = false;
+  }
+
   Future<void> _configureSession() async {
     try {
       final session = await AudioSession.instance;
@@ -485,6 +511,17 @@ class ArchAudioHandler extends BaseAudioHandler {
       session.interruptionEventStream.listen((e) async {
         ArchLog.i('player', 'interruption begin=${e.begin} type=${e.type}');
         try {
+          // Our own video session owns the OS focus while video mode
+          // is up: its begin/end pairs must never duck, park, or pull
+          // the song. The video box resumes it explicitly on exit.
+          if (_videoOwnsAudio) {
+            ArchLog.i(
+              'player',
+              'interruption ignored, video owns audio '
+              '(begin=${e.begin} type=${e.type})',
+            );
+            return;
+          }
           if (!e.begin) {
             if (_pausedForInterruption) {
               _pausedForInterruption = false;
@@ -1267,6 +1304,13 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
   /// of punching in, and a cold start blooms instead of cracking in.
   /// A no-op when already at full gain.
   Future<void> play() async {
+    // Focus first: a pause/unpause cycle that lost the OS grant plays
+    // silent with the seekbar moving. Re-asserting an already held
+    // grant is cheap; playing without one is the pause bug.
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (_) {}
     final engine = _engine;
     if (engine != null) {
       await engine.resumeAt(_vol);
@@ -1952,14 +1996,75 @@ Future<void> _attachArtFile(Song song, {bool retry = true}) async {
 
   @override
   /// Pause with a fade-out: hard stops read as glitches next to
-  /// blended transitions. Skips the ramp when already silent.
+  /// blended transitions. Skips the ramp when already silent. A play
+  /// that lands mid-fade owns the gain from there: the superseded
+  /// fade bails WITHOUT touching transport, or the stale pause would
+  /// silence the fresh play (pause/unpause cycling must restore
+  /// audible state, never strand it).
   Future<void> pause() async {
     final playing = _engine?.playing ?? _player.playing;
-    if (playing) await _rampTo(0.0, _pauseFade);
+    if (playing) {
+      final completed = await _rampTo(0.0, _pauseFade);
+      if (!completed) return;
+    }
     if (_engine != null) {
       await _engine!.pause();
     } else {
       await _player.pause();
+    }
+  }
+
+  /// Video entry: the song parks NOW, not after a fade. The normal
+  /// pause ramps down over 2s, which is a 2s window where song and
+  /// video fight; ducking is worse (both audible by design). Gain
+  /// snaps back to unity first so the exit resume blooms at full
+  /// volume instead of inheriting a half-faded floor, then transport
+  /// stops cold and the video flag eats our own focus events.
+  Future<void> parkForVideo() async {
+    setVideoActive(true);
+    ArchLog.i('player', 'video park: song parked, video owns audio');
+    _fadeGen++;
+    try {
+      await _setVolume(1.0);
+    } catch (_) {}
+    try {
+      if (_engine != null) {
+        await _engine!.pause();
+      } else {
+        await _player.pause();
+      }
+    } catch (_) {}
+  }
+
+  /// Video exit/dispose: focus back, song to the mapped position,
+  /// playing. Same-target repeats inside the window (pill tap, then
+  /// the unmount backstop) collapse to one resume.
+  Future<void> resumeFromVideo(Duration target, String why) async {
+    final now = DateTime.now();
+    final at = _lastVideoResumeAt;
+    if (at != null &&
+        now.difference(at) < const Duration(seconds: 2) &&
+        (target.inMilliseconds - _lastVideoResumeMs).abs() < 1500) {
+      ArchLog.i('player', 'video exit resume skipped ($why, duplicate)');
+      return;
+    }
+    _lastVideoResumeAt = now;
+    _lastVideoResumeMs = target.inMilliseconds;
+    setVideoActive(false);
+    ArchLog.i(
+      'player',
+      'video exit resume at=${target.inMilliseconds}ms ($why)',
+    );
+    try {
+      try {
+        final session = await AudioSession.instance;
+        await session.setActive(true);
+      } catch (_) {}
+      await seek(target);
+      await play();
+      ArchLog.i('player', 'video exit audio playing');
+    } catch (e) {
+      ArchLog.w('player', 'video exit resume failed: $e');
     }
   }
 

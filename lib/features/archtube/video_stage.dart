@@ -63,25 +63,16 @@ class VideoModeSwitch extends ConsumerWidget {
                   // backstop for abnormal unmounts.
                   final vpos = ref.read(videoPositionProvider);
                   final offset = ref.read(videoOffsetProvider(song.id));
-                  final ms = (vpos.inMilliseconds - offset * 1000)
-                      .round()
-                      .clamp(0, song.duration.inMilliseconds);
-                  ArchLog.i('archtube',
-                      'video exit resume at=${ms}ms (pill tap)');
-                  final handler = ref.read(audioHandlerProvider);
-                  Future<void> go() async {
-                    try {
-                      await handler.seek(Duration(milliseconds: ms));
-                      await handler.play();
-                      ArchLog.i(
-                          'archtube', 'video exit audio playing');
-                    } catch (e) {
-                      ArchLog.w(
-                          'archtube', 'video exit resume failed: $e');
-                    }
-                  }
-
-                  unawaited(go());
+                  final target = Duration(
+                    milliseconds: (vpos.inMilliseconds - offset * 1000)
+                        .round()
+                        .clamp(0, song.duration.inMilliseconds),
+                  );
+                  unawaited(
+                    ref
+                        .read(audioHandlerProvider)
+                        .resumeFromVideo(target, 'pill tap'),
+                  );
                   ref.read(videoModeProvider.notifier).state = false;
                 },
               ),
@@ -668,14 +659,16 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
       await controller.dispose();
       return;
     }
-    // Handoff: audio off fully before video on. Never both.
-    // The entry pause is unconditional; the exit always plays back,
-    // so the was-playing flag has no job here.
+    // Handoff: song parked hard before video owns the timeline.
+    // parkForVideo stops cold (no fade window where both play) and
+    // holds the flag that eats our own focus events. The entry pause
+    // is unconditional; the exit always plays back, so the
+    // was-playing flag has no job here.
     final handler = ref.read(audioHandlerProvider);
     try {
-      await handler.pause();
+      await handler.parkForVideo();
     } catch (e) {
-      ArchLog.w('archtube', 'audio pause failed: $e');
+      ArchLog.w('archtube', 'video park failed: $e');
     }
     if (!mounted) return;
     final offset = ref.read(videoOffsetProvider(widget.song.id));
@@ -789,12 +782,7 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     ref.read(videoModeProvider.notifier).state = false;
     try {
       final handler = ref.read(audioHandlerProvider);
-      final target = _songPosOf(resume);
-      ArchLog.i('archtube',
-          'video exit resume at=${target.inMilliseconds}ms (window end)');
-      await handler.seek(target);
-      await handler.play();
-      ArchLog.i('archtube', 'video exit audio playing');
+      await handler.resumeFromVideo(_songPosOf(resume), 'window end');
     } catch (e) {
       ArchLog.w('archtube', 'audio resume failed: $e');
     }
@@ -813,13 +801,11 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
     // the engine, so a stale box never touches it. The seek chains
     // before the play so a stale play can never jump ahead.
     // Ref-free: ref throws once unmount starts, so the stashed
-    // handle answers.
+    // handle answers. Pill-tap exits land here too; the handler
+    // dedupes the repeat into a single resume.
     if (!_exited && widget.song.id == _songId) {
       try {
-        final target = _mappedResume();
-        ArchLog.i('archtube',
-            'video exit resume at=${target.inMilliseconds}ms (dispose)');
-        unawaited(_songHandler.seek(target).then((_) => _songHandler.play()));
+        unawaited(_songHandler.resumeFromVideo(_mappedResume(), 'dispose'));
       } catch (e) {
         ArchLog.w('archtube', 'dispose resume failed: $e');
       }
@@ -1286,12 +1272,14 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
       } catch (_) {}
       return;
     }
-    // Handoff: song audio off fully before video sound on.
+    // Handoff: song audio parked hard before video sound on.
+    // parkForVideo stops cold and holds the focus-eat flag, so the
+    // dash sound leg's own focus request never ducks the song.
     final handler = ref.read(audioHandlerProvider);
     try {
-      await handler.pause();
+      await handler.parkForVideo();
     } catch (e) {
-      ArchLog.w('archtube', 'audio pause failed: $e');
+      ArchLog.w('archtube', 'video park failed: $e');
     }
     if (!_alive(gen)) return;
     final startAt = _startAt();
@@ -1422,9 +1410,9 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     }
     final handler = ref.read(audioHandlerProvider);
     try {
-      await handler.pause();
+      await handler.parkForVideo();
     } catch (e) {
-      ArchLog.w('archtube', 'audio pause failed: $e');
+      ArchLog.w('archtube', 'video park failed: $e');
     }
     if (!_alive(gen)) return;
     final startAt = _startAt();
@@ -1605,14 +1593,7 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     ref.read(videoModeProvider.notifier).state = false;
     try {
       final handler = ref.read(audioHandlerProvider);
-      final target = _songPosOf(resume);
-      ArchLog.i(
-        'archtube',
-        'video exit resume at=${target.inMilliseconds}ms (window end)',
-      );
-      await handler.seek(target);
-      await handler.play();
-      ArchLog.i('archtube', 'video exit audio playing');
+      await handler.resumeFromVideo(_songPosOf(resume), 'window end');
     } catch (e) {
       ArchLog.w('archtube', 'audio resume failed: $e');
     }
@@ -1640,12 +1621,10 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     // back to the song, always playing. A song change belongs to
     // the engine, so a stale box never touches it. Ref-free: ref
     // throws once unmount starts, so the stashed handle answers.
+    // Pill-tap exits land here too; the handler dedupes the repeat.
     if (!_exited && widget.song.id == _songId) {
       try {
-        final target = _mappedResume();
-        ArchLog.i('archtube',
-            'video exit resume at=${target.inMilliseconds}ms (dispose)');
-        unawaited(_songHandler.seek(target).then((_) => _songHandler.play()));
+        unawaited(_songHandler.resumeFromVideo(_mappedResume(), 'dispose'));
       } catch (e) {
         ArchLog.w('archtube', 'dispose resume failed: $e');
       }
