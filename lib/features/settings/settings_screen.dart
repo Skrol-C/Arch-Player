@@ -84,7 +84,7 @@ final _entries = [
     card: 'System',
     icon: Icons.tune_rounded,
     title: 'Playback',
-    subtitle: 'Automix, shuffle, repeat, autoplay',
+    subtitle: 'Automix, shuffle, repeat, autoplay, video',
     page: PlaybackPage(),
   ),
   _Entry(

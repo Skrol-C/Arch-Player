@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../../core/log.dart';
+import '../../archtube/extractor_backend.dart';
 import '../../player/player_providers.dart';
 import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
@@ -20,6 +21,8 @@ class PlaybackPage extends ConsumerWidget {
     final autoplay = ref.watch(autoPlayProvider);
     final shuffle = ref.watch(shuffleProvider);
     final loop = ref.watch(loopProvider);
+    final backend = ref.watch(streamBackendProvider);
+    final useExtractor = backend == StreamBackend.extractor;
     return Scaffold(
       appBar: AppBar(title: const Text('Playback')),
       body: ListView(
@@ -102,6 +105,26 @@ class PlaybackPage extends ConsumerWidget {
                 ),
                 onTap: () =>
                     ref.read(loopProvider.notifier).cycle(),
+              ),
+            ],
+          ),
+          SettingGroup(
+            title: 'Video',
+            children: [
+              _ToggleRow(
+                icon: Icons.movie_rounded,
+                title: 'Extractor backend',
+                subtitle: useExtractor
+                    ? 'On, streams mint through NewPipeExtractor'
+                    : 'Off, streams mint through the own client',
+                value: useExtractor,
+                onChanged: (_) => ref
+                    .read(streamBackendProvider.notifier)
+                    .set(
+                      useExtractor
+                          ? StreamBackend.archtube
+                          : StreamBackend.extractor,
+                    ),
               ),
             ],
           ),
