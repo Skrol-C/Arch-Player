@@ -140,6 +140,14 @@ double voiceSpacing(String voice) => switch (voice) {
 bool isAmoledScheme(BuildContext context) =>
     Theme.of(context).scaffoldBackgroundColor == amoledBlack;
 
+/// Dark-lens verdict: true under ANY dark theme (soft dark, AMOLED,
+/// or a system-dark follow). Glass keys off this, not [isAmoledScheme]:
+/// the amoled check only fires on pure #000, so plain dark mode fell
+/// through to the white frost and hazed. AMOLED keeps its own deeper
+/// veil via [isAmoledScheme] on top.
+bool isDarkScheme(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark;
+
 /// Dark-aware wash: artwork tone pulled toward the page background,
 /// contrast-clamped at 4.5:1 against the page text color. Light pulls
 /// toward paper for ink text; dark pulls toward the scaffold for light

@@ -15,6 +15,12 @@ import 'theme.dart';
 /// Escape hatch, stated in advance: if adaptivity sampling ever
 /// janks, keep the frost and drop the sampling - legibility stays,
 /// polish flexes.
+///
+/// Three-way recipe: light frost by default, soft-dark veil when
+/// `dark`, true-black veil when `amoled`. `dark` must be true under
+/// ANY dark theme (see `isDarkScheme`) - plain dark mode is not
+/// AMOLED, and falling through to the white frost hazed grey over
+/// #1B1B1E. Either dark flag eases the bend.
 abstract final class ArchGlass {
   static const _refraction = LiquidGlassRefraction(
     distortion: 0.08,
@@ -22,7 +28,8 @@ abstract final class ArchGlass {
   );
 
   /// AMOLED refraction: less bend — there is nothing to bend on #000,
-  /// so a full-strength field just shimmers.
+  /// so a full-strength field just shimmers. Soft dark shares it:
+  /// the page is near-flat there too.
   static const _amoledRefraction = LiquidGlassRefraction(
     distortion: 0.06,
     distortionWidth: 10,
@@ -40,13 +47,31 @@ abstract final class ArchGlass {
     blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
   );
 
+  /// Soft-dark frost: nightRaised veil (~70% #26262B) instead of
+  /// white. White frost over #1B1B1E read as grey haze; this parts
+  /// from the page the way the AMOLED veil parts from #000.
+  static const darkFrostAppearance = LiquidGlassAppearance(
+    color: Color(0xB326262B),
+    blur: LiquidGlassBlur(sigmaX: 8, sigmaY: 8),
+  );
+
   static const _amoledSheetAppearance = LiquidGlassAppearance(
     color: Color(0xCC1C1C1E),
     blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
   );
 
+  static const _darkSheetAppearance = LiquidGlassAppearance(
+    color: Color(0xCC26262B),
+    blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
+  );
+
   static const _amoledMenuAppearance = LiquidGlassAppearance(
     color: Color(0xCC1C1C1E),
+    blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+  );
+
+  static const _darkMenuAppearance = LiquidGlassAppearance(
+    color: Color(0xCC26262B),
     blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
   );
 
@@ -66,31 +91,55 @@ abstract final class ArchGlass {
     contentColorOnDark: Colors.white,
   );
 
+  /// Soft-dark adaptivity: the dark verdict stays on the raised
+  /// container tier so the lens parts from the #1B1B1E page.
+  static const darkAdaptive = LiquidGlassAdaptivity(
+    glassColorOnLight: Color(0x80FFFFFF),
+    contentColorOnLight: ink,
+    glassColorOnDark: Color(0xCC26262B),
+    contentColorOnDark: Colors.white,
+  );
+
   /// Capsules and bars (mini, back chip, sheets): refractive frost
   /// that adapts to the backdrop. `amoled` swaps the white veil for
-  /// the dark one and eases the bend.
-  static LiquidGlassStyle capsule({double radius = 34, bool amoled = false}) =>
+  /// the true-black one, `dark` for the soft-dark one; either eases
+  /// the bend.
+  static LiquidGlassStyle capsule({
+    double radius = 34,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
           borderWidth: 1,
         ),
-        appearance: amoled ? amoledFrostAppearance : frostAppearance,
-        refraction: amoled ? _amoledRefraction : _refraction,
-        adaptivity: amoled ? amoledAdaptive : adaptive,
+        appearance: amoled
+            ? amoledFrostAppearance
+            : (dark ? darkFrostAppearance : frostAppearance),
+        refraction: (amoled || dark) ? _amoledRefraction : _refraction,
+        adaptivity:
+            amoled ? amoledAdaptive : (dark ? darkAdaptive : adaptive),
       );
 
   /// Circles and small buttons (lobes, mini circles): lite frost,
   /// no refraction pass.
-  static LiquidGlassStyle circle({double radius = 24, bool amoled = false}) =>
+  static LiquidGlassStyle circle({
+    double radius = 24,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
           borderWidth: 1,
         ),
-        appearance: amoled ? amoledFrostAppearance : frostAppearance,
+        appearance: amoled
+            ? amoledFrostAppearance
+            : (dark ? darkFrostAppearance : frostAppearance),
         liteGlass: LiquidGlassLitePickup.surface,
-        adaptivity: amoled ? amoledAdaptive : adaptive,
+        adaptivity:
+            amoled ? amoledAdaptive : (dark ? darkAdaptive : adaptive),
       );
 
   /// View-menu trigger (artists `...`): a 44 px button that must read
@@ -99,14 +148,19 @@ abstract final class ArchGlass {
   /// specular + saturated rim pushed hard at small-surface scale —
   /// wide bevel band, bright tint, deep blur, solid-leaning rim — so
   /// the lens edge separates from paper even with nothing behind it
-  /// to bend. `amoled` swaps the white veil for the dark one so the
-  /// edge separates from #000 instead of hazing it.
+  /// to bend. `amoled`/`dark` swap the white veil for the matching
+  /// dark one so the edge separates from #000/#1B1B1E instead of
+  /// hazing it.
   ///
   /// Rigid by design: no flex touch. The flex driver listens on a raw
   /// Listener that never joins the gesture arena, so inside a
   /// scrollable it deforms through scroll drags and fights the
   /// scroll. The tap lives on the outer GestureDetector instead.
-  static LiquidGlassStyle trigger({double radius = 22, bool amoled = false}) =>
+  static LiquidGlassStyle trigger({
+    double radius = 22,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
@@ -121,11 +175,13 @@ abstract final class ArchGlass {
         ),
         appearance: amoled
             ? _amoledMenuAppearance
-            : const LiquidGlassAppearance(
-                color: Color(0xA6FFFFFF),
-                blur: LiquidGlassBlur(sigmaX: 18, sigmaY: 18),
-              ),
-        refraction: amoled
+            : (dark
+                ? _darkMenuAppearance
+                : const LiquidGlassAppearance(
+                    color: Color(0xA6FFFFFF),
+                    blur: LiquidGlassBlur(sigmaX: 18, sigmaY: 18),
+                  )),
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 refractionType: OpticalRefraction(
@@ -141,18 +197,26 @@ abstract final class ArchGlass {
   /// region, resolves once), so it can afford the heavier look.
   /// Fixed light, no adaptivity sampling: day-mode white always
   /// resolves light, and the ~300ms sampling flip read as flicker
-  /// on every open. `amoled` swaps to the dark veil for true black.
-  static LiquidGlassStyle menu({double radius = 28, bool amoled = false}) =>
+  /// on every open. `amoled`/`dark` swap to the matching dark veil.
+  static LiquidGlassStyle menu({
+    double radius = 28,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
           borderWidth: 1,
         ),
-        appearance: amoled ? _amoledMenuAppearance : const LiquidGlassAppearance(
-          color: Color(0x66FFFFFF),
-          blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
-        ),
-        refraction: amoled
+        appearance: amoled
+            ? _amoledMenuAppearance
+            : (dark
+                ? _darkMenuAppearance
+                : const LiquidGlassAppearance(
+                    color: Color(0x66FFFFFF),
+                    blur: LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
+                  )),
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 distortion: 0.13,
@@ -168,7 +232,11 @@ abstract final class ArchGlass {
   /// entrance: the band grows with the surface while it bulges out
   /// of its anchor, so refraction never swallows a small frame
   /// mid-animation.
-  static LiquidGlassStyle menuV2({double radius = 28, bool amoled = false}) =>
+  static LiquidGlassStyle menuV2({
+    double radius = 28,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
@@ -179,11 +247,13 @@ abstract final class ArchGlass {
         ),
         appearance: amoled
             ? _amoledMenuAppearance
-            : const LiquidGlassAppearance(
-                color: Color(0x66FFFFFF),
-                blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
-              ),
-        refraction: amoled
+            : (dark
+                ? _darkMenuAppearance
+                : const LiquidGlassAppearance(
+                    color: Color(0x66FFFFFF),
+                    blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+                  )),
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 refractionType: OpticalRefraction(
@@ -197,18 +267,26 @@ abstract final class ArchGlass {
   /// Sheets: SpotiFLAC-mornye grammar in our skin (MIT): white
   /// veil ~0.46, tight blur, strong rim bend. Frost reads dirty
   /// over busy art; the veil + bend carry readability instead.
-  /// `amoled` swaps the white veil for the dark one.
-  static LiquidGlassStyle sheet({double radius = 28, bool amoled = false}) =>
+  /// `amoled`/`dark` swap the white veil for the matching dark one.
+  static LiquidGlassStyle sheet({
+    double radius = 28,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
           borderWidth: 1,
         ),
-        appearance: amoled ? _amoledSheetAppearance : const LiquidGlassAppearance(
-          color: Color(0x75FFFFFF),
-          blur: LiquidGlassBlur(sigmaX: 3, sigmaY: 3),
-        ),
-        refraction: amoled
+        appearance: amoled
+            ? _amoledSheetAppearance
+            : (dark
+                ? _darkSheetAppearance
+                : const LiquidGlassAppearance(
+                    color: Color(0x75FFFFFF),
+                    blur: LiquidGlassBlur(sigmaX: 3, sigmaY: 3),
+                  )),
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 distortion: 0.16,
@@ -221,7 +299,11 @@ abstract final class ArchGlass {
   /// infinitesimally (no blend step, nowhere for a flash to live).
   /// Refraction stays fixed - only blur moves, so the rim can't
   /// swim. Rebuilt per tick during the ramp only; static after.
-  static LiquidGlassStyle menuWithSigma(double sigma, {bool amoled = false}) =>
+  static LiquidGlassStyle menuWithSigma(
+    double sigma, {
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: const LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: 28,
@@ -230,10 +312,12 @@ abstract final class ArchGlass {
         appearance: LiquidGlassAppearance(
           color: amoled
               ? const Color(0xCC1C1C1E)
-              : const Color(0x66FFFFFF),
+              : (dark
+                  ? const Color(0xCC26262B)
+                  : const Color(0x66FFFFFF)),
           blur: LiquidGlassBlur(sigmaX: sigma, sigmaY: sigma),
         ),
-        refraction: amoled
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 distortion: 0.13,
@@ -247,17 +331,23 @@ abstract final class ArchGlass {
   /// cover's own first frame was the visible artifact (white
   /// border parked while blur compiled). If a swap flash ever
   /// shows, it reproduces in one tap and reverts in one line.
-  static LiquidGlassStyle menuMorphed(double p, {bool amoled = false}) {
+  static LiquidGlassStyle menuMorphed(
+    double p, {
+    bool amoled = false,
+    bool dark = false,
+  }) {
     return LiquidGlassStyle(
       shape: const LiquidGlassShape.continuousRoundedRectangle(
         cornerRadius: 28,
         borderWidth: 1,
       ),
       appearance: LiquidGlassAppearance(
-        color: amoled ? const Color(0xCC1C1C1E) : const Color(0x66FFFFFF),
+        color: amoled
+            ? const Color(0xCC1C1C1E)
+            : (dark ? const Color(0xCC26262B) : const Color(0x66FFFFFF)),
         blur: const LiquidGlassBlur(sigmaX: 12, sigmaY: 12),
       ),
-      refraction: amoled
+      refraction: (amoled || dark)
           ? _amoledRefraction
           : const LiquidGlassRefraction(distortion: 0.13, distortionWidth: 14),
     );
@@ -269,7 +359,11 @@ abstract final class ArchGlass {
   /// rim - but owned by the live entrance, not the parked experiment.
   /// The morph thickens blur/refraction itself while the glass grows,
   /// so this authors the rested state only.
-  static LiquidGlassStyle menuMorph({double radius = 28, bool amoled = false}) =>
+  static LiquidGlassStyle menuMorph({
+    double radius = 28,
+    bool amoled = false,
+    bool dark = false,
+  }) =>
       LiquidGlassStyle(
         shape: LiquidGlassShape.continuousRoundedRectangle(
           cornerRadius: radius,
@@ -280,11 +374,13 @@ abstract final class ArchGlass {
         ),
         appearance: amoled
             ? _amoledMenuAppearance
-            : const LiquidGlassAppearance(
-                color: Color(0x66FFFFFF),
-                blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
-              ),
-        refraction: amoled
+            : (dark
+                ? _darkMenuAppearance
+                : const LiquidGlassAppearance(
+                    color: Color(0x66FFFFFF),
+                    blur: LiquidGlassBlur(sigmaX: 14, sigmaY: 14),
+                  )),
+        refraction: (amoled || dark)
             ? _amoledRefraction
             : const LiquidGlassRefraction(
                 refractionType: OpticalRefraction(
