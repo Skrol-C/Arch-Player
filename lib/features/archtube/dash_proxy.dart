@@ -99,6 +99,31 @@ DashRange? resolveDashRange(String? header, int contentLength) {
   return DashRange(start, end);
 }
 
+/// Upstream end clamp (pure, unit-tested): no upstream fetch may touch
+/// the final byte (index contentLength-1, the proven 403 shape), so
+/// every fetch ends at len-2 at the latest, regardless of file size,
+/// chunk size, or chunk position. Single-chunk files included: a
+/// sub-chunk file goes out as one 0..len-2 knock, never 0..len-1.
+///
+/// Returns null when there is nothing fetchable without touching the
+/// final byte (a tail-only ask with start >= len-1): the caller must
+/// answer 416 downstream instead of knocking upstream at all.
+int? clampUpstreamEnd({
+  required int start,
+  required int end,
+  required int contentLength,
+  required int chunkSize,
+}) {
+  if (contentLength <= 1) {
+    return math.min(end, start + chunkSize - 1);
+  }
+  if (start >= contentLength - 1) return null;
+  return math.min(
+    math.min(end, start + chunkSize - 1),
+    contentLength - 2,
+  );
+}
+
 /// Local range proxy for DASH media. ExoPlayer opens with bare or
 /// open-ended ranges, which googlevideo answers with a redirect
 /// into a 403 wall on DASH URLs. Closed ranges serve 206 at full
@@ -246,13 +271,26 @@ class DashProxy {
     }
     // Cap the span: full-file ranges 403 even closed. Players chain
     // the chunks seamlessly; loopback roundtrips are cheap.
-    // Proven 2026-10-29: one request touching the LAST byte (end ==
-    // contentLength-1, e.g. a <4MB file in one chunk) 403s while the
-    // same URL with a partial range 200s. So never let a request
-    // reach the final byte unless it STARTS at the tail.
-    var end = math.min(range.end, range.start + _upstreamChunk - 1);
-    if (contentLength > 1 && range.start <= contentLength - 2) {
-      end = math.min(end, contentLength - 2);
+    // Proven 2026-10-29/30: any request touching the LAST byte
+    // (end == contentLength-1) 403s, including a sub-4MB file served
+    // as one chunk, while partial ranges 200. So NO upstream fetch
+    // may reach the final byte, no exceptions: end clamps to len-2
+    // for every fetch regardless of size or position, and a tail-only
+    // ask (start >= len-1) answers 416 downstream without knocking.
+    var end = clampUpstreamEnd(
+      start: range.start,
+      end: range.end,
+      contentLength: contentLength,
+      chunkSize: _upstreamChunk,
+    );
+    if (end == null) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      req.response.headers.set(
+          'Content-Range', 'bytes */$contentLength');
+      try {
+        await req.response.close();
+      } catch (_) {}
+      return;
     }
     // Mid-play 403/410 usually means the signed URL expired under us:
     // one fresh re-resolve per request (player hook), retried at once.
@@ -264,7 +302,7 @@ class DashProxy {
     while (true) {
       if (_closed) return;
       attempt++;
-      final outcome = await _fetchRange(req, range.start, end);
+      final outcome = await _fetchRange(req, range.start, end!);
       if (outcome.served) return;
       final status = outcome.status;
       if ((status == HttpStatus.forbidden || status == HttpStatus.gone) &&
@@ -280,9 +318,21 @@ class DashProxy {
               contentLength: fresh.contentLength,
               contentType: fresh.contentType,
             );
-            end = math.min(range.end, range.start + _upstreamChunk - 1);
-            if (contentLength > 1 && range.start <= contentLength - 2) {
-              end = math.min(end, contentLength - 2);
+            end = clampUpstreamEnd(
+              start: range.start,
+              end: range.end,
+              contentLength: contentLength,
+              chunkSize: _upstreamChunk,
+            );
+            if (end == null) {
+              req.response.statusCode =
+                  HttpStatus.requestedRangeNotSatisfiable;
+              req.response.headers.set(
+                  'Content-Range', 'bytes */$contentLength');
+              try {
+                await req.response.close();
+              } catch (_) {}
+              return;
             }
             ArchLog.i('archtube', 'dash proxy refreshed upstream, retrying');
           }

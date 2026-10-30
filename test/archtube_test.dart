@@ -164,6 +164,50 @@ void main() {
     });
   });
 
+  group('clampUpstreamEnd', () {
+    const chunk = 4 << 20;
+
+    test('single-chunk file never touches the final byte', () {
+      // Log proof 2026-10-30: audio itag 251, clen=3961870, went out
+      // as one Range bytes=0-3961868. The clamp holds for every fetch
+      // regardless of size: end stops at len-2 even when the whole
+      // file fits in one chunk.
+      expect(
+        clampUpstreamEnd(start: 0, end: 3961869, contentLength: 3961870, chunkSize: chunk),
+        3961868,
+      );
+      expect(
+        clampUpstreamEnd(start: 0, end: 999, contentLength: 1000, chunkSize: chunk),
+        998,
+      );
+    });
+
+    test('chunk cap still applies ahead of the tail clamp', () {
+      expect(
+        clampUpstreamEnd(
+            start: 0, end: 81984396, contentLength: 81984397, chunkSize: chunk),
+        chunk - 1,
+      );
+      expect(
+        clampUpstreamEnd(
+            start: chunk, end: chunk + 999, contentLength: 81984397, chunkSize: chunk),
+        chunk + 999,
+      );
+    });
+
+    test('tail-only ask has nothing fetchable: 416, never a knock', () {
+      expect(
+        clampUpstreamEnd(start: 999, end: 999, contentLength: 1000, chunkSize: chunk),
+        isNull,
+      );
+      expect(
+        clampUpstreamEnd(
+            start: 3961869, end: 3961869, contentLength: 3961870, chunkSize: chunk),
+        isNull,
+      );
+    });
+  });
+
   group('parseSearchHits', () {
     test('reads compact and full renderers, skips junk', () {
       final json = {
