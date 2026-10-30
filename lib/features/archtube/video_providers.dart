@@ -409,9 +409,46 @@ final videoPlayRequestProvider = StateProvider<({int gen, bool play})>(
 
 /// Video seek request event: generation counter plus the target
 /// video-clock position. The player box seeks on new generations.
+/// Send through [requestVideoSeek] so the bar jumps in-frame too.
 final videoSeekRequestProvider = StateProvider<({int gen, Duration pos})>(
   (ref) => (gen: 0, pos: Duration.zero),
 );
+
+/// Song-time ms for a raw video clock: the clock minus the offset,
+/// clamped to the song. The play window is [offset, offset + song]
+/// on the video clock, which reads as [0, song] here. Song owns the
+/// timeline: every bar readout and step target flows through this.
+int mapVideoClockToSongMs({
+  required int videoClockMs,
+  required double offsetSec,
+  required int songLenMs,
+}) {
+  final songMs = (videoClockMs - offsetSec * 1000).round();
+  return songMs.clamp(0, songLenMs);
+}
+
+/// Video-clock ms for a song-time seek: plus the offset, clamped to
+/// the play window. Seeks map back through the same window the bar
+/// reads, so a scrub landing always matches its preview.
+int mapSongToVideoClockMs({
+  required int songMs,
+  required double offsetSec,
+  required int songLenMs,
+}) {
+  final offsetMs = (offsetSec * 1000).round();
+  return (songMs + offsetMs).clamp(offsetMs, offsetMs + songLenMs);
+}
+
+/// One send path for video seeks: ring the player box and publish
+/// the target clock at once, so the seekbar jumps in-frame even if
+/// the video stalls behind the seek. The next clock tick corrects
+/// any dust.
+void requestVideoSeek(WidgetRef ref, Duration videoClock) {
+  final req = ref.read(videoSeekRequestProvider);
+  ref.read(videoSeekRequestProvider.notifier).state =
+      (gen: req.gen + 1, pos: videoClock);
+  ref.read(videoPositionProvider.notifier).state = videoClock;
+}
 
 /// Step seek in video mode: moves the video clock by [bySecs]
 /// inside the play window, and walks the paused audio with it so
@@ -424,16 +461,29 @@ Future<void> nudgeVideoSeconds(
 }) async {
   final clock = ref.read(videoPositionProvider);
   final offset = ref.read(videoOffsetProvider(songId));
-  final windowMs = ((songDuration.inSeconds + offset) * 1000).round();
+  final songLenMs = songDuration.inMilliseconds;
+  // Step in song time, map back through the window: the stepped
+  // clock and the walked audio land on the same mapped point.
+  final steppedSongMs = (mapVideoClockToSongMs(
+            videoClockMs: clock.inMilliseconds,
+            offsetSec: offset,
+            songLenMs: songLenMs,
+          ) +
+          bySecs * 1000)
+      .clamp(0, songLenMs);
   final vTarget = Duration(
-    milliseconds: (clock.inMilliseconds + bySecs * 1000).clamp(0, windowMs),
+    milliseconds: mapSongToVideoClockMs(
+      songMs: steppedSongMs,
+      offsetSec: offset,
+      songLenMs: songLenMs,
+    ),
   );
-  final req = ref.read(videoSeekRequestProvider);
-  ref.read(videoSeekRequestProvider.notifier).state =
-      (gen: req.gen + 1, pos: vTarget);
-  final songMs = (vTarget.inMilliseconds - offset * 1000)
-      .round()
-      .clamp(0, songDuration.inMilliseconds);
+  requestVideoSeek(ref, vTarget);
+  final songMs = mapVideoClockToSongMs(
+    videoClockMs: vTarget.inMilliseconds,
+    offsetSec: offset,
+    songLenMs: songLenMs,
+  );
   try {
     await ref.read(audioHandlerProvider).seek(Duration(milliseconds: songMs));
   } catch (e) {

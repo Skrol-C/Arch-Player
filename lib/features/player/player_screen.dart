@@ -1220,8 +1220,13 @@ class _Scrub extends ConsumerWidget {
     if (videoMode) {
       final vpos = ref.watch(videoPositionProvider);
       final offset = ref.watch(videoOffsetProvider(song.id));
-      posMs =
-          (vpos.inMilliseconds - offset * 1000).clamp(0.0, max).toDouble();
+      // Song owns the timeline: the bar reads the video clock
+      // mapped back through the play window, never the raw clock.
+      posMs = mapVideoClockToSongMs(
+        videoClockMs: vpos.inMilliseconds,
+        offsetSec: offset,
+        songLenMs: song.duration.inMilliseconds,
+      ).toDouble().clamp(0.0, max);
     } else {
       final position = ref.watch(positionProvider).value ?? Duration.zero;
       posMs = position.inMilliseconds.toDouble().clamp(0.0, max);
@@ -1233,11 +1238,19 @@ class _Scrub extends ConsumerWidget {
         final target = Duration(milliseconds: ms.toInt());
         if (videoMode) {
           final offset = ref.read(videoOffsetProvider(song.id));
-          final vTarget = target +
-              Duration(milliseconds: (offset * 1000).round());
-          final req = ref.read(videoSeekRequestProvider);
-          ref.read(videoSeekRequestProvider.notifier).state =
-              (gen: req.gen + 1, pos: vTarget);
+          // Back through the same window: song time plus offset,
+          // clamped to the play window, published at once so the
+          // bar jumps in-frame even if the video stalls behind.
+          requestVideoSeek(
+            ref,
+            Duration(
+              milliseconds: mapSongToVideoClockMs(
+                songMs: target.inMilliseconds,
+                offsetSec: offset,
+                songLenMs: song.duration.inMilliseconds,
+              ),
+            ),
+          );
         }
         playGuarded(
           context,

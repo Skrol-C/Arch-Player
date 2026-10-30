@@ -5,6 +5,7 @@ import 'package:arch_player/features/archtube/player_js.dart';
 import 'package:arch_player/features/archtube/po_token.dart';
 import 'package:arch_player/features/archtube/upstream_engine.dart';
 import 'package:arch_player/features/archtube/video_match.dart';
+import 'package:arch_player/features/archtube/video_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
@@ -543,6 +544,105 @@ a.set("alr","yes");c&&(c=CD(c));
   group('UpstreamEngine', () {
     test('always yields a client, cronet or dart', () {
       expect(UpstreamEngine.client(), isA<http.BaseClient>());
+    });
+  });
+
+  group('video window mapping (song owns timeline)', () {
+    const songLen = 225000;
+    const offset = 5.0;
+
+    test('clock maps back through the window', () {
+      // Window head reads as song zero, window end as song length.
+      expect(
+        mapVideoClockToSongMs(
+          videoClockMs: 5000,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        0,
+      );
+      expect(
+        mapVideoClockToSongMs(
+          videoClockMs: 5000 + 60000,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        60000,
+      );
+      expect(
+        mapVideoClockToSongMs(
+          videoClockMs: 5000 + songLen,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        songLen,
+      );
+    });
+
+    test('clock clamps to the window edges', () {
+      // Head excess (intro) clamps to zero, tail excess to length.
+      expect(
+        mapVideoClockToSongMs(
+          videoClockMs: 2000,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        0,
+      );
+      expect(
+        mapVideoClockToSongMs(
+          videoClockMs: 5000 + songLen + 30000,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        songLen,
+      );
+    });
+
+    test('seeks map back through the same window', () {
+      // Song zero lands on the window head, song end on its tail.
+      expect(
+        mapSongToVideoClockMs(
+          songMs: 0,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        5000,
+      );
+      expect(
+        mapSongToVideoClockMs(
+          songMs: 60000,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        65000,
+      );
+      expect(
+        mapSongToVideoClockMs(
+          songMs: songLen,
+          offsetSec: offset,
+          songLenMs: songLen,
+        ),
+        5000 + songLen,
+      );
+    });
+
+    test('round trip is the identity inside the window', () {
+      for (final songMs in [0, 1, 59999, 120000, songLen]) {
+        final clock = mapSongToVideoClockMs(
+          songMs: songMs,
+          offsetSec: offset,
+          songLenMs: songLen,
+        );
+        expect(
+          mapVideoClockToSongMs(
+            videoClockMs: clock,
+            offsetSec: offset,
+            songLenMs: songLen,
+          ),
+          songMs,
+        );
+      }
     });
   });
 }
