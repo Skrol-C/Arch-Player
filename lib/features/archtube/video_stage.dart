@@ -527,6 +527,8 @@ class _VideoBox extends ConsumerWidget {
           return _DashPlayer(
             song: song,
             videoId: videoId,
+            videoItag: option.itag,
+            cpn: pb.cpn,
             videoUrl: option.url,
             videoLength: option.length,
             videoType: option.type,
@@ -921,6 +923,8 @@ class _StreamPlayerState extends ConsumerState<_StreamPlayer> {
 class _DashPlayer extends ConsumerStatefulWidget {
   final VideoSong song;
   final String videoId;
+  final int videoItag;
+  final String cpn;
   final String videoUrl;
   final int videoLength;
   final String videoType;
@@ -933,6 +937,8 @@ class _DashPlayer extends ConsumerStatefulWidget {
   const _DashPlayer({
     required this.song,
     required this.videoId,
+    required this.videoItag,
+    required this.cpn,
     required this.videoUrl,
     required this.videoLength,
     required this.videoType,
@@ -976,6 +982,24 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
   /// (expiry), a fresh failure bans DASH into progressive fallback.
   int _dashAttempts = 0;
 
+  /// Alive guards: async episodes race dispose (re-resolve swaps URLs
+  /// under a running init, the box unmounts mid-hybrid). Every post
+  /// await continuation bails through [alive], and the degrade path
+  /// never touches ref or a dead player once boxed out.
+  bool _disposed = false;
+  int _gen = 0;
+
+  /// One degrade per episode: mid-play error ticks (hasError sticks)
+  /// must not double-fire re-resolve into an instant ban. Cleared by
+  /// every fresh [_init]; the next episode earns its own degrade.
+  bool _degrading = false;
+
+  /// Last upstream refresh: the proxy asks per 403, throttled here so
+  /// a walled lane never turns into a resolve storm.
+  DateTime? _lastRefresh;
+
+  bool _alive(int gen) => mounted && !_disposed && !_exited && gen == _gen;
+
   /// Ref-free song mapping for dispose: audio clock minus the last
   /// offset, clamped to the song.
   Duration _mappedResume() {
@@ -987,9 +1011,12 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
 
   /// DASH source failure (403, wall, expiry): fresh URLs first,
   /// progressive fallback when fresh fails too. Never an error
-  /// screen while another lane can play.
+  /// screen while another lane can play. Boxed out once the state is
+  /// gone (dispose/unmount/exit) or this episode already degraded:
+  /// ref and the players are untouchable past that point.
   void _onDashFailure(String detail) {
-    if (!mounted) return;
+    if (!mounted || _disposed || _exited || _degrading) return;
+    _degrading = true;
     if (_dashAttempts > 0) {
       ArchLog.w('archtube', 'dash failed fresh, falling back: $detail');
       ref.read(dashFailedProvider(widget.videoId).notifier).state = true;
@@ -1074,9 +1101,10 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     final proxy = DashProxy(
       upstreamUrl: widget.videoUrl,
       contentLength: widget.videoLength,
-      contentType:
-          widget.videoType.isEmpty ? 'video/mp4' : widget.videoType,
+      contentType: widget.videoType.isEmpty ? 'video/mp4' : widget.videoType,
     );
+    proxy.refreshUpstream = () => _refreshUpstream(audio: false);
+    proxy.contentPlaybackNonce = widget.cpn;
     await proxy.start();
     _videoProxy = proxy;
     return proxy.url;
@@ -1091,12 +1119,51 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     final proxy = DashProxy(
       upstreamUrl: widget.audioUrl,
       contentLength: widget.audioLength,
-      contentType:
-          widget.audioType.isEmpty ? 'audio/mp4' : widget.audioType,
+      contentType: widget.audioType.isEmpty ? 'audio/mp4' : widget.audioType,
     );
+    proxy.refreshUpstream = () => _refreshUpstream(audio: true);
+    proxy.contentPlaybackNonce = widget.cpn;
     await proxy.start();
     _audioProxy = proxy;
     return proxy.url;
+  }
+
+  /// Fresh signed URL for one walled proxy leg, same streamingData
+  /// lane: picture keeps its itag (quality never jumps mid-play),
+  /// sound takes the hottest lane. Throttled: at most one resolve
+  /// per 10s no matter how many chunks 403.
+  Future<DashUpstream?> _refreshUpstream({required bool audio}) async {
+    if (!mounted || _disposed || _exited) return null;
+    final now = DateTime.now();
+    if (_lastRefresh != null &&
+        now.difference(_lastRefresh!) < const Duration(seconds: 10)) {
+      return null;
+    }
+    _lastRefresh = now;
+    try {
+      final dash = await ref
+          .read(archtubeClientProvider)
+          .playerDash(widget.videoId, cpn: widget.cpn);
+      if (!dash.playable || !mounted || _disposed || _exited) return null;
+      if (audio) {
+        final a = dash.audios.first;
+        return DashUpstream(
+          url: a.url,
+          contentLength: a.contentLength,
+          contentType: a.contentType,
+        );
+      }
+      final match = dash.videos.where((v) => v.itag == widget.videoItag);
+      final v = match.isNotEmpty ? match.first : dash.videos.first;
+      return DashUpstream(
+        url: v.url,
+        contentLength: v.contentLength,
+        contentType: v.contentType,
+      );
+    } catch (e) {
+      ArchLog.w('archtube', 'dash refresh resolve failed: $e');
+      return null;
+    }
   }
 
   Future<void> _closeProxies() async {
@@ -1113,6 +1180,9 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
   }
 
   Future<void> _init() async {
+    _gen++;
+    final gen = _gen;
+    _degrading = false;
     _publishPlaying(false);
     ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
     // Retry-safe: drop any failed pair before building the next.
@@ -1132,25 +1202,36 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     try {
       await oldAudio?.dispose();
     } catch (_) {}
+    if (!_alive(gen)) return;
     late final Uri videoUri;
     try {
       videoUri = await _serveVideo();
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash proxy start failed: $e');
-      await _tryHybrid('$e');
+      await _tryHybrid('$e', gen);
       return;
     }
+    if (!_alive(gen)) return;
     final video = VideoPlayerController.networkUrl(videoUri);
     _video = video;
     try {
       await video.initialize();
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash picture init failed: $e');
-      await _tryHybrid('$e');
+      _video = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
+      await _tryHybrid('$e', gen);
       return;
     }
-    if (!mounted) {
-      await video.dispose();
+    if (!_alive(gen)) {
+      _video = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
       return;
     }
     // Serialized: the sound proxy starts only after the picture's
@@ -1161,23 +1242,44 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     try {
       audioUri = await _serveAudio();
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash proxy start failed: $e');
       _onDashFailure('$e');
       return;
     }
+    if (!_alive(gen)) return;
     final audio = AudioPlayer();
     _audio = audio;
     try {
       await audio.setAudioSource(AudioSource.uri(audioUri));
     } catch (e) {
+      if (!_alive(gen)) {
+        try {
+          await audio.dispose();
+        } catch (_) {}
+        return;
+      }
       ArchLog.w('archtube', 'dash sound init failed: $e');
-      await video.dispose();
+      _video = null;
+      _audio = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
+      try {
+        await audio.dispose();
+      } catch (_) {}
       _onDashFailure('$e');
       return;
     }
-    if (!mounted || _exited) {
-      await video.dispose();
-      await audio.dispose();
+    if (!_alive(gen)) {
+      _video = null;
+      _audio = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
+      try {
+        await audio.dispose();
+      } catch (_) {}
       return;
     }
     // Handoff: song audio off fully before video sound on.
@@ -1187,26 +1289,27 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     } catch (e) {
       ArchLog.w('archtube', 'audio pause failed: $e');
     }
-    if (!mounted) return;
+    if (!_alive(gen)) return;
     final startAt = _startAt();
     video.addListener(_onTick);
     final length = video.value.duration;
     final safeStart = startAt > length
         ? Duration.zero
         : startAt > Duration.zero
-            ? startAt
-            : Duration.zero;
+        ? startAt
+        : Duration.zero;
     _publishClock(safeStart);
     try {
       if (safeStart > Duration.zero) {
         await video.seekTo(safeStart);
         await audio.seek(safeStart);
       }
-      if (!mounted || _exited) return;
+      if (!_alive(gen)) return;
       await audio.play();
       await video.play();
       ref.read(dashFailStreakProvider.notifier).state = 0;
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash start failed: $e');
       _onDashFailure('$e');
       return;
@@ -1217,8 +1320,9 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
   /// Hybrid fallback: picture DASH walled, but the sound leg may
   /// still serve. Progressive picture (muted, direct URL) under DASH
   /// sound, same clocks, same sync machinery. Degrades fully when
-  /// either leg fails.
-  Future<void> _tryHybrid(Object videoError) async {
+  /// either leg fails. Stale episodes bail without touching ref.
+  Future<void> _tryHybrid(Object videoError, int gen) async {
+    if (!_alive(gen)) return;
     final failedVideo = _video;
     _video = null;
     try {
@@ -1229,47 +1333,84 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     try {
       audioUri = await _serveAudio();
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'hybrid audio proxy failed: $e');
       _onDashFailure('$videoError / $e');
       return;
     }
+    if (!_alive(gen)) return;
     final audio = AudioPlayer();
     _audio = audio;
     try {
       await audio.setAudioSource(AudioSource.uri(audioUri));
     } catch (e) {
+      if (!_alive(gen)) {
+        try {
+          await audio.dispose();
+        } catch (_) {}
+        return;
+      }
       ArchLog.w('archtube', 'hybrid sound init failed: $e');
+      _audio = null;
+      try {
+        await audio.dispose();
+      } catch (_) {}
       _onDashFailure('$videoError / $e');
+      return;
+    }
+    if (!_alive(gen)) {
+      _audio = null;
+      try {
+        await audio.dispose();
+      } catch (_) {}
       return;
     }
     List<ArchtubeStream> prog;
     try {
       prog = await ref
           .read(archtubeClientProvider)
-          .playerStreams(widget.videoId);
+          .playerStreams(widget.videoId, cpn: widget.cpn);
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'hybrid progressive fetch failed: $e');
       _onDashFailure('$videoError / $e');
       return;
     }
+    if (!_alive(gen)) return;
     if (prog.isEmpty) {
       _onDashFailure('$videoError / no progressive');
       return;
     }
-    final video =
-        VideoPlayerController.networkUrl(Uri.parse(prog.first.url));
+    final video = VideoPlayerController.networkUrl(Uri.parse(prog.first.url));
     _video = video;
     try {
       await video.initialize();
       await video.setVolume(0);
     } catch (e) {
+      if (!_alive(gen)) {
+        _video = null;
+        try {
+          await video.dispose();
+        } catch (_) {}
+        return;
+      }
       ArchLog.w('archtube', 'hybrid picture init failed: $e');
+      _video = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
       _onDashFailure('$videoError / $e');
       return;
     }
-    if (!mounted || _exited) {
-      await video.dispose();
-      await audio.dispose();
+    if (!_alive(gen)) {
+      _video = null;
+      _audio = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
+      try {
+        await audio.dispose();
+      } catch (_) {}
       return;
     }
     final handler = ref.read(audioHandlerProvider);
@@ -1278,7 +1419,7 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     } catch (e) {
       ArchLog.w('archtube', 'audio pause failed: $e');
     }
-    if (!mounted) return;
+    if (!_alive(gen)) return;
     final startAt = _startAt();
     video.addListener(_onTick);
     _publishClock(startAt);
@@ -1287,13 +1428,14 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
         await video.seekTo(startAt);
         await audio.seek(startAt);
       }
-      if (!mounted || _exited) return;
+      if (!_alive(gen)) return;
       await audio.play();
       await video.play();
       ref.read(dashFailStreakProvider.notifier).state = 0;
       ref.read(hybridDashProvider(widget.videoId).notifier).state = true;
       ArchLog.i('archtube', 'hybrid engaged: muted picture + dash sound');
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'hybrid start failed: $e');
       _onDashFailure('$videoError / $e');
       return;
@@ -1304,9 +1446,18 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
   /// Quality swap mid-play: fresh picture lands on the running
   /// sound clock, resuming only if it was playing.
   Future<void> _swapVideo() async {
+    _gen++;
+    final gen = _gen;
     final audio = _audio;
     final wasPlaying = _lastPlaying;
-    final at = audio?.position ?? _lastAudioPos;
+    // The sound leg may die under us (re-resolve disposed it): never
+    // let a clock read throw the swap off the rails.
+    Duration at;
+    try {
+      at = audio?.position ?? _lastAudioPos;
+    } catch (_) {
+      at = _lastAudioPos;
+    }
     final old = _video;
     old?.removeListener(_onTick);
     _video = null;
@@ -1317,37 +1468,54 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     try {
       await old?.dispose();
     } catch (_) {}
-    if (!mounted || _exited) return;
+    if (!_alive(gen)) return;
     late final Uri videoUri;
     try {
       videoUri = await _serveVideo();
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash swap proxy failed: $e');
       await _dropAudio();
       _onDashFailure('$e');
       return;
     }
+    if (!_alive(gen)) return;
     final video = VideoPlayerController.networkUrl(videoUri);
     _video = video;
     try {
       await video.initialize();
     } catch (e) {
+      if (!_alive(gen)) {
+        _video = null;
+        try {
+          await video.dispose();
+        } catch (_) {}
+        return;
+      }
       ArchLog.w('archtube', 'dash swap init failed: $e');
+      _video = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
       await _dropAudio();
       _onDashFailure('$e');
       return;
     }
-    if (!mounted || _exited) {
-      await video.dispose();
+    if (!_alive(gen)) {
+      _video = null;
+      try {
+        await video.dispose();
+      } catch (_) {}
       return;
     }
     video.addListener(_onTick);
     try {
       await video.seekTo(at);
-      if (wasPlaying && !mounted) return;
+      if (!_alive(gen)) return;
       if (wasPlaying) await video.play();
       ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
     } catch (e) {
+      if (!_alive(gen)) return;
       ArchLog.w('archtube', 'dash swap start failed: $e');
       await _dropAudio();
       _onDashFailure('$e');
@@ -1358,6 +1526,7 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
 
   /// Drop the dash sound leg (swap failure): the degrade path mounts
   /// progressive muxed sound, so anything left playing doubles audio.
+  /// Ref stays untouched once the state is gone.
   Future<void> _dropAudio() async {
     final a = _audio;
     _audio = null;
@@ -1367,13 +1536,22 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     try {
       await a?.dispose();
     } catch (_) {}
-    ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
+    if (mounted && !_disposed) {
+      ref.read(hybridDashProvider(widget.videoId).notifier).state = false;
+    }
   }
 
   void _onTick() {
+    if (_disposed) return;
     final v = _video;
     final a = _audio;
     if (v == null || !v.value.isInitialized || a == null || _exited) return;
+    // Mid-play source death (proxy 502s after chunk walls): degrade
+    // once per episode instead of holding a dead frame.
+    if (v.value.hasError) {
+      _onDashFailure('dash picture error: ${v.value.errorDescription}');
+      return;
+    }
     final vpos = v.value.position;
     final apos = a.position;
     _publishClock(apos);
@@ -1416,13 +1594,15 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
       await v?.pause();
     } catch (_) {}
     _publishPlaying(false);
-    if (!mounted) return;
+    if (!mounted || _disposed) return;
     ref.read(videoModeProvider.notifier).state = false;
     try {
       final handler = ref.read(audioHandlerProvider);
       final target = _songPosOf(resume);
-      ArchLog.i('archtube',
-          'video exit resume at=${target.inMilliseconds}ms (window end)');
+      ArchLog.i(
+        'archtube',
+        'video exit resume at=${target.inMilliseconds}ms (window end)',
+      );
       await handler.seek(target);
       await handler.play();
       ArchLog.i('archtube', 'video exit audio playing');
@@ -1433,6 +1613,10 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
 
   @override
   void dispose() {
+    // Box out every in-flight episode first: post-await continuations
+    // bail on the gen, the degrade path never touches dead ref.
+    _disposed = true;
+    _gen++;
     final v = _video;
     if (v != null) {
       v.removeListener(_onTick);

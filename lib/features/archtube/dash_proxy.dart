@@ -34,6 +34,47 @@ const browserMediaHeaders = {
   'TE': 'trailers',
 };
 
+/// Fresh upstream for one signed URL: the player re-resolves the same
+/// streamingData lane and hands back a live URL. Null means keep the
+/// old URL (throttled or re-resolve failed); the proxy retries it.
+class DashUpstream {
+  final String url;
+  final int contentLength;
+  final String contentType;
+
+  const DashUpstream({
+    required this.url,
+    required this.contentLength,
+    required this.contentType,
+  });
+}
+
+/// One upstream attempt: served means the player got its bytes.
+/// Otherwise [status] is the wall code (null on transport failure)
+/// and [retryAfter] honors a server Retry-After when present.
+class _UpstreamOutcome {
+  final bool served;
+  final int? status;
+  final Duration? retryAfter;
+
+  const _UpstreamOutcome(this.served, this.status, this.retryAfter);
+}
+
+/// Server Retry-After in seconds, header-name case aside. Null when
+/// absent, unparsable, or absurd (dates land here too: the next
+/// backoff covers them).
+Duration? retryAfterOf(Map<String, String> headers) {
+  for (final e in headers.entries) {
+    if (e.key.toLowerCase() != 'retry-after') continue;
+    final secs = int.tryParse(e.value.trim());
+    if (secs != null && secs >= 0 && secs <= 120) {
+      return Duration(seconds: secs);
+    }
+    return null;
+  }
+  return null;
+}
+
 /// Pure range math (unit-tested, no IO): translate one incoming
 /// Range header into a closed upstream range against the known
 /// content length. Null when the length is unknown and the header
@@ -70,10 +111,20 @@ DashRange? resolveDashRange(String? header, int contentLength) {
 /// One flight at a time: a seek cancels the stale pipe before
 /// opening the next.
 class DashProxy {
-  final String upstreamUrl;
-  final int contentLength;
-  final String contentType;
+  String upstreamUrl;
+  int contentLength;
+  String contentType;
   final Map<String, String> upstreamHeaders;
+
+  /// Re-resolve hook for expired/walled URLs: on a 403/410 the proxy
+  /// asks once per request for a fresh signed URL. Wired by the
+  /// player (same streamingData lane); null when nobody wired it.
+  Future<DashUpstream?> Function()? refreshUpstream;
+
+  /// Playback nonce for this video play, shared by the picture and
+  /// sound legs. Stamped as `cpn` on every upstream fetch, same as
+  /// official clients; null/empty fetches bare URLs as before.
+  String? contentPlaybackNonce;
 
   HttpServer? _server;
   StreamSubscription<List<int>>? _activeUpstream;
@@ -117,16 +168,19 @@ class DashProxy {
   /// One-timer for the full-URL replay test.
   static bool _loggedFullUrl = false;
 
-  /// Upstream range cap: big single ranges 403 (proven 2026-10-29:
-  /// same URL 403s at 4MB chunks, 200s at 1MB). Players chain the
-  /// chunks seamlessly; loopback roundtrips are cheap.
-  static const _upstreamChunk = 1 << 20;
+  /// Upstream range cap: with Range headers (not URL params) size
+  /// is no longer the wall — 4MB chunks 206 clean. Bigger chunks =
+  /// fewer roundtrips = less stutter. Players chain them seamlessly.
+  static const _upstreamChunk = 4 << 20;
 
   /// 403 retries with backoff: transient velocity walls usually pass
   /// on a second knock a second later. Deterministic walls burn ~2s
   /// here, then the player degrade path takes over as before.
   static const _maxUpstreamAttempts = 3;
   static const _retryDelay = Duration(milliseconds: 800);
+
+  /// Retry jitter so staggered legs never march in lockstep.
+  static final _jitter = math.Random();
 
   DashProxy({
     required this.upstreamUrl,
@@ -135,12 +189,26 @@ class DashProxy {
     this.upstreamHeaders = browserMediaHeaders,
   });
 
+  /// Swap to a freshly resolved signed URL mid-play (403/410 path).
+  /// Length/type ride along so the tail clamp stays honest.
+  void updateUpstream({
+    required String url,
+    required int contentLength,
+    required String contentType,
+  }) {
+    upstreamUrl = url;
+    this.contentLength = contentLength;
+    this.contentType = contentType;
+  }
+
   Uri get url => Uri.parse('http://127.0.0.1:${_server!.port}/stream');
 
   Future<void> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    ArchLog.i('archtube',
-        'dash proxy on port ${_server!.port} (len=$contentLength)');
+    ArchLog.i(
+      'archtube',
+      'dash proxy on port ${_server!.port} (len=$contentLength)',
+    );
     _server!.listen(_handle);
   }
 
@@ -205,53 +273,124 @@ class DashProxy {
     if (contentLength > 1 && range.start <= contentLength - 2) {
       end = math.min(end, contentLength - 2);
     }
-    for (var attempt = 1; attempt <= _maxUpstreamAttempts; attempt++) {
+    // Mid-play 403/410 usually means the signed URL expired under us:
+    // one fresh re-resolve per request (player hook), retried at once.
+    // Anything else rides exponential backoff with jitter, and a
+    // server Retry-After wins over our own schedule. Deterministic
+    // client walls (400/404/...) never retry: straight to degrade.
+    var refreshed = false;
+    var attempt = 0;
+    while (true) {
       if (_closed) return;
-      if (await _fetchRange(req, range.start, end)) return;
-      if (attempt < _maxUpstreamAttempts) {
-        await Future<void>.delayed(_retryDelay * attempt);
+      attempt++;
+      final outcome = await _fetchRange(req, range.start, end);
+      if (outcome.served) return;
+      final status = outcome.status;
+      if ((status == HttpStatus.forbidden || status == HttpStatus.gone) &&
+          !refreshed &&
+          refreshUpstream != null &&
+          !_closed) {
+        refreshed = true;
+        try {
+          final fresh = await refreshUpstream!();
+          if (fresh != null && fresh.url.isNotEmpty) {
+            updateUpstream(
+              url: fresh.url,
+              contentLength: fresh.contentLength,
+              contentType: fresh.contentType,
+            );
+            end = math.min(range.end, range.start + _upstreamChunk - 1);
+            if (contentLength > 1 && range.start <= contentLength - 2) {
+              end = math.min(end, contentLength - 2);
+            }
+            ArchLog.i('archtube', 'dash proxy refreshed upstream, retrying');
+          }
+        } catch (e) {
+          ArchLog.w('archtube', 'dash proxy refresh failed: $e');
+        }
+        continue;
       }
+      if (attempt >= _maxUpstreamAttempts) break;
+      if (status != null &&
+          status != HttpStatus.forbidden &&
+          status != HttpStatus.requestTimeout &&
+          status != HttpStatus.tooManyRequests &&
+          status >= 400 &&
+          status < 500) {
+        break;
+      }
+      final backoff =
+          _retryDelay * attempt + Duration(milliseconds: _jitter.nextInt(350));
+      await Future<void>.delayed(outcome.retryAfter ?? backoff);
     }
     await _answerBadGateway(req);
   }
 
-  /// One upstream range fetch piped into [req]. True when the player
-  /// got its bytes; false on wall or transport failure (caller
-  /// retries, then the player degrade path takes over).
+  /// One upstream range fetch piped into [req]. Served when the player
+  /// got its bytes; wall or transport failure otherwise (the caller
+  /// refreshes/retries, then the player degrade path takes over).
   ///
   /// 2026-10-29: chunk #2+ walled while chunk #1 served. Same URL,
   /// same headers — only the URL-param range differed. So no more
   /// URL-param ranges: forward a real Range header instead, exactly
   /// like the working PC probes. rn dropped with the old style.
-  Future<bool> _fetchRange(HttpRequest req, int start, int end) async {
+  ///
+  /// Upstream URL with this play's `cpn` stamped on, official-client
+  /// grammar. Silent when no nonce is wired or one is already there.
+  Uri _stampedUri() {
+    final base = Uri.parse(upstreamUrl);
+    final nonce = contentPlaybackNonce;
+    if (nonce == null || nonce.isEmpty) return base;
+    if (base.queryParameters.containsKey('cpn')) return base;
+    final q = Map<String, String>.of(base.queryParameters)..['cpn'] = nonce;
+    return base.replace(queryParameters: q);
+  }
+
+  Future<_UpstreamOutcome> _fetchRange(
+    HttpRequest req,
+    int start,
+    int end,
+  ) async {
     final client = await _upstreamClient();
     _activeClient = client;
     try {
-      final upstream = http.Request('GET', Uri.parse(upstreamUrl));
+      final upstream = http.Request('GET', _stampedUri());
       upstream.headers.addAll(browserMediaHeaders);
       upstream.headers['Range'] = 'bytes=$start-$end';
       if (client is! CronetClient) {
         upstream.headers['Accept-Encoding'] = 'identity';
       }
-      final res =
-          await client.send(upstream).timeout(const Duration(seconds: 25));
+      final res = await client
+          .send(upstream)
+          .timeout(const Duration(seconds: 25));
       if (res.statusCode != HttpStatus.partialContent &&
           res.statusCode != HttpStatus.ok) {
-        ArchLog.w('archtube',
-            'dash proxy upstream ${res.statusCode} ($start-$end)');
+        ArchLog.w(
+          'archtube',
+          'dash proxy upstream ${res.statusCode} ($start-$end)',
+        );
         // Forensics for the 403 wall: what we sent, what came back.
-        ArchLog.w('archtube',
-            'dash forensics reqHeaders=${upstream.headers} respHeaders=${res.headers}');
+        ArchLog.w(
+          'archtube',
+          'dash forensics reqHeaders=${upstream.headers} respHeaders=${res.headers}',
+        );
         // One-timer: full URL bytes for the PC replay test. Local log
         // only; the signature dies with the URL in a few hours.
         if (!_loggedFullUrl) {
           _loggedFullUrl = true;
-          ArchLog.w('archtube', 'dash forensics fullUrl=$upstreamUrl&range=$start-$end');
+          ArchLog.w(
+            'archtube',
+            'dash forensics fullUrl=$upstreamUrl&range=$start-$end',
+          );
         }
         try {
           await res.stream.drain<void>();
         } catch (_) {}
-        return false;
+        return _UpstreamOutcome(
+          false,
+          res.statusCode,
+          retryAfterOf(res.headers),
+        );
       }
       // A 200 answers the query range with exactly the scoped body.
       // Anything else (full file against a scoped ask) is a corrupt
@@ -259,18 +398,19 @@ class DashProxy {
       final want = end - start + 1;
       final got = res.contentLength;
       if (res.statusCode == HttpStatus.ok && got != null && got != want) {
-        ArchLog.w('archtube',
-            'dash proxy length mismatch ($got vs $want), refusing');
+        ArchLog.w(
+          'archtube',
+          'dash proxy length mismatch ($got vs $want), refusing',
+        );
         try {
           await res.stream.drain<void>();
         } catch (_) {}
-        return false;
+        return _UpstreamOutcome(false, res.statusCode, null);
       }
       final out = req.response;
       out.statusCode = HttpStatus.partialContent;
       out.headers.set('Content-Type', contentType);
-      out.headers.set(
-          'Content-Range', 'bytes $start-$end/$contentLength');
+      out.headers.set('Content-Range', 'bytes $start-$end/$contentLength');
       out.headers.set('Content-Length', '${end - start + 1}');
       out.headers.set('Accept-Ranges', 'bytes');
       if (!_loggedServing) {
@@ -289,10 +429,10 @@ class DashProxy {
       );
       _activeUpstream = sub;
       await sub.asFuture();
-      return true;
+      return const _UpstreamOutcome(true, HttpStatus.partialContent, null);
     } catch (e) {
       ArchLog.w('archtube', 'dash proxy pipe failed: $e');
-      return false;
+      return const _UpstreamOutcome(false, null, null);
     } finally {
       if (identical(_activeClient, client)) _activeClient = null;
       try {
@@ -316,15 +456,16 @@ class DashProxy {
     final client = await _upstreamClient();
     _activeClient = client;
     try {
-      final upstream = http.Request('GET', Uri.parse(upstreamUrl));
+      final upstream = http.Request('GET', _stampedUri());
       upstream.headers.addAll(browserMediaHeaders);
       if (client is! CronetClient) {
         upstream.headers['Accept-Encoding'] = 'identity';
       }
       final incoming = req.headers.value('range');
       if (incoming != null) upstream.headers['Range'] = incoming;
-      final res =
-          await client.send(upstream).timeout(const Duration(seconds: 25));
+      final res = await client
+          .send(upstream)
+          .timeout(const Duration(seconds: 25));
       req.response.statusCode = res.statusCode;
       res.headers.forEach((name, value) {
         if (name.toLowerCase() == 'transfer-encoding') return;

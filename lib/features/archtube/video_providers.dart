@@ -219,18 +219,22 @@ class VideoOption {
 
 /// What the box plays: the picture ladder plus, in DASH mode, the
 /// best direct audio URL with its length/type for the range proxy.
-/// Progressive mode carries no audio URL.
+/// Progressive mode carries no audio URL. [cpn] is the playback
+/// nonce for this resolve, shared by the player request, the picture
+/// leg, and the sound leg; a fresh resolve mints a fresh one.
 class VideoPlayback {
   final List<VideoOption> options;
   final String? dashAudioUrl;
   final int dashAudioLength;
   final String dashAudioType;
+  final String cpn;
 
   const VideoPlayback({
     required this.options,
     this.dashAudioUrl,
     this.dashAudioLength = 0,
     this.dashAudioType = '',
+    this.cpn = '',
   });
 
   bool get isDash => dashAudioUrl != null;
@@ -293,22 +297,28 @@ void clearDashFailures(WidgetRef ref, String? videoId) {
 /// Playback for a resolved video id: DASH pair when direct URLs
 /// serve, progressive ladder otherwise (never empty options when
 /// either lane lands).
-final videoPlaybackProvider =
-    FutureProvider.family<VideoPlayback, String>((ref, videoId) async {
+final videoPlaybackProvider = FutureProvider.family<VideoPlayback, String>((
+  ref,
+  videoId,
+) async {
   final client = ref.watch(archtubeClientProvider);
   final walled = ref.watch(dashWalledProvider);
   final banned = ref.watch(dashFailedProvider(videoId));
+  // One nonce per resolve: the player request and every proxy leg
+  // for this play share it; a re-resolve mints a fresh one.
+  final cpn = generateContentPlaybackNonce();
   if (!walled && !banned) {
-    final dash = await client.playerDash(videoId);
+    final dash = await client.playerDash(videoId, cpn: cpn);
     if (dash.playable) {
-      final audio = dash.audios.first;
+      // Picture-only itags pair with the response's own hottest
+      // audio lane; the song stays parked while the pair plays.
+      final audio = dash.bestAudio!;
       return VideoPlayback(
         options: [
           for (final v in dash.videos)
             VideoOption(
               itag: v.itag,
-              label:
-                  v.qualityLabel.isEmpty ? 'itag ${v.itag}' : v.qualityLabel,
+              label: v.qualityLabel.isEmpty ? 'itag ${v.itag}' : v.qualityLabel,
               url: v.url,
               dash: true,
               length: v.contentLength,
@@ -318,10 +328,11 @@ final videoPlaybackProvider =
         dashAudioUrl: audio.url,
         dashAudioLength: audio.contentLength,
         dashAudioType: audio.contentType,
+        cpn: cpn,
       );
     }
   }
-  final progressive = await client.playerStreams(videoId);
+  final progressive = await client.playerStreams(videoId, cpn: cpn);
   return VideoPlayback(
     options: [
       for (final s in progressive)
@@ -332,6 +343,7 @@ final videoPlaybackProvider =
           dash: false,
         ),
     ],
+    cpn: cpn,
   );
 });
 

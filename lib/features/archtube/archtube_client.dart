@@ -1,9 +1,25 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
 import '../../core/log.dart';
 import 'client_identities.dart';
+
+/// Content playback nonce: 16-char random alphanumeric, unique per
+/// playback session, NewPipe grammar. YouTube stamps `cpn` on every
+/// videoplayback URL and stats ping; requests without one read as
+/// off-script and eat the probation wall. One per video play, never
+/// per chunk: the picture leg, the sound leg, and the player request
+/// for one playback all share it.
+String generateContentPlaybackNonce() {
+  const chars =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  final r = math.Random.secure();
+  return String.fromCharCodes(
+    List.generate(16, (_) => chars.codeUnitAt(r.nextInt(chars.length))),
+  );
+}
 
 /// One progressive (single-file) stream: instant start, no DASH
 /// stitching, no muxing. v1 only speaks progressive MP4.
@@ -83,6 +99,12 @@ class ArchtubeDash {
   const ArchtubeDash({required this.videos, required this.audios});
 
   bool get playable => videos.isNotEmpty && audios.isNotEmpty;
+
+  /// The video's own sound: hottest lane first (251 opus, then 140
+  /// m4a), from the SAME streamingData response as the picture. The
+  /// dual player pairs the picture with this, never with the library
+  /// song, so music-video sound FX play instead of clashing.
+  ArchtubeDashAudio? get bestAudio => audios.isEmpty ? null : audios.first;
 }
 
 /// One search hit for video matching.
@@ -159,30 +181,40 @@ class ArchtubeClient {
 
   /// Player streams for [videoId], rotating disguises until one
   /// yields a usable progressive stream. Empty when all are dry.
-  Future<List<ArchtubeStream>> playerStreams(String videoId) async {
+  Future<List<ArchtubeStream>> playerStreams(
+    String videoId, {
+    String? cpn,
+  }) async {
     for (final id in archtubeLadder) {
       final json = await _post('player', id, {
         'videoId': videoId,
         'contentCheckOk': true,
         'racyCheckOk': true,
+        if (cpn != null && cpn.isNotEmpty)
+          'playbackContext': {
+            'contentPlaybackContext': {'cpn': cpn},
+          },
       });
       if (json == null) continue;
-      final status =
-          json['playabilityStatus'] as Map<String, dynamic>? ?? {};
+      final status = json['playabilityStatus'] as Map<String, dynamic>? ?? {};
       if (status['status'] != 'OK') {
-        ArchLog.i('archtube', '${id.clientName} player status '
-            '${status['status'] ?? 'unknown'} for $videoId');
+        ArchLog.i(
+          'archtube',
+          '${id.clientName} player status '
+              '${status['status'] ?? 'unknown'} for $videoId',
+        );
         continue;
       }
       final streams = parseProgressiveStreams(json);
       if (streams.isEmpty) {
-        ArchLog.i('archtube',
-            '${id.clientName} dry for $videoId, rotating');
+        ArchLog.i('archtube', '${id.clientName} dry for $videoId, rotating');
         continue;
       }
       if (!identical(id, archtubeLadder.first)) {
-        ArchLog.i('archtube',
-            '${id.clientName} served $videoId (${streams.length} streams)');
+        ArchLog.i(
+          'archtube',
+          '${id.clientName} served $videoId (${streams.length} streams)',
+        );
       }
       return streams;
     }
@@ -193,26 +225,33 @@ class ArchtubeClient {
   /// DASH pair for [videoId], rotating disguises until one yields a
   /// playable video+audio set with direct URLs. Empty when all are
   /// dry or ciphered: the caller falls back to progressive.
-  Future<ArchtubeDash> playerDash(String videoId) async {
+  Future<ArchtubeDash> playerDash(String videoId, {String? cpn}) async {
     for (final id in archtubeLadder) {
       final json = await _post('player', id, {
         'videoId': videoId,
         'contentCheckOk': true,
         'racyCheckOk': true,
+        if (cpn != null && cpn.isNotEmpty)
+          'playbackContext': {
+            'contentPlaybackContext': {'cpn': cpn},
+          },
       });
       if (json == null) continue;
-      final status =
-          json['playabilityStatus'] as Map<String, dynamic>? ?? {};
+      final status = json['playabilityStatus'] as Map<String, dynamic>? ?? {};
       if (status['status'] != 'OK') continue;
       final dash = parseAdaptiveStreams(json);
       if (!dash.playable) {
-        ArchLog.i('archtube',
-            '${id.clientName} DASH dry for $videoId, rotating');
+        ArchLog.i(
+          'archtube',
+          '${id.clientName} DASH dry for $videoId, rotating',
+        );
         continue;
       }
-      ArchLog.i('archtube',
-          '${id.clientName} DASH for $videoId '
-          '(${dash.videos.length}v+${dash.audios.length}a)');
+      ArchLog.i(
+        'archtube',
+        '${id.clientName} DASH for $videoId '
+            '(${dash.videos.length}v+${dash.audios.length}a)',
+      );
       // IP-binding check: the URL is cut for the IP that asked. Log the
       // bound ip so the phone's public IP can be held next to it.
       final firstUrl = dash.videos.isNotEmpty ? dash.videos.first.url : '';
