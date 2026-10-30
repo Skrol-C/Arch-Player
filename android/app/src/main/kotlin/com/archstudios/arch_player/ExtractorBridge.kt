@@ -31,7 +31,7 @@ import java.util.concurrent.Executor
 
 /// Narrow ticket window over NewPipeExtractor: videoId in, a list of
 /// stream maps out (url, itag, quality, videoOnly/audioOnly flags,
-/// bitrate, codec, delivery, width/height). Playback, matching, the
+/// bitrate, codec, delivery, width/height, init/index ranges). Playback, matching, the
 /// quality UI, and the range proxy are untouched: they consume these
 /// tickets exactly like home-grown InnerTube ones.
 class ExtractorBridge(
@@ -109,6 +109,10 @@ class ExtractorBridge(
             "delivery" to s.deliveryMethod.name,
             "width" to s.width,
             "height" to s.height,
+            "initStart" to s.initStart,
+            "initEnd" to s.initEnd,
+            "indexStart" to s.indexStart,
+            "indexEnd" to s.indexEnd,
         )
 
     private fun audioMap(s: AudioStream): Map<String, Any?> =
@@ -123,6 +127,10 @@ class ExtractorBridge(
             "delivery" to s.deliveryMethod.name,
             "width" to 0,
             "height" to 0,
+            "initStart" to s.initStart,
+            "initEnd" to s.initEnd,
+            "indexStart" to s.indexStart,
+            "indexEnd" to s.indexEnd,
         )
 
     /// OkHttp-backed extractor downloader, following the extractor's

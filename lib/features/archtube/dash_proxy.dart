@@ -203,6 +203,22 @@ class DashProxy {
 
   Uri get url => Uri.parse('http://127.0.0.1:${_server!.port}/stream');
 
+  /// Manifest URL on this proxy's port. Serve the manifest with
+  /// [serveStatic] before handing this to the player.
+  Uri get manifestUrl =>
+      Uri.parse('http://127.0.0.1:${_server!.port}/manifest.mpd');
+
+  /// One static local route.
+  final Map<String, ({String body, String contentType})> _staticRoutes =
+      {};
+
+  /// Serve [body] at [path] (leading slash) for the life of this
+  /// proxy. Used for the DASH manifest: ExoPlayer fetches it here,
+  /// then ranges media through the normal path below.
+  void serveStatic(String path, String body, String contentType) {
+    _staticRoutes[path] = (body: body, contentType: contentType);
+  }
+
   Future<void> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     ArchLog.i(
@@ -242,6 +258,19 @@ class DashProxy {
     }
     if (req.method != 'GET') {
       req.response.statusCode = HttpStatus.methodNotAllowed;
+      try {
+        await req.response.close();
+      } catch (_) {}
+      return;
+    }
+    // Local static routes first: the manifest lives here, no
+    // upstream knock involved.
+    final static = _staticRoutes[req.uri.path];
+    if (static != null) {
+      req.response.statusCode = HttpStatus.ok;
+      req.response.headers.set('Content-Type', static.contentType);
+      req.response.headers.set('Content-Length', '${static.body.length}');
+      req.response.write(static.body);
       try {
         await req.response.close();
       } catch (_) {}
@@ -472,7 +501,13 @@ class DashProxy {
         cancelOnError: true,
       );
       _activeUpstream = sub;
+      final pipeStart = DateTime.now();
       await sub.asFuture();
+      final pipeSecs = DateTime.now().difference(pipeStart).inSeconds;
+      if (pipeSecs >= 5) {
+        ArchLog.w('archtube',
+            'dash proxy slow pipe ${pipeSecs}s for ${((end - start + 1) ~/ 1024)}KB');
+      }
       return const _UpstreamOutcome(true, HttpStatus.partialContent, null);
     } catch (e) {
       ArchLog.w('archtube', 'dash proxy pipe failed: $e');

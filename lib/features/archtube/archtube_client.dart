@@ -44,7 +44,8 @@ class ArchtubeStream {
 
 /// One video-only (DASH) stream: picture without sound. ANDROID
 /// serves these with direct URLs today, no decipher. The player box
-/// pairs one with an [ArchtubeDashAudio] in the dual player.
+/// plays one inside a locally built manifest next to an
+/// [ArchtubeDashAudio]: a single ExoPlayer, sample-accurate sync.
 class ArchtubeDashVideo {
   final int itag;
   final String url;
@@ -53,8 +54,13 @@ class ArchtubeDashVideo {
   final int height;
   final int bitrate;
   final String mime;
+  final String codecs;
   final int contentLength;
   final String contentType;
+  final int initStart;
+  final int initEnd;
+  final int indexStart;
+  final int indexEnd;
 
   const ArchtubeDashVideo({
     required this.itag,
@@ -64,33 +70,54 @@ class ArchtubeDashVideo {
     required this.height,
     required this.bitrate,
     required this.mime,
+    this.codecs = '',
     required this.contentLength,
     required this.contentType,
+    this.initStart = 0,
+    this.initEnd = -1,
+    this.indexStart = 0,
+    this.indexEnd = -1,
   });
 
   bool get isMp4Avc =>
       mime.contains('video/mp4') && mime.contains('avc1');
+
+  /// Manifest-ready when the index box is addressed: without it the
+  /// player cannot find segments.
+  bool get hasIndex => indexEnd >= indexStart && indexStart >= 0;
 }
 
-/// One audio-only (DASH) stream: the video's own sound for the dual
-/// player. Higher bitrate than the progressive mux (251 opus, then
-/// 140 m4a), which is the whole audible point of DASH.
+/// One audio-only (DASH) stream: the video's own sound for the
+/// manifest player. Higher bitrate than the progressive mux (251
+/// opus, then 140 m4a), which is the whole audible point of DASH.
 class ArchtubeDashAudio {
   final int itag;
   final String url;
   final int bitrate;
   final String mime;
+  final String codecs;
   final int contentLength;
   final String contentType;
+  final int initStart;
+  final int initEnd;
+  final int indexStart;
+  final int indexEnd;
 
   const ArchtubeDashAudio({
     required this.itag,
     required this.url,
     required this.bitrate,
     required this.mime,
+    this.codecs = '',
     required this.contentLength,
     required this.contentType,
+    this.initStart = 0,
+    this.initEnd = -1,
+    this.indexStart = 0,
+    this.indexEnd = -1,
   });
+
+  bool get hasIndex => indexEnd >= indexStart && indexStart >= 0;
 }
 
 /// A playable DASH pair: picture ladder plus sound ladder. Empty
@@ -362,6 +389,24 @@ class ArchtubeClient {
     return out;
   }
 
+  /// `codecs="..."` out of a full mime string. Empty when absent:
+  /// callers omit the attribute rather than guess.
+  static String parseCodecs(String mime) {
+    final m =
+        RegExp(r'codecs="([^"]+)"').firstMatch(mime);
+    return m?.group(1)?.trim() ?? '';
+  }
+
+  /// "S-E" range strings ("0-745") from player responses into
+  /// (start, end). Null halves and garbage land on (0, -1), which
+  /// reads as no index downstream.
+  static (int, int) parseRangeEnds(Object? raw) {
+    final m = RegExp(r'^(\d+)-(\d+)$')
+        .firstMatch('${raw ?? ''}'.trim());
+    if (m == null) return (0, -1);
+    return (int.parse(m.group(1)!), int.parse(m.group(2)!));
+  }
+
   /// DASH sets out of a player response: video-only ladder plus
   /// audio-only ladder, direct URLs only. Ciphered entries are
   /// skipped and counted; surround codecs (ac-3, ec-3) are skipped,
@@ -390,6 +435,8 @@ class ArchtubeClient {
       final contentType = mime.split(';').first.trim();
       if (mime.startsWith('video/')) {
         if (!seenVideo.add(itag)) continue;
+        final init = parseRangeEnds(f['initRange']);
+        final index = parseRangeEnds(f['indexRange']);
         videos.add(ArchtubeDashVideo(
           itag: itag,
           url: url,
@@ -398,19 +445,31 @@ class ArchtubeClient {
           height: (f['height'] as num?)?.toInt() ?? 0,
           bitrate: bitrate,
           mime: mime,
+          codecs: parseCodecs(mime),
           contentLength: contentLength,
           contentType: contentType.isEmpty ? 'video/mp4' : contentType,
+          initStart: init.$1,
+          initEnd: init.$2,
+          indexStart: index.$1,
+          indexEnd: index.$2,
         ));
       } else if (mime.startsWith('audio/')) {
         if (mime.contains('ac-3') || mime.contains('ec-3')) continue;
         if (!seenAudio.add(itag)) continue;
+        final init = parseRangeEnds(f['initRange']);
+        final index = parseRangeEnds(f['indexRange']);
         audios.add(ArchtubeDashAudio(
           itag: itag,
           url: url,
           bitrate: bitrate,
           mime: mime,
+          codecs: parseCodecs(mime),
           contentLength: contentLength,
           contentType: contentType.isEmpty ? 'audio/mp4' : contentType,
+          initStart: init.$1,
+          initEnd: init.$2,
+          indexStart: index.$1,
+          indexEnd: index.$2,
         ));
       }
     }

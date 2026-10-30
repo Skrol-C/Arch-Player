@@ -198,8 +198,10 @@ SongQuery songQuery({
 
 /// One picture option for the quality UI: progressive (sound muxed
 /// in the same URL) or DASH video-only (sound rides the playback's
-/// [VideoPlayback.dashAudioUrl]). Length/type feed the range proxy;
-/// progressive options carry zeroes it never reads.
+/// [VideoPlayback.dashAudio]). Length/type feed the range proxy;
+/// progressive options carry zeroes it never reads. Codecs and the
+/// init/index ranges feed the manifest builder; options without an
+/// index cannot manifest and fall back to progressive.
 class VideoOption {
   final int itag;
   final String label;
@@ -207,6 +209,14 @@ class VideoOption {
   final bool dash;
   final int length;
   final String type;
+  final String codecs;
+  final String mime;
+  final int width;
+  final int height;
+  final int initStart;
+  final int initEnd;
+  final int indexStart;
+  final int indexEnd;
 
   const VideoOption({
     required this.itag,
@@ -215,42 +225,42 @@ class VideoOption {
     required this.dash,
     this.length = 0,
     this.type = '',
+    this.codecs = '',
+    this.mime = '',
+    this.width = 0,
+    this.height = 0,
+    this.initStart = 0,
+    this.initEnd = -1,
+    this.indexStart = 0,
+    this.indexEnd = -1,
   });
+
+  bool get hasIndex => indexEnd >= indexStart && indexStart >= 0;
 }
 
 /// What the box plays: the picture ladder plus, in DASH mode, the
-/// best direct audio URL with its length/type for the range proxy.
-/// Progressive mode carries no audio URL. [cpn] is the playback
-/// nonce for this resolve, shared by the player request, the picture
-/// leg, and the sound leg; a fresh resolve mints a fresh one.
+/// best direct audio lane for the manifest. Progressive mode carries
+/// no audio lane. [cpn] is the playback nonce for this resolve,
+/// shared by the player request, the picture leg, and the sound leg;
+/// a fresh resolve mints a fresh one.
 class VideoPlayback {
   final List<VideoOption> options;
-  final String? dashAudioUrl;
-  final int dashAudioLength;
-  final String dashAudioType;
+  final VideoOption? dashAudio;
   final String cpn;
 
   const VideoPlayback({
     required this.options,
-    this.dashAudioUrl,
-    this.dashAudioLength = 0,
-    this.dashAudioType = '',
+    this.dashAudio,
     this.cpn = '',
   });
 
-  bool get isDash => dashAudioUrl != null;
+  bool get isDash => dashAudio != null;
 }
 
 /// DASH ban per video: when set, playback resolves progressive
 /// even if DASH URLs served. Session-only; set when freshly
 /// resolved DASH URLs still fail to load (wall, not expiry).
 final dashFailedProvider =
-    StateProvider.family<bool, String>((ref, videoId) => false);
-
-/// Hybrid DASH flag per video: picture DASH walled, but the sound
-/// leg serves, so the box plays progressive picture (muted) under
-/// DASH sound. Session-only.
-final hybridDashProvider =
     StateProvider.family<bool, String>((ref, videoId) => false);
 
 /// Global DASH wall switch, session-only. Set after DASH loads fail
@@ -315,21 +325,39 @@ final videoPlaybackProvider = FutureProvider.family<VideoPlayback, String>((
       // Picture-only itags pair with the response's own hottest
       // audio lane; the song stays parked while the pair plays.
       final audio = dash.bestAudio!;
+      VideoOption optionOf(ArchtubeDashVideo v) => VideoOption(
+            itag: v.itag,
+            label:
+                v.qualityLabel.isEmpty ? 'itag ${v.itag}' : v.qualityLabel,
+            url: v.url,
+            dash: true,
+            length: v.contentLength,
+            type: v.contentType,
+            codecs: v.codecs,
+            mime: v.mime,
+            width: v.width,
+            height: v.height,
+            initStart: v.initStart,
+            initEnd: v.initEnd,
+            indexStart: v.indexStart,
+            indexEnd: v.indexEnd,
+          );
       return VideoPlayback(
-        options: [
-          for (final v in dash.videos)
-            VideoOption(
-              itag: v.itag,
-              label: v.qualityLabel.isEmpty ? 'itag ${v.itag}' : v.qualityLabel,
-              url: v.url,
-              dash: true,
-              length: v.contentLength,
-              type: v.contentType,
-            ),
-        ],
-        dashAudioUrl: audio.url,
-        dashAudioLength: audio.contentLength,
-        dashAudioType: audio.contentType,
+        options: [for (final v in dash.videos) optionOf(v)],
+        dashAudio: VideoOption(
+          itag: audio.itag,
+          label: '',
+          url: audio.url,
+          dash: true,
+          length: audio.contentLength,
+          type: audio.contentType,
+          codecs: audio.codecs,
+          mime: audio.mime,
+          initStart: audio.initStart,
+          initEnd: audio.initEnd,
+          indexStart: audio.indexStart,
+          indexEnd: audio.indexEnd,
+        ),
         cpn: cpn,
       );
     }

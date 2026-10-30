@@ -1,5 +1,6 @@
 import 'package:arch_player/features/archtube/archtube_client.dart';
 import 'package:arch_player/features/archtube/client_identities.dart';
+import 'package:arch_player/features/archtube/dash_manifest.dart';
 import 'package:arch_player/features/archtube/dash_proxy.dart';
 import 'package:arch_player/features/archtube/player_js.dart';
 import 'package:arch_player/features/archtube/po_token.dart';
@@ -429,6 +430,63 @@ void main() {
     test('garbage is null', () {
       expect(extractVideoId(''), isNull);
       expect(extractVideoId('not a link at all'), isNull);
+    });
+  });
+
+  group('buildDashManifest', () {
+    ManifestLane lane({
+      required String id,
+      required String mime,
+      String codecs = '',
+      int width = 0,
+      int height = 0,
+    }) =>
+        ManifestLane(
+          id: id,
+          mimeType: mime,
+          codecs: codecs,
+          bandwidth: 0,
+          width: width,
+          height: height,
+          baseUrl: 'http://127.0.0.1:9/stream?a=1&b=2',
+          initStart: 0,
+          initEnd: 745,
+          indexStart: 746,
+          indexEnd: 1000,
+        );
+
+    test('one picked picture lane plus sound, URLs escaped', () {
+      final xml = buildDashManifest(
+        video: lane(
+            id: 'v137',
+            mime: 'video/mp4',
+            codecs: 'avc1.640028',
+            width: 1920,
+            height: 1080),
+        audio: lane(id: 'a140', mime: 'audio/mp4', codecs: 'mp4a.40.2'),
+        durationSecs: 239,
+      );
+      expect(xml, contains('<MPD type="static"'));
+      expect(xml, contains('mediaPresentationDuration="PT239S"'));
+      expect(xml, contains('id="v137"'));
+      expect(xml, contains('id="a140"'));
+      expect(xml, contains('codecs="avc1.640028"'));
+      expect(xml, contains('codecs="mp4a.40.2"'));
+      expect(xml, contains('width="1920" height="1080"'));
+      expect(xml, contains('indexRange="746-1000"'));
+      expect(xml, contains('range="0-745"'));
+      expect(xml, contains('http://127.0.0.1:9/stream?a=1&amp;b=2'));
+      expect(xml.contains('&b=2'), isFalse);
+    });
+
+    test('missing codecs omitted, never guessed', () {
+      final xml = buildDashManifest(
+        video: lane(id: 'v1', mime: 'video/webm'),
+        audio: lane(id: 'a1', mime: 'audio/webm'),
+        durationSecs: 0,
+      );
+      expect(xml, contains('mediaPresentationDuration="PT1S"'));
+      expect(xml.contains('codecs='), isFalse);
     });
   });
 

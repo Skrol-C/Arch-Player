@@ -79,6 +79,10 @@ class ExtractorTicket {
   final String delivery;
   final int width;
   final int height;
+  final int initStart;
+  final int initEnd;
+  final int indexStart;
+  final int indexEnd;
 
   const ExtractorTicket({
     required this.url,
@@ -91,6 +95,10 @@ class ExtractorTicket {
     required this.delivery,
     required this.width,
     required this.height,
+    this.initStart = 0,
+    this.initEnd = -1,
+    this.indexStart = 0,
+    this.indexEnd = -1,
   });
 
   /// Signed-URL expiry (epoch seconds) from the `expire` query param.
@@ -160,6 +168,10 @@ abstract final class ExtractorTickets {
           delivery: '${e['delivery'] ?? ''}',
           width: (e['width'] as num?)?.toInt() ?? 0,
           height: (e['height'] as num?)?.toInt() ?? 0,
+          initStart: (e['initStart'] as num?)?.toInt() ?? 0,
+          initEnd: (e['initEnd'] as num?)?.toInt() ?? -1,
+          indexStart: (e['indexStart'] as num?)?.toInt() ?? 0,
+          indexEnd: (e['indexEnd'] as num?)?.toInt() ?? -1,
         ),
       );
     }
@@ -236,8 +248,13 @@ Future<ArchtubeDash> backendPlayerDash(
           height: t.parsedHeight,
           bitrate: t.bitrate,
           mime: t.contentType,
+          codecs: t.codec,
           contentLength: t.contentLength,
           contentType: t.contentType,
+          initStart: t.initStart,
+          initEnd: t.initEnd,
+          indexStart: t.indexStart,
+          indexEnd: t.indexEnd,
         ),
     ];
     final audios = [
@@ -247,8 +264,13 @@ Future<ArchtubeDash> backendPlayerDash(
           url: t.url,
           bitrate: t.bitrate,
           mime: t.contentType,
+          codecs: t.codec,
           contentLength: t.contentLength,
           contentType: t.contentType,
+          initStart: t.initStart,
+          initEnd: t.initEnd,
+          indexStart: t.indexStart,
+          indexEnd: t.indexEnd,
         ),
     ];
     // Same ladder grammar as the own client: AVC first (safest
