@@ -71,6 +71,11 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // Extractor's Rhino engine trips R8 warnings; see proguard-rules.pro.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
