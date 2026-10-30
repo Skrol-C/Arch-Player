@@ -89,4 +89,13 @@ dependencies {
     // Spike ONLY: real OkHttp for the transport discrimination test
     // (transport_spike.dart). Nothing in playback touches this.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // PINNED (Scylla gate): NewPipeExtractor v0.26.5, TeamNewPipe,
+    // GPLv3 (repo LICENSE is GPLv3, so this is compatible).
+    // Record: com.github.TeamNewPipe:NewPipeExtractor:v0.26.5
+    // (JitPack, August 2026). Stream-ticket backend for Archtube
+    // video mode; the home-grown InnerTube client stays the default
+    // until the extractor passes on-device. Do NOT bump without
+    // recording the new version here and in ExtractorBridge.kt.
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
 }

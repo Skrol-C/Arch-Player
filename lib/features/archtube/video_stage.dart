@@ -15,6 +15,7 @@ import '../player/audio_handler.dart';
 import '../player/player_providers.dart';
 import 'archtube_client.dart';
 import 'dash_proxy.dart';
+import 'extractor_backend.dart';
 import 'video_providers.dart';
 
 /// Song/Video pill above the art: the single entry/exit for video
@@ -1141,9 +1142,12 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     }
     _lastRefresh = now;
     try {
-      final dash = await ref
-          .read(archtubeClientProvider)
-          .playerDash(widget.videoId, cpn: widget.cpn);
+      final dash = await backendPlayerDash(
+        ref.read(streamBackendProvider),
+        ref.read(archtubeClientProvider),
+        widget.videoId,
+        cpn: widget.cpn,
+      );
       if (!dash.playable || !mounted || _disposed || _exited) return null;
       if (audio) {
         final a = dash.audios.first;
@@ -1367,9 +1371,12 @@ class _DashPlayerState extends ConsumerState<_DashPlayer> {
     }
     List<ArchtubeStream> prog;
     try {
-      prog = await ref
-          .read(archtubeClientProvider)
-          .playerStreams(widget.videoId, cpn: widget.cpn);
+      prog = await backendPlayerStreams(
+        ref.read(streamBackendProvider),
+        ref.read(archtubeClientProvider),
+        widget.videoId,
+        cpn: widget.cpn,
+      );
     } catch (e) {
       if (!_alive(gen)) return;
       ArchLog.w('archtube', 'hybrid progressive fetch failed: $e');

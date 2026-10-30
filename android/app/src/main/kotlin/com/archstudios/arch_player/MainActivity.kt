@@ -308,6 +308,10 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // Narrow NewPipeExtractor ticket window (arch.player/extractor).
+        // Pinned version recorded in app/build.gradle.kts.
+        ExtractorBridge(io, okHttpClient)
+            .register(flutterEngine.dartExecutor.binaryMessenger)
         // Spike ONLY: narrow OkHttp chunk fetch for the transport
         // discrimination test. Same URL + Range the proxy would send,
         // answered with the status and the body bytes actually read

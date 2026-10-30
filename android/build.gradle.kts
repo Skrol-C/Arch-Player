@@ -2,6 +2,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Pinned-extractor host: NewPipeExtractor ships via JitPack
+        // only (see app/build.gradle.kts for the pinned version).
+        maven("https://jitpack.io")
     }
 }
 

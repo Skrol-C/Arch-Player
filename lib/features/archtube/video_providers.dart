@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/log.dart';
 import '../player/player_providers.dart';
 import 'archtube_client.dart';
+import 'extractor_backend.dart';
 import 'video_match.dart';
 
 final archtubeClientProvider = Provider<ArchtubeClient>((ref) {
@@ -302,13 +303,14 @@ final videoPlaybackProvider = FutureProvider.family<VideoPlayback, String>((
   videoId,
 ) async {
   final client = ref.watch(archtubeClientProvider);
+  final backend = ref.watch(streamBackendProvider);
   final walled = ref.watch(dashWalledProvider);
   final banned = ref.watch(dashFailedProvider(videoId));
   // One nonce per resolve: the player request and every proxy leg
   // for this play share it; a re-resolve mints a fresh one.
   final cpn = generateContentPlaybackNonce();
   if (!walled && !banned) {
-    final dash = await client.playerDash(videoId, cpn: cpn);
+    final dash = await backendPlayerDash(backend, client, videoId, cpn: cpn);
     if (dash.playable) {
       // Picture-only itags pair with the response's own hottest
       // audio lane; the song stays parked while the pair plays.
@@ -332,7 +334,8 @@ final videoPlaybackProvider = FutureProvider.family<VideoPlayback, String>((
       );
     }
   }
-  final progressive = await client.playerStreams(videoId, cpn: cpn);
+  final progressive =
+      await backendPlayerStreams(backend, client, videoId, cpn: cpn);
   return VideoPlayback(
     options: [
       for (final s in progressive)
