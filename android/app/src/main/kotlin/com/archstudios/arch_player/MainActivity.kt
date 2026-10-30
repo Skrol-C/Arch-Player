@@ -18,9 +18,9 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
     private val channelName = "arch.player/library"
     private val sessionChannelName = "arch.player/session"
     private val updaterChannelName = "arch.player/updater"
-    // Spike ONLY: narrow OkHttp fetch for the transport discrimination
-    // test (transport_spike.dart). Playback never calls this.
-    private val okhttpChannelName = "arch.player/okhttp"
+    // Shared OkHttp for outbound media/extractor fetches
+    // (ExtractorBridge ticket window). Playback media rides the
+    // Dart/Cronet proxy path, not this.
     private val okHttpClient: okhttp3.OkHttpClient by lazy {
         okhttp3.OkHttpClient.Builder().build()
     }
@@ -312,86 +312,6 @@ class MainActivity : com.ryanheise.audioservice.AudioServiceActivity() {
         // Pinned version recorded in app/build.gradle.kts.
         ExtractorBridge(io, okHttpClient)
             .register(flutterEngine.dartExecutor.binaryMessenger)
-        // Spike ONLY: narrow OkHttp chunk fetch for the transport
-        // discrimination test. Same URL + Range the proxy would send,
-        // answered with the status and the body bytes actually read
-        // (capped). Off the main thread, never throws. Playback
-        // never calls this.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, okhttpChannelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "fetchChunk" -> {
-                        val url = call.argument<String>("url").orEmpty()
-                        @Suppress("UNCHECKED_CAST")
-                        val headers =
-                            (call.argument<Any>("headers") as? Map<*, *>)
-                                ?.entries
-                                ?.associate {
-                                    it.key.toString() to it.value.toString()
-                                } ?: emptyMap()
-                        if (url.isEmpty()) {
-                            result.success(
-                                mapOf("status" to -1, "error" to "empty url"),
-                            )
-                        } else {
-                            io.execute {
-                                try {
-                                    val req = okhttp3.Request.Builder()
-                                        .url(url)
-                                        .apply {
-                                            for ((k, v) in headers) header(k, v)
-                                        }
-                                        .build()
-                                    okHttpClient.newCall(req).execute().use { resp ->
-                                        var total = 0L
-                                        val cap = 64L * 1024
-                                        try {
-                                            val src = resp.body?.source()
-                                            if (src != null) {
-                                                while (total < cap) {
-                                                    val buf = okio.Buffer()
-                                                    val read = src.read(
-                                                        buf,
-                                                        minOf(8192L, cap - total),
-                                                    )
-                                                    if (read == -1L) break
-                                                    total += read
-                                                    buf.clear()
-                                                }
-                                            }
-                                        } catch (_: Exception) {}
-                                        android.util.Log.d(
-                                            "ArchPlayer",
-                                            "spike okhttp fetchChunk -> ${resp.code} ($total bytes)",
-                                        )
-                                        result.success(
-                                            mapOf(
-                                                "status" to resp.code,
-                                                "bytes" to total.toInt(),
-                                                "contentLength" to
-                                                    (resp.body?.contentLength()
-                                                        ?: -1L),
-                                            ),
-                                        )
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.d(
-                                        "ArchPlayer",
-                                        "spike okhttp fetchChunk failed: ${e.message}",
-                                    )
-                                    result.success(
-                                        mapOf(
-                                            "status" to -1,
-                                            "error" to (e.message ?: e.toString()),
-                                        ),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    else -> result.notImplemented()
-                }
-            }
     }
 
     private fun querySongs(): List<Map<String, Any?>> {

@@ -91,8 +91,8 @@ flutter {
 }
 
 dependencies {
-    // Spike ONLY: real OkHttp for the transport discrimination test
-    // (transport_spike.dart). Nothing in playback touches this.
+    // Shared OkHttp: ExtractorBridge ticket window (NewPipeExtractor
+    // Downloader) rides this. Playback media uses the Dart proxy path.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // PINNED (Scylla gate): NewPipeExtractor v0.26.5, TeamNewPipe,

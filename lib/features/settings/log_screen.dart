@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../archtube/transport_spike.dart';
 import '../../core/log.dart';
 import '../../core/theme.dart';
 
@@ -69,37 +68,12 @@ class _LogScreenState extends State<LogScreen> {
     }
   }
 
-  /// Hidden transport-spike trigger (title long-press). Fire and
-  /// forget: the verdict lines land in logcat/arch.log, never in
-  /// this screen. Never throws into the gesture.
-  Future<void> _spike(BuildContext context) async {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Spike running, watch for spike: lines'),
-        ),
-      );
-    }
-    ArchLog.i('spike', 'triggered from log screen (title long-press)');
-    try {
-      await TransportSpike.runLastWalled();
-    } catch (e) {
-      ArchLog.w('spike', 'run failed: $e');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     ArchLog.i('nav', 'log screen open');
     return Scaffold(
       appBar: AppBar(
-        // Hidden spike entry: long-press the title to replay the
-        // freshest 403 wall three ways (dart/cronet/okhttp). Watch
-        // logcat or arch.log for the `spike:` verdict lines.
-        title: GestureDetector(
-          onLongPress: () => _spike(context),
-          child: const Text('Log'),
-        ),
+        title: const Text('Log'),
         actions: [
           IconButton(onPressed: _share, icon: const Icon(Icons.share_rounded)),
         ],
