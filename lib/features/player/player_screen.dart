@@ -17,6 +17,7 @@ import '../../core/models.dart';
 import '../../core/motion.dart';
 import '../../core/theme.dart';
 import '../doctor/doctor_sheet.dart';
+import '../hub/hub_page.dart';
 import '../library/artist_page.dart';
 import '../library/album_page.dart' show AlbumPage;
 import '../library/song_row.dart';
@@ -1278,13 +1279,13 @@ class _UtilityRow extends ConsumerWidget {
             onTap: () => _togglePanel(ref, PlayerPanel.queue),
           ),
           const SizedBox(width: 40),
-          // Arch Hub placeholder: the systems' entry (Adaptive, Motion,
-          // ARCH-FM). Inert until the hub lands — present, not wired.
-          const _UtilityAction(
-            icon: Icon(Icons.blur_circular),
+          _UtilityAction(
+            icon: const Icon(Icons.blur_circular),
             tooltip: 'Arch Hub',
             selected: false,
-            onTap: null,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ArchHubPage()),
+            ),
           ),
           const SizedBox(width: 40),
           _UtilityAction(

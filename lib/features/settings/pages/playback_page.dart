@@ -1,8 +1,10 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../../core/log.dart';
+import '../../archfm/archfm_providers.dart';
 import '../../player/player_providers.dart';
 import '../widgets/arch_switch.dart';
 import '../widgets/setting_bits.dart';
@@ -20,6 +22,7 @@ class PlaybackPage extends ConsumerWidget {
     final autoplay = ref.watch(autoPlayProvider);
     final shuffle = ref.watch(shuffleProvider);
     final loop = ref.watch(loopProvider);
+    final engine = ref.watch(kokoroEngineProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Playback')),
       body: ListView(
@@ -118,6 +121,38 @@ class PlaybackPage extends ConsumerWidget {
               ),
             ),
           ),
+          SettingGroup(
+            title: 'Arch-FM voice',
+            children: [
+              _EngineRow(engine: engine),
+              if (engine.status == EngineStatus.ready)
+                SettingRow(
+                  icon: Icons.delete_outline_rounded,
+                  title: 'Remove engine',
+                  subtitle: 'Frees about 345 MB, breaks go silent',
+                  onTap: () {
+                    ref.read(kokoroEngineProvider.notifier).remove();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Voice engine removed'),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+            child: Text(
+              '305 MB download, use Wi-Fi. The engine renders the '
+              'hosts on your phone, no cloud, removable anytime.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -163,6 +198,89 @@ class _ToggleRow extends StatelessWidget {
       ),
       trailing: ArchSwitch(value: value, onChanged: onChanged),
       onTap: () => onChanged(!value),
+    );
+  }
+}
+
+/// Voice engine row: install progress, cancel, retry, or the
+/// installed state. One row, no dead ends: every status taps to
+/// something real.
+class _EngineRow extends ConsumerWidget {
+  final EngineState engine;
+
+  const _EngineRow({required this.engine});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final (title, subtitle) = switch (engine.status) {
+      EngineStatus.missing => (
+        'Voice engine',
+        'Not installed, 305 MB download',
+      ),
+      EngineStatus.downloading => (
+        'Downloading',
+        '${(engine.progress * 100).round()} percent, tap to cancel',
+      ),
+      EngineStatus.extracting => ('Unpacking', 'Unpacking voices'),
+      EngineStatus.ready => (
+        'Voice engine',
+        engine.note.isEmpty
+            ? 'Installed, Bella and Michael ready'
+            : engine.note,
+      ),
+      EngineStatus.failed => ('Voice engine', engine.note),
+    };
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: engine.status == EngineStatus.downloading
+            ? Padding(
+                padding: const EdgeInsets.all(10),
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: const Color(0xFFFC3C44),
+                  value: engine.progress > 0 ? engine.progress : null,
+                ),
+              )
+            : const Icon(
+                Icons.record_voice_over_rounded,
+                color: Color(0xFFFC3C44),
+              ),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 2,
+        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+      ),
+      trailing: engine.status == EngineStatus.ready
+          ? Icon(
+              CupertinoIcons.check_mark_circled_solid,
+              color: scheme.primary,
+            )
+          : null,
+      onTap: () {
+        final notifier = ref.read(kokoroEngineProvider.notifier);
+        switch (engine.status) {
+          case EngineStatus.missing:
+          case EngineStatus.failed:
+            notifier.install();
+          case EngineStatus.downloading:
+          case EngineStatus.extracting:
+            notifier.cancel();
+          case EngineStatus.ready:
+            break;
+        }
+      },
     );
   }
 }
